@@ -1,0 +1,157 @@
+# Sable
+
+浏览器里的矢量绘图工具。文档模型为 AI Agent 通过 MCP 读写而设计，人类用户在同一份文档上用 Illustrator 风格的画布编辑。术语以 Adobe Illustrator 的用法为准，Illustrator 没有的概念才自造。
+
+## 文档结构
+
+**Document（文档）**：
+一份独立的矢量作品，由 Artboard 集合、Node 树和 Asset 库组成。一个 Document 对应一个文件。
+_Avoid_: File、Project、Canvas
+
+**Artboard（画板）**：
+Document 中的一块矩形区域，是导出、对齐和渲染范围的边界。Artboard 不是 Node，不能作为任何 Node 的父级。
+_Avoid_: Page、Frame、Canvas
+
+**Node（节点）**：
+Document 中任何可寻址的图稿对象，有稳定 ID 与父级。Layer、Group、Path、Text 等都是 Node。
+_Avoid_: Element、Object、Item、Shape（泛指时）
+
+**Layer（图层）**：
+组织图稿的容器 Node，带颜色、锁定、模板等管理属性。Layer 的父级只能是 Document 根或另一个 Layer；Group 不能包含 Layer。
+_Avoid_: Folder、Sublayer 作为独立类型（嵌套 Layer 就叫 Layer）
+
+**Group（编组）**：
+把若干 Node 合为一个整体的容器 Node，本身是图稿的一部分，可出现在 Layer 或其他 Group 内。
+_Avoid_: Container、Frame
+
+**Selection（选区）**：
+人类用户在 UI 中当前选中的 Node 集合。它是 UI 便利，不是文档状态；Agent 操作以显式 Node ID 为准。
+_Avoid_: 把 Selection 作为工具调用的隐式参数
+
+## 几何
+
+**Path（路径）**：
+由 Anchor 与 Handle 定义的贝塞尔曲线 Node，可开放或闭合。
+_Avoid_: Shape（泛指时）、Curve、Polyline
+
+**Anchor（锚点）**：
+Path 上的一个顶点。分角点（Corner）与平滑点（Smooth）。
+_Avoid_: Vertex、Point、Node（几何意义上）
+
+**Handle（手柄）**：
+从 Anchor 伸出、控制相邻曲线段方向与曲率的控制点。
+_Avoid_: Control point、Direction point、Bezier point
+
+**Live Shape（实时形状）**：
+由参数（宽高、圆角、边数、内外半径、起止角）定义的 Node，如矩形、椭圆、多边形、星形。锚点级编辑会把它转为 Path。
+_Avoid_: Primitive、Basic shape、Parametric shape
+
+**Compound Path（复合路径）**：
+多条子路径按同一填充规则视为一个 Path，用于挖洞。它是破坏性的：子路径不再各自独立。
+_Avoid_: Compound Shape（另一个概念）、Hole、Cutout
+
+**Compound Shape（复合形状）**：
+对若干子 Node 施加布尔运算（Unite / Minus Front / Intersect / Exclude）的非破坏性 Live Object；子 Node 保留、可编辑、结果实时重算。
+_Avoid_: Boolean、Boolean group、Pathfinder object
+
+## 实时对象
+
+**Live Object（实时对象）**：
+保留参数、由参数派生出几何、支持 Expand 与 Release 的 Node 的统称。包括 Live Shape、Compound Shape、Blend、Repeat、Chart、带 Effect 的对象、带画笔的描边。
+_Avoid_: Smart object、Dynamic object、Procedural object
+
+**Expand（扩展）**：
+把 Live Object 的派生几何固化为普通 Path，丢弃参数。不可逆。
+_Avoid_: Flatten、Bake、Rasterize（那是转位图）
+
+**Release（释放）**：
+解除 Live Object 的关系，恢复其子 Node 为独立对象。与 Expand 不同，它保留子 Node 而丢弃结果。
+_Avoid_: Ungroup（那是 Group 的操作）、Detach
+
+**Blend（混合）**：
+在两个或多个 Node 之间按步数或距离生成过渡对象的 Live Object。
+_Avoid_: Morph、Interpolation、Tween
+
+**Repeat（重复）**：
+按径向、网格或镜像规则复制一个 Node 的 Live Object。
+_Avoid_: Array、Pattern（那是填充）、Clone
+
+**Chart（图表）**：
+由数据、编码与主题派生出坐标轴、图形与标签的 Live Object。改数据即重绘；Expand 后成为普通 Node。
+_Avoid_: Graph（Illustrator 旧称，仅在映射表中出现）、Plot、Visualization
+
+**Diagram（图示）**：
+由节点与边描述（如 Mermaid）生成的流程图、架构图等。生成后是普通 Group，其中的连接线是 Connector。
+_Avoid_: Chart、Flowchart 作为总称
+
+**Connector（连接线）**：
+两端绑定到其他 Node、随其移动而重新路由的 Path。
+_Avoid_: Arrow、Edge（仅在 Diagram 的输入描述中使用）、Link
+
+## 外观
+
+**Appearance（外观）**：
+一个 Node 的全部视觉属性：有序的 Fill 列表、Stroke 列表与 Effect 列表。可施加于单个 Node、Group 或 Layer。
+_Avoid_: Style（保留给 Graphic Style）、Paint、Look
+
+**Fill（填充）**：
+Appearance 中给 Path 内部着色的一层：纯色、渐变或图案。一个 Node 可有多个 Fill。
+_Avoid_: Background、Color（泛指时）
+
+**Stroke（描边）**：
+Appearance 中沿 Path 轮廓绘制的一层，有宽度、端点、连接、虚线、箭头等属性。一个 Node 可有多个 Stroke。
+_Avoid_: Outline、Border、Line、笔迹（那是 Ink）
+
+**Effect（效果）**：
+Appearance 中非破坏性修改几何或像素的一层，如阴影、模糊、偏移路径。
+_Avoid_: Filter（保留给 SVG filter 的技术语境）
+
+**Graphic Style（图形样式）**：
+可复用、可命名的完整 Appearance 定义，存于 Asset 库。
+_Avoid_: Style preset、Theme
+
+**Clipping Mask（剪切蒙版）**：
+用一个 Path 的形状裁切一组 Node 可见范围的容器。
+_Avoid_: Clip、Crop（那是位图操作）
+
+**Opacity Mask（不透明度蒙版）**：
+用一个 Node 的亮度控制一组 Node 透明度的容器。
+_Avoid_: Alpha mask、Luminosity mask
+
+## 手绘
+
+**Ink（笔迹）**：
+来自鼠标、触控笔或 Agent 的原始点序列（含可选压力），尚未成为 Path。
+_Avoid_: Stroke（那是描边）、Gesture、Trace
+
+**Fidelity（保真度）**：
+把 Ink 拟合为 Path 时"忠实原点"与"平滑"之间的取舍参数，与 Illustrator Pencil 选项同义。
+_Avoid_: Smoothing、Tolerance
+
+## 资源
+
+**Asset（资源）**：
+Document 级可被多个 Node 引用的共享定义：色板、渐变、图案、符号、Graphic Style、字符与段落样式、画笔、图表主题。修改 Asset 即更新所有引用处。
+_Avoid_: Library item、Resource、Definition
+
+**Symbol（符号）**：
+一份可复用的图稿定义，存于 Asset 库；放到文档里的每一份是 Symbol Instance。
+_Avoid_: Component、Master、Template
+
+**Swatch（色板）**：
+命名的颜色或渐变 Asset。标记为全局的 Swatch 被修改时，所有使用处同步变化。
+_Avoid_: Palette entry、Color token
+
+## 编辑与协作
+
+**Transaction（事务）**：
+一组作为整体提交或回滚的编辑，也是撤销的最小单位。UI 的一次拖拽和 Agent 的一组工具调用都各成一个 Transaction。
+_Avoid_: Batch、Undo step、Operation group
+
+**Session（会话）**：
+一个正在编辑 Document 的参与者连接：浏览器中的人，或一个 MCP 客户端里的 Agent。Transaction 归属于 Session。
+_Avoid_: User（Session 可能是 Agent）、Client、Connection
+
+**Agent**：
+通过 MCP 调用 Sable 的 AI 客户端。与人类用户拥有同等的编辑能力，只是入口不同。
+_Avoid_: Bot、AI、Model、Assistant

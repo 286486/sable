@@ -2,9 +2,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v0.2（草案） |
+| 文档版本 | v0.3（草案） |
 | 日期 | 2026-09-22 |
-| 状态 | 待评审；v0.2 已落实产品名 / 托管 / 开源三项决策，见 §10.2 |
+| 状态 | 待评审；v0.3 落实 grilling 第一轮 12 项决策（团队、hero slice、M0 范围、core 语言、客户端、登录、商业形态、脚本开放时机、4 条术语），见 §10.2；术语表见根目录 `CONTEXT.md`，架构决策见 `docs/adr/` |
 | 调研依据 | `docs/research/01-illustrator-core-features.md`（Illustrator 功能盘点）、`02-web-vector-tech-landscape.md`（Web 矢量技术与竞品）、`03-mcp-design-tool-patterns.md`（MCP 设计工具接口模式） |
 
 > 本文档中出现的 Illustrator 工具、面板、菜单名保留英文原名；本项目自身的模块、工具（MCP tool）名使用 `snake_case` 英文。"Agent" 指通过 MCP 调用本系统的 AI 客户端（Claude Code、Claude Desktop、Cursor 等）。
@@ -209,21 +209,23 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 **F-DOC-03 节点类型**（P0 除标注外）
 | type | 说明 | 对应 Illustrator |
 |---|---|---|
-| `layer` | 顶层或嵌套图层，可含子节点；有 `color`（选中高亮色）、`isTemplate` | Layer / Sublayer |
-| `group` | 编组 | GroupItem |
+| `layer` | 图层容器；有 `color`（选中高亮色）、`isTemplate`。**父级只能是文档根或另一个 `layer`**；`doc_outline` 顶层永远是 Layer 列表 | Layer / Sublayer |
+| `group` | 编组；可出现在 `layer` 或 `group` 内，**不能包含 `layer`** | GroupItem |
 | `path` | 贝塞尔路径，`d`（SVG 语法）、`closed`、`fillRule`（nonzero / evenodd） | PathItem |
 | `compound_path` | 多个子路径共同填充（挖洞） | CompoundPathItem |
 | `rect` / `ellipse` / `polygon` / `star` / `line` / `arc` / `spiral` | **Live Shape**：保留参数（圆角半径、边数、内外半径、起止角等），随时可"转为路径" | Live Shapes |
 | `text` | 文本框，`kind`：point / area / on_path；`content` 富文本 runs | TextFrameItem |
 | `image` | 置入位图，`src`、`crop`、`embedded` | RasterItem / PlacedItem |
 | `symbol_instance` | 指向 `assets.symbols[*]`，含实例覆盖 | SymbolItem |
-| `boolean` | 非破坏性布尔容器：`op` + 子节点 | Compound Shape |
+| `compound_shape` | 非破坏性布尔容器（Compound Shape）：`op` + 子节点。术语见 `CONTEXT.md`，不叫 boolean | Compound Shape |
 | `clip_group` | 剪切蒙版组：第一个子节点为 clip path | Clipping set |
 | `mask_group` | 不透明度蒙版组 | Opacity mask |
 | `blend` (P1) | 混合对象：起止子对象 + `steps / spacing / orientation` | Blend |
 | `repeat` (P1) | `mode`: radial / grid / mirror + 参数 | Repeat |
 | `chart` (P0) | 图表对象：`chartType`、`data`、`encoding`、`theme`；子节点是生成的普通矢量节点（只读，展开后可编辑） | GraphItem |
-| `artboard` | 画板：`frame`、`name`、`background`；不作为节点父级，只是空间区域 | Artboard |
+| `artboard` | 画板：`frame`、`name`、`background`。**不是节点、不能作父级**，只影响导出范围、对齐基准与 `render` scope | Artboard |
+
+**F-DOC-03a Live Object（实时对象）**（P0）：Live Shape、`compound_shape`、`blend`、`repeat`、`chart`、带 `effects` 的节点、带画笔的描边统称 Live Object。定义：保留参数、由参数派生几何、必须支持 `expand`（固化为 Path，丢参数）；容器型 Live Object 还支持 `release`（恢复子节点）。`node_get detail: full` 对 Live Object 同时返回参数与派生几何。
 
 **F-DOC-04 样式模型**（P0）
 - 每个可绘制节点有 `appearance`：`fills[]`、`strokes[]`、`effects[]`，**数组即外观栈**（顺序 = 绘制顺序）。MVP 的 UI 默认只显示 1 fill + 1 stroke，但模型从一开始支持多重。
@@ -289,9 +291,9 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 ### 5.6 布尔运算与形状构建
 
-- **F-BOOL-01** Shape Modes：Unite / Minus Front / Intersect / Exclude。默认生成非破坏性 `boolean` 节点（Compound Shape，Illustrator 中的 Alt+点击行为），按 Alt 或选项"Expand"直接固化为路径。（P0）
+- **F-BOOL-01** Shape Modes：Unite / Minus Front / Intersect / Exclude。默认生成非破坏性 `compound_shape` 节点（Illustrator 中的 Alt+点击行为），按 Alt 或选项"Expand"直接固化为路径。（P0）
 - **F-BOOL-02** Pathfinders（破坏性）：Divide / Trim / Merge / Crop / Outline / Minus Back。（P0：Divide / Minus Back；P1：其余）
-- **F-BOOL-03** `boolean` 节点可嵌套、可 Release（还原子对象）、可 Expand；子对象仍可被 Direct Selection 编辑并实时重算。（P0）
+- **F-BOOL-03** `compound_shape` 节点可嵌套、可 Release（还原子对象）、可 Expand；子对象仍可被 Direct Selection 编辑并实时重算。（P0）
 - **F-BOOL-04** Compound Path Make / Release（Ctrl+8 / Alt+Shift+Ctrl+8），填充规则可切换 nonzero / evenodd。（P0）
 - **F-BOOL-05** Shape Builder（Shift+M）：拖过重叠区域合并，Alt 拖擦除，点击单区域拆分为独立形状；悬停高亮待合并区域；可选"拾取颜色来源"。（P0）
 - **F-BOOL-06** 精度要求：使用 Skia PathOps（CanvasKit）或等价鲁棒算法；对近重合点、自相交、共线段有回归测试集；失败时返回可解释错误而非静默产出错误几何。（P0）
@@ -350,7 +352,7 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-LIVE-02** Repeat：Radial（数量、半径、角度范围）、Grid（行列、间距、镜像翻转）、Mirror（轴角度）；原对象改动实时更新；Release / Expand。（P1）
 - **F-LIVE-03** Blend（W）：指定步数 / 指定距离 / 平滑颜色；对齐页面 / 路径；替换 / 反转轴；Release / Expand。（P1）
 - **F-LIVE-04** Envelope Distort：Make with Warp（15 种预设）/ Mesh / Top Object；编辑内容 / 释放 / 扩展。（P2）
-- **F-LIVE-05** 通用 `expand`：一次性把任意实时对象（Live Shape、boolean、blend、repeat、chart、效果、描边、渐变→路径组）固化为普通路径。（P0 对 P0 类型；随类型推进）
+- **F-LIVE-05** 通用 `expand`：一次性把任意 Live Object（Live Shape、compound_shape、blend、repeat、chart、效果、描边、渐变→路径组）固化为普通路径。（P0 对 P0 类型；随类型推进）
 
 ### 5.12 图层面板与对象管理
 
@@ -484,7 +486,7 @@ flowchart LR
   RW --> R2
 ```
 
-- **F-MCP-01 传输**：本地模式 `stdio`（`npx @sable/mcp`，进程内启动 Document Service，可选拉起本地 UI）；托管模式 Streamable HTTP（`https://mcp.<domain>/mcp`），OAuth 2.1 授权（MCP 规范的 authorization flow），token 绑定用户与文档权限。（P0 两种都要）
+- **F-MCP-01 传输**：本地模式 `stdio`（`npx @sable/mcp`，进程内启动 Document Service，可选拉起本地 UI）；托管模式 Streamable HTTP（`https://mcp.<domain>/mcp`），OAuth 2.1 授权（MCP 规范的 authorization flow），**首发仅 GitHub 作为身份提供方**，token 绑定用户与文档权限。（P0 两种都要；M0 只做 stdio，HTTP 随 M1 托管上线）
 - **F-MCP-02 Headless 渲染**：`render` / `export` 在 Node 端或 Worker 端用 resvg-wasm（SVG → PNG，小体积，P0）完成；需要与浏览器像素一致的效果（混合模式、效果栈）时用 CanvasKit WASM（P1）。渲染输入统一是 core 的 SVG 序列化结果，保证三端一致。（P0）
 - **F-MCP-03 UI 附着**：浏览器与 MCP 会话连接同一个 Document DO，变更实时互见；`render` 可选 `source: "ui" | "headless"`。（P0）
 - **F-MCP-04 多文档**：本地模式一个进程可持有多个文档；托管模式每个文档一个 Durable Object，天然隔离与水平扩展。（P0）
@@ -501,12 +503,14 @@ flowchart LR
 | 用户、文档索引、权限、审计日志、分享链接 | **D1** | 关系型元数据 |
 | 会话 token、Google Fonts 索引缓存、渲染缓存 | **KV** | 最终一致即可的数据 |
 | 批量导出、Image Trace、PDF 生成等长任务 | **Queues** + Worker consumer | 配合 MCP progress token / `job_status` |
-| Headless PNG 渲染 | Worker 内 **resvg-wasm**；复杂效果走 **Browser Rendering**（headless Chromium）作为回退 | Worker 有 CPU 时间与包体限制（CanvasKit 约 2.8 MB gzip 可接受，需付费计划） |
+| Headless PNG 渲染 | Worker 内 **resvg-wasm**；复杂效果走 **Browser Rendering**（headless Chromium）作为回退 | 已核实（`docs/research/04-cloudflare-limits.md`）：脚本上限 64 MiB 未压缩、内存 128 MB、Free 档 CPU 仅 10 ms → 渲染必须在 **Workers Paid（$5/月）** 上跑；Browser Rendering 每月仅含 10 小时，只能做回退 |
 | `run_script` 沙箱 | DO 内 **QuickJS WASM**；后续可评估 Cloudflare **Dynamic Workers / Worker Loaders** 做真隔离 | 见 F-MCP-07 |
-| 登录 | **OAuth（GitHub / Google）经 Worker 实现**；企业版可接 Cloudflare Access | MCP 客户端走同一 OAuth 授权服务器 |
+| 登录 | **GitHub OAuth 经 Worker 实现**（Google 放 M3）；企业版可接 Cloudflare Access | MCP 客户端走同一 OAuth 授权服务器 |
 | 观测 | Workers Analytics Engine / Logpush | 工具调用日志（F-NFR 可观测性） |
 
-- **F-MCP-06b 数据驻留与限制**：单文档 DO SQLite 上限（当前 10 GB）远超需求；单文档 JSON 建议 < 50 MB，超过时位图强制外置到 R2；DO 单实例吞吐是并发上限（同一文档 ≤ 50 个活跃连接为设计目标）。（P0 设计约束）
+- **F-MCP-06b 数据驻留与限制**（已按 `docs/research/04-cloudflare-limits.md` 核实）：单 DO SQLite 上限 10 GB（Paid）远超需求，但**单键值上限 2 MB**，因此文档不能整块存一个键：事务日志按行写 SQLite，节点表按节点或分片存储，完整快照写 R2；单文档 JSON 建议 < 50 MB，位图一律外置 R2；同一文档 ≤ 50 个活跃连接为设计目标。（P0 设计约束）
+
+- **F-MCP-06c 托管首发形态**：M1 托管版为**免费 beta + 硬配额**（每用户文档数、R2 存储、每日渲染次数；数字见 §10.2），不做计费；计费与付费档推到 M3。（P0）
 
 ### 6.3 Resources（资源）
 
@@ -560,7 +564,7 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `node_create` | `docId`, `nodes[]`：每项含 `type`、`parentId`（默认活动图层→必须显式传或用 `artboardId` 推断顶层图层）、`index?`、类型专属几何（rect: x/y/w/h/radius；ellipse；polygon；star；line；path: `d`；text: content/kind/box；image: src；group: children[] 内联嵌套）、`appearance`、`name`、`tags`、`meta` | `WriteReceipt`（含每个输入项对应的新 id，顺序一致） | 批量，一次可建数百节点 |
+| `node_create` | `docId`, `nodes[]`：每项含 `type`、`parentId`（**必填**，某个 `layer` 或 `group` 的 id；`doc_create` 的回执含默认图层 id，Agent 永远有可用父级；不接受 artboardId）、`index?`、类型专属几何（rect: x/y/w/h/radius；ellipse；polygon；star；line；path: `d`；text: content/kind/box；image: src；group: children[] 内联嵌套）、`appearance`、`name`、`tags`、`meta` | `WriteReceipt`（含每个输入项对应的新 id，顺序一致） | 批量，一次可建数百节点 |
 | `svg_import` | `docId`, `svg`（文本）, `parentId`, `position?`, `fit?` | 生成节点树的回执与大纲 | |
 | `image_place` | `docId`, `src`（data URL / http URL / 本地路径）, `parentId`, `frame?`, `embed`, `asTemplate?` | 回执 | openWorldHint 若为 URL |
 | `freehand_stroke` | `docId`, `parentId`, `points[]`（x, y, pressure?）, `tool`（pencil / brush / blob）, `fidelity`, `width`, `appearance` | 生成路径回执 | |
@@ -580,7 +584,7 @@ flowchart LR
 | `align_distribute` | `docId`, `nodeIds[]`, `align?`（left/hcenter/right/top/vcenter/bottom）, `distribute?`（horizontal/vertical, spacing?）, `relativeTo`（selection / keyNodeId / artboardId） | 回执 | |
 | `group` / `ungroup` | `docId`, `nodeIds[]` / `groupIds[]` | 回执 | |
 | `path_edit` | `docId`, `nodeId`, `ops[]`：`move_anchor`、`set_handles`、`set_point_type`、`add_anchor(at t)`、`remove_anchor`、`close`、`open`、`reverse`、`set_d`（整体替换） | 回执 + 新 `d` | D |
-| `path_boolean` | `docId`, `nodeIds[]`, `op`（unite / subtract / intersect / exclude / divide / trim / merge / crop / outline / minus_back）, `live`（默认 true → `boolean` 节点；false → 直接固化） | 回执 | D（false 时删除源） |
+| `path_boolean` | `docId`, `nodeIds[]`, `op`（unite / subtract / intersect / exclude / divide / trim / merge / crop / outline / minus_back）, `live`（默认 true → `compound_shape` 节点；false → 直接固化） | 回执 | D（false 时删除源） |
 | `path_op` | `docId`, `nodeIds[]`, `op` + 参数：`offset{distance, join, miterLimit}`、`simplify{tolerance, cornerAngle, toLines}`、`outline_stroke`、`join{tolerance}`、`average{axis}`、`add_anchors`、`smooth{amount}`、`split_into_grid{rows, cols, gutter}`、`convert_to_path`、`expand`、`expand_appearance` | 回执 | D |
 | `shape_build` | `docId`, `nodeIds[]`, `regions[]`（点或区域选择）, `mode`: merge / erase | 回执 | Shape Builder 的程序化形式 |
 | `mask_make` / `mask_release` | `docId`, `clipNodeId`, `contentIds[]`, `kind`: clip / opacity, `invert?` | 回执 | |
@@ -631,7 +635,7 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `run_script` | `docId`, `code`（JavaScript / TypeScript），`timeoutMs`（默认 5000，上限 30000）, `dryRun?` | 脚本 `return` 值（要求为 `{createdIds, updatedIds, deletedIds, result?}`）+ 控制台输出 + 自动汇总的回执 | D；需会话拥有 `script` 权限 |
+| `run_script` | `docId`, `code`（JavaScript / TypeScript），`timeoutMs`（默认 5000，上限 30000）, `dryRun?` | 脚本 `return` 值（要求为 `{createdIds, updatedIds, deletedIds, result?}`）+ 控制台输出 + 自动汇总的回执 | D；需会话拥有 `script` 权限。**M1 仅本地 stdio 模式开放，托管版 M2 开放** |
 
 - **F-MCP-07** 脚本沙箱：在 QuickJS（WASM）或 isolated-vm 中执行，只暴露 Editor API（与 MCP 工具同源的命令集 + 只读查询 + 几何数学库），无 `fetch`、无文件系统、无 `eval` 宿主；CPU 与内存配额；脚本内所有写操作自动包进一个事务，异常则整体回滚。（P1）
 - **F-MCP-08** Editor API 文档以 `skill://sable/script-api` 与 TypeScript `.d.ts` 资源提供，Agent 可先读类型再写脚本。（P1）
@@ -818,6 +822,7 @@ flowchart TD
 | 撤销 | 可逆命令 delta | 内存小、天然对应事务 | 快照（大文档贵） |
 | 协作 | 服务端权威 + 属性 LWW | Figma 验证足够；实现简单 | Yjs（离线需求出现再上） |
 | 脚本沙箱 | QuickJS WASM | 安全边界清晰 | isolated-vm（仅 Node）、裸 eval（否） |
+| core 语言 | TypeScript；WASM 仅用于几何热点 | 三个运行时零成本共用、schema 同源；见 `docs/adr/0001` | Rust core + WASM |
 | 前端 | React + Zustand + TypeScript | 生态、人才、tldraw / Excalidraw 先例 | Solid / Svelte |
 | Monorepo | pnpm workspaces + Turborepo，Vite 构建 | 标准选择 | |
 | 描摹 | imagetracerjs（Unlicense） | 许可干净 | potrace（GPL，否） |
@@ -862,11 +867,17 @@ sable/
 
 ## 9. 里程碑与范围划分
 
+### 9.0 前提假设
+
+- **团队**：一人 + Claude Code 重度使用，接近全职。估算按此给出；若投入变化，先砍 M1 范围而不是延长周期。
+- **Hero slice**：第一个端到端可交付的场景是**图表 / 图示**（数据或 Mermaid 进，可编辑矢量出）。插画在 M1 后半接上，手绘在 M2。
+- **主要客户端**：Claude Code（stdio、本地文件）。skill 文档与基准任务按它编写；HTTP + OAuth 随 M1 托管上线。
+
 ### 9.1 阶段
 
 | 阶段 | 周期（估） | 目标 | 退出标准 |
 |---|---|---|---|
-| **M0 基础骨架** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；基本形状、选择、移动缩放旋转；图层面板；`.sable.json` 保存；MCP：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*` | Agent 能创建 100 个矩形 / 文字并截图；UI 能拖动它们；撤销正常 |
+| **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.sable.json` 保存；MCP（stdio）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过 |
 | **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；SVG 导入；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接 |
 | **M2 手绘 + 插画深度** | 8 周 | 压感手绘管线、Blob Brush、Eraser、Shaper；Calligraphic / Art 画笔；Appearance 多重 fill / stroke + Graphic Styles + 基础 Effects（阴影 / 发光 / 模糊 / 圆角 / 偏移）；不透明度蒙版；Symbols；Repeat；Blend；Recolor；Image Trace；可变宽度描边；路径文字；Asset Export、PDF 导出；连接线绑定；`run_script` 沙箱 | 插画基准任务通过；触控笔设备实测 |
 | **M3 性能与协作** | 6–8 周 | CanvasKit 渲染后端（浏览器与 Worker）；10k 节点性能达标；多用户协作（光标 / 选区）；软锁与 Agent 意图展示；版本历史（R2 快照）；Queues 长任务；审计与配额；Docker 自托管镜像 | §7.1 性能表全部达标 |
@@ -915,14 +926,25 @@ sable/
 | 8 | CMYK | 参照 Illustrator 提供 CMYK 文档模式的数值与近似预览（P2），不做 ICC 色彩管理 | §1.4、附录 A |
 | 9 | Live Paint | 参照 Illustrator：M2 先做闭合区域填充替代（P1），M4 补 Live Paint 组（P2） | F-BOOL-07/08 |
 | 10 | 开源策略 | **全仓库开源，Apache-2.0**，含托管部署代码；商标单独管理 | §8.4 |
+| 11 | 团队与投入 | 一人 + Claude Code，接近全职 | §9.0 |
+| 12 | Hero slice | 图表 / 图示先打通 | §9.0 |
+| 13 | M0 范围 | headless-first：浏览器只做查看器，Agent 是唯一画图者 | §9.1 |
+| 14 | core 语言 | TypeScript，WASM 仅几何热点 | ADR-0001 |
+| 15 | 主要客户端 | Claude Code（stdio）优先 | §9.0、F-MCP-01 |
+| 16 | 登录 | 首发仅 GitHub OAuth | F-MCP-01、§6.2 |
+| 17 | 托管首发 | 免费 beta + 硬配额，计费 M3 | F-MCP-06c |
+| 18 | `run_script` 托管开放 | M1 仅本地，托管 M2 | §6.4.8 |
+| 19 | 非破坏性布尔术语 | Compound Shape，节点类型 `compound_shape`，不叫 boolean | `CONTEXT.md`、F-DOC-03 |
+| 20 | Layer 与 Group | 两种类型；Layer 父级只能是根或 Layer，Group 不含 Layer | `CONTEXT.md`、F-DOC-03 |
+| 21 | Artboard | 不是节点、不能作父级；`parentId` 必填 | `CONTEXT.md`、`node_create` |
+| 22 | Live Object | 正式上位术语，凡 Live Object 必支持 `expand`，Chart 包含在内 | `CONTEXT.md`、F-DOC-03a |
 
 **剩余开放问题**
 
-1. 域名与 OAuth 提供方（GitHub / Google / 邮箱魔法链接）的最终选择。
-2. 托管版的配额与商业模式（免费额度：文档数 / R2 存储 / 渲染次数；付费档）——影响 D1 schema 与限流设计。
-3. Cloudflare 付费计划等级：CanvasKit WASM 包体与 Worker CPU 时间需要 Workers Paid；DO 与 R2 用量估算待 M1 压测。
-4. 是否在 M1 就把 `run_script` 放到托管版（安全面更大），还是先只在本地模式开放。
-5. 商标检索结果与 Sable 名称的最终确认（若冲突则启用备选 Kolinsky / Vexel）。
+1. 域名。
+2. 免费 beta 的配额数字（文档数 / R2 存储 / 每日渲染次数）。Cloudflare 免费与付费限额已核实（`docs/research/04-cloudflare-limits.md`）：渲染需 Workers Paid（$5/月），DO 单键 2 MB。
+3. 商标检索结果与 Sable 名称的最终确认（若冲突则启用备选 Kolinsky / Vexel）。
+4. 仓库语言约定（代码与注释英文、需求与术语表中文？）。
 
 ## 附录 A：Illustrator 功能映射表
 
@@ -938,7 +960,7 @@ sable/
 | Paintbrush / Blob Brush / Eraser / Scissors / Knife | ✅ | F-DRAW-07/08/09 | M1–M2 |
 | Shaper | ✅ | F-DRAW-10, F-FREE-05 | M2 |
 | Shape Builder | ✅ | F-BOOL-05, `shape_build` | M1 |
-| Pathfinder Shape Modes（Compound Shape） | ✅ | F-BOOL-01/03（`boolean` 节点） | M1 |
+| Pathfinder Shape Modes（Compound Shape） | ✅ | F-BOOL-01/03（`compound_shape` 节点） | M1 |
 | Pathfinder 命令（Divide/Trim/Merge/Crop/Outline/Minus Back） | ✅ | F-BOOL-02 | M1–M2 |
 | Compound Path | ✅ | F-BOOL-04 | M1 |
 | Live Paint | ✅ | F-BOOL-07 闭合区域填充（先行）→ F-BOOL-08 Live Paint 组 | M2 → M4 |
@@ -1053,7 +1075,7 @@ sable/
 | Live Shape | 保留参数（圆角、边数…）的形状节点，可随时转为路径 |
 | 实时对象（Live object） | 非破坏性、可 Release / Expand 的对象：boolean、blend、repeat、chart、效果、画笔描边 |
 | Expand | 把实时对象固化为普通路径 |
-| Compound Shape | 非破坏性布尔容器（`boolean` 节点） |
+| Compound Shape | 非破坏性布尔容器（`compound_shape` 节点），见 `CONTEXT.md` |
 | Compound Path | 多子路径共享填充规则形成挖洞的单一路径 |
 | 外观栈（Appearance） | 一个节点的多重 fill / stroke / effect 有序列表 |
 | 事务（Transaction） | 一组原子提交的命令，也是撤销单元 |
