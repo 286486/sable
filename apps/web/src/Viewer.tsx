@@ -1,4 +1,4 @@
-import { bounds, type Document, type Node, type Rect, union } from "@zibel/core";
+import { bounds, type Document, type Rect, union } from "@zibel/core";
 import { drawDocument } from "@zibel/render/canvas";
 import { useEffect, useRef, useState } from "react";
 import { Layers } from "./Layers.tsx";
@@ -155,7 +155,7 @@ export function Viewer({ docId }: { docId: string }) {
       } else if ((e.key === "Delete" || e.key === "Backspace") && selection.length > 0) {
         e.preventDefault();
         // The answering tx prunes the Selection; a rejection keeps it for another press.
-        const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id) as Node));
+        const nodeIds = selection.filter((id) => editable(doc, doc.nodes.get(id)));
         if (nodeIds.length > 0) send({ type: "delete", nodeIds });
       } else if (mod && e.key === "0") {
         e.preventDefault();
@@ -212,9 +212,7 @@ export function Viewer({ docId }: { docId: string }) {
       // Pressing a selected object keeps the Selection, so all of it that is editable moves.
       const kept = selection.includes(hit);
       if (!kept) useStore.setState({ selection: [hit] });
-      const nodeIds = kept
-        ? selection.filter((id) => editable(doc, doc.nodes.get(id) as Node))
-        : [hit];
+      const nodeIds = kept ? selection.filter((id) => editable(doc, doc.nodes.get(id))) : [hit];
       gesture.current = { kind: "move", start, nodeIds, moved: false };
     } else {
       gesture.current = { kind: "marquee", start, mods, moved: false };

@@ -43,7 +43,8 @@ export function objects(doc: Document, layerId: string | null = null): Node[] {
  * Visible and unlocked, itself and every ancestor: what a canvas gesture may move or delete. A Layers
  * panel row can select a Node that is not (ADR-0012).
  */
-export function editable(doc: Document, node: Node): boolean {
+export function editable(doc: Document, node: Node | undefined): boolean {
+  if (!node) return false;
   for (let n: Node | undefined = node; n; n = doc.nodes.get(n.parentId ?? "")) {
     if (!n.visible || n.locked) return false;
   }

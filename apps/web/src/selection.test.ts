@@ -100,3 +100,8 @@ it("inverse selects the other selectable objects", () => {
   const { doc, id } = fixture();
   expect(inverse(doc, [id("g"), id("d")]).sort()).toEqual([id("c"), id("e")].sort());
 });
+
+it("is not editable when the Node is gone", () => {
+  const { doc } = fixture();
+  expect(editable(doc, undefined)).toBe(false);
+});

@@ -153,7 +153,7 @@ _Avoid_: Palette entry、Color token
 _Avoid_: Batch、Undo step、Operation group
 
 **Command（命令）**：
-浏览器把一次手势（拖动、删除）作为一个 core 编辑经 WebSocket 发给 Document。Document 要么把它提交为一个归属 User Actor 的 Transaction 并广播，要么只向发送方回复拒绝；浏览器从不在本地先行应用它。
+浏览器把一次手势（拖动、删除、显示 / 隐藏、锁定）作为一个 core 编辑经 WebSocket 发给 Document。Document 要么把它提交为一个归属 User Actor 的 Transaction 并广播，要么只向发送方回复拒绝；浏览器从不在本地先行应用它。
 _Avoid_: Operation、Action、Mutation
 
 **Revision（修订号）**：

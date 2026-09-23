@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { autoName, rows } from "./layers.ts";
 import { combine, objects } from "./selection.ts";
 import { send, useStore } from "./store.ts";
@@ -22,8 +22,8 @@ const icon = {
 };
 
 /** Illustrator's Layers panel (ADR-0012): the tree topmost first, eye and lock toggles, rows that select. */
-export function Layers() {
-  // Two selectors, so a drag frame, which changes neither, does not re-render the panel.
+export const Layers = memo(function Layers() {
+  // memo and two selectors: a drag frame changes neither, so the panel does not re-render.
   const doc = useStore((s) => s.doc);
   const selection = useStore((s) => s.selection);
   const [toggled, setToggled] = useState(() => new Set<string>());
@@ -120,6 +120,7 @@ export function Layers() {
               style={{
                 ...icon,
                 width: "auto",
+                minWidth: 40,
                 textAlign: "left",
                 whiteSpace: "nowrap",
                 fontWeight: node.type === "layer" ? 600 : 400,
@@ -140,4 +141,4 @@ export function Layers() {
       })}
     </div>
   );
-}
+});

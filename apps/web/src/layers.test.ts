@@ -73,3 +73,12 @@ it("auto-names each type of unnamed Node", () => {
     "<Layer>",
   ]);
 });
+
+it("offers no disclosure for an empty container", () => {
+  const { doc, id } = fixture();
+  doc.nodes.delete(id("e"));
+  expect(rows(doc, new Set()).find((r) => r.node.id === id("l3"))).toMatchObject({
+    expandable: false,
+    expanded: false,
+  });
+});

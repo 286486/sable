@@ -35,7 +35,8 @@ export function rows(doc: Document, toggled: Set<string>): Row[] {
     childrenOf(doc, parentId)
       .reverse()
       .flatMap((node) => {
-        const expandable = node.type === "layer" || node.type === "group";
+        const expandable =
+          (node.type === "layer" || node.type === "group") && childrenOf(doc, node.id).length > 0;
         const expanded = expandable && (node.type === "layer") !== toggled.has(node.id);
         const row = { node, depth, expandable, expanded, dimmed: !editable(doc, node) };
         return expanded ? [row, ...walk(node.id, depth + 1)] : [row];
