@@ -43,6 +43,10 @@ export interface Artboard {
 export const RectInput = z.object({
   type: z.literal("rect"),
   parentId: z.string().describe("Id of a Layer or Group. doc_create returns the default Layer id."),
+  clientKey: z
+    .string()
+    .optional()
+    .describe("Your own key for this item; the receipt's keyMap maps it to the new id."),
   name: z.string().optional(),
   x: z.number(),
   y: z.number(),
@@ -92,3 +96,18 @@ export interface Document {
   artboards: Artboard[];
   nodes: Map<string, Node>;
 }
+
+/** The uniform result of every write (REQUIREMENTS §6.5). */
+export const WriteReceipt = z.object({
+  txId: z.string(),
+  rev: z.number().int(),
+  createdIds: z.array(z.string()),
+  updatedIds: z.array(z.string()),
+  deletedIds: z.array(z.string()),
+  keyMap: z.record(z.string(), z.string()),
+  bounds: Rect.nullable(),
+  warnings: z.array(
+    z.object({ code: z.string(), nodeId: z.string().optional(), message: z.string() }),
+  ),
+});
+export type WriteReceipt = z.infer<typeof WriteReceipt>;

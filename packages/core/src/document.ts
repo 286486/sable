@@ -13,11 +13,14 @@ import {
   type Rect,
 } from "./schema.ts";
 
+/** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
+export const newId = () => ulid();
+
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 const ARTBOARD_GAP = 20;
 
 const base = (parentId: string | null, index: string) => ({
-  id: ulid(),
+  id: newId(),
   parentId,
   index,
   visible: true,
@@ -39,7 +42,7 @@ export function createDocument(input: { id: string; name: string; artboards: Art
     const x = a.x ?? nextX;
     nextX = x + a.width + ARTBOARD_GAP;
     return {
-      id: ulid(),
+      id: newId(),
       name: a.name ?? `Artboard ${i + 1}`,
       frame: { x, y: a.y ?? 0, width: a.width, height: a.height },
       ...(a.background && { background: a.background }),
@@ -161,7 +164,7 @@ export function outline(doc: Document, depth = 2): OutlineNode[] {
   return walk(null, 1);
 }
 
-function union(rects: (Rect | null)[]): Rect | null {
+export function union(rects: (Rect | null)[]): Rect | null {
   const rs = rects.filter((r): r is Rect => r !== null);
   if (rs.length === 0) return null;
   const x = Math.min(...rs.map((r) => r.x));
