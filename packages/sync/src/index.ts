@@ -6,8 +6,17 @@ import type {
   NodeInput,
   OutlineNode,
   Rect,
+  TransformInput,
+  UpdateInput,
   WriteReceipt,
 } from "@zibel/core";
+
+/** Accepted by every write. `intent` is stored with the Transaction (F-COLLAB-04). */
+export interface WriteOptions {
+  intent?: string;
+  /** Apply the valid items and report the rest in the receipt's `failed` (F-MCP-16). */
+  partial?: boolean;
+}
 
 export interface CreatedDocument {
   docId: string;
@@ -21,8 +30,15 @@ export interface CreatedDocument {
  * Failures reject with a `ZibelError`.
  */
 export interface DocumentService {
-  create(input: { name: string; artboards: ArtboardInput[] }): Promise<CreatedDocument>;
-  createNodes(docId: string, nodes: NodeInput[]): Promise<WriteReceipt>;
+  create(input: {
+    name: string;
+    artboards: ArtboardInput[];
+    intent?: string;
+  }): Promise<CreatedDocument>;
+  createNodes(docId: string, nodes: NodeInput[], opts?: WriteOptions): Promise<WriteReceipt>;
+  updateNodes(docId: string, updates: UpdateInput[], opts?: WriteOptions): Promise<WriteReceipt>;
+  deleteNodes(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
+  transformNodes(docId: string, input: TransformInput, opts?: WriteOptions): Promise<WriteReceipt>;
   get(
     docId: string,
     nodeIds: string[],
