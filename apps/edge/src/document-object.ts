@@ -153,11 +153,15 @@ export class DocumentObject extends DurableObject<Env> {
     },
   ): Result<WriteReceipt> {
     return guard(() => {
-      const { keyMap = {}, bounds, warnings = [], failed, ...change } = edit(this.load());
-      // Two patches to one Node in a batch are one update.
-      const updated = [...new Map((change.updated ?? []).map((n) => [n.id, n])).values()];
-      const created = change.created ?? [];
-      const deletedIds = change.deletedIds ?? [];
+      const {
+        keyMap = {},
+        bounds,
+        warnings = [],
+        failed,
+        created = [],
+        updated = [],
+        deletedIds = [],
+      } = edit(this.load());
       const count = created.length + updated.length + deletedIds.length;
       const summary = `${verb} ${count} ${count === 1 ? "Node" : "Nodes"}`;
       const { txId, rev } = this.ctx.storage.transactionSync(() =>

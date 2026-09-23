@@ -82,7 +82,13 @@ it("reports DOC_NOT_FOUND for a Document that was never created", async () => {
 
 it("logs update, transform and delete with their ids and intent, across a restart", async () => {
   const created = ok(
-    await stub("d3").create({ docId: "d3", name: "Doc", artboards, actor: "agent-a" }),
+    await stub("d3").create({
+      docId: "d3",
+      name: "Doc",
+      artboards,
+      actor: "agent-a",
+      intent: "start a poster",
+    }),
   );
   const rect = { type: "rect" as const, x: 0, y: 0, width: 10, height: 10 };
   const made = ok(
@@ -119,7 +125,8 @@ it("logs update, transform and delete with their ids and intent, across a restar
   await evictDurableObject(stub("d3"));
 
   expect(await stub("d3").outline(2)).toMatchObject({ rev: 6, layers: [{ childCount: 0 }] });
-  expect(await stub("d3").changes(1)).toEqual([
+  expect(await stub("d3").changes(0)).toEqual([
+    expect.objectContaining({ rev: 1, intent: "start a poster" }),
     expect.objectContaining({ rev: 2, createdIds: [id], intent: "draw a box" }),
     expect.objectContaining({ rev: 3, actor: "agent-b", updatedIds: [id], intent: "make it red" }),
     expect.objectContaining({ rev: 4, updatedIds: [id], intent: null }),

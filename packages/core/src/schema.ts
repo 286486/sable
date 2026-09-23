@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COLOR_PATTERN } from "./color.ts";
+import { compose, scaleOf } from "./matrix.ts";
 
 /**
  * `#RRGGBB` or `#RRGGBBAA`, case-insensitive (REQUIREMENTS §6.5). The published schema carries the
@@ -118,14 +119,8 @@ export const SHAPES = {
   star: StarShape,
   path: PathShape,
 };
-export const Shape = z.discriminatedUnion("type", [
-  RectShape,
-  EllipseShape,
-  LineShape,
-  PolygonShape,
-  StarShape,
-  PathShape,
-]);
+const { rect, ...others } = SHAPES;
+export const Shape = z.discriminatedUnion("type", [rect, ...Object.values(others)]);
 export type Shape = z.output<typeof Shape>;
 
 const clientKey = z
@@ -316,6 +311,11 @@ export const TransformInput = z
   .refine(
     (t) => t.matrix === undefined || [t.rotate, t.scale, t.skew].every((v) => v === undefined),
     "matrix replaces rotate, scale and skew; send it alone (translate may accompany it).",
+  )
+  .refine(
+    // A singular matrix collapses the Nodes for good: nothing composed onto it can undo it.
+    (t) => scaleOf(compose(t, { x: 0, y: 0 })) > 1e-6,
+    "The transform collapses the Nodes to a line or point; use a non-singular matrix and skews whose sum stays away from 90°.",
   );
 export type TransformInput = z.input<typeof TransformInput>;
 

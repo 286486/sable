@@ -138,6 +138,20 @@ describe("transformNodes", () => {
     ]);
   });
 
+  it.each([
+    [{ matrix: [0, 0, 0, 0, 5, 5] }],
+    [{ skew: { x: 45, y: 45 } }],
+    [{ scale: { x: 1, y: 0 } }],
+    [{}],
+    [{ matrix: [1, 0, 0, 1, 0, 0], rotate: 10 }],
+  ])("rejects %j before touching anything", (parts) => {
+    const { doc, rect } = newDoc();
+    const [a] = createNodes(doc, [rect(0, 0)]).nodes;
+    if (!a) throw new Error("setup");
+    expect(() => transformNodes(doc, { nodeIds: [a.id], ...parts } as never)).toThrow();
+    expect(shape(doc, a.id).transform).toEqual([1, 0, 0, 1, 0, 0]);
+  });
+
   it("leaves an empty Group alone", () => {
     const { doc, defaultLayerId } = newDoc();
     const [g] = createNodes(doc, [{ type: "group", parentId: defaultLayerId }]).nodes;
@@ -233,6 +247,7 @@ describe("updateNodes", () => {
     [{ d: "M 0 0" }, "d", /parameters/],
     [{ name: null }, "name", /null/],
     [{ width: -1 }, "width", /./],
+    [{ constructor: 1 }, "constructor", /x, y, width/],
   ])("rejects %j with INVALID_PATCH", (patch, key, hint) => {
     const { doc, r } = setup();
     expect(errorOf(() => updateNodes(doc, [{ nodeId: r.id, patch }]))).toMatchObject({
@@ -267,11 +282,13 @@ describe("updateNodes", () => {
 
   it("applies two patches to one Node in order", () => {
     const { doc, r } = setup();
-    updateNodes(doc, [
-      { nodeId: r.id, patch: { name: "a" } },
-      { nodeId: r.id, patch: { opacity: 0.5 } },
+    const { nodes } = updateNodes(doc, [
+      { nodeId: r.id, patch: { name: "a", x: 0 } },
+      { nodeId: r.id, patch: { opacity: 0.5, x: 100 } },
     ]);
-    expect(doc.nodes.get(r.id)).toMatchObject({ name: "a", opacity: 0.5 });
+    expect(doc.nodes.get(r.id)).toMatchObject({ name: "a", opacity: 0.5, x: 100 });
+    expect(nodes).toHaveLength(1);
+    expect(bounds(doc, nodes[0] as Node)).toEqual({ x: 100, y: 10, width: 50, height: 30 });
   });
 
   it("changes nothing when one item fails", () => {

@@ -652,6 +652,19 @@ describe("edit tools", () => {
       hint: expect.stringContaining("Split"),
       path: "nodes",
     });
+    // The published schema keeps TransformInput's refinements through safeExtend.
+    for (const parts of [
+      {},
+      { matrix: [1, 0, 0, 1, 0, 0], rotate: 1 },
+      { matrix: [0, 0, 0, 0, 0, 0] },
+    ]) {
+      const bad = await call("zibel_node_transform", {
+        docId: doc.docId,
+        nodeIds: [doc.defaultLayerId],
+        ...parts,
+      });
+      expect(bad.isError).toBe(true);
+    }
     for (const [tool, args, path] of [
       ["zibel_node_delete", { nodeIds: ["nope"] }, "nodeIds[0]"],
       ["zibel_node_transform", { nodeIds: ["nope"], rotate: 1 }, "nodeIds[0]"],

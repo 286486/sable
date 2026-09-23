@@ -155,12 +155,12 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
   const schema = writableSchema(node);
   for (const key of Object.keys(patch)) {
     const readOnly =
-      READ_ONLY[key] ??
+      (Object.hasOwn(READ_ONLY, key) ? READ_ONLY[key] : undefined) ??
       (key === "d" && node.type !== "path"
         ? "A Live Shape's d is derived from its parameters; change those instead."
         : undefined);
     if (readOnly) throw invalid(`.${key}`, `${key} is read-only.`, readOnly);
-    if (!(key in schema.shape)) {
+    if (!Object.hasOwn(schema.shape, key)) {
       throw invalid(
         `.${key}`,
         `A ${node.type} has no ${key}.`,
@@ -205,8 +205,10 @@ export function updateNodes(
     staged.nodes.set(next.id, next);
     return next;
   });
-  for (const n of nodes) doc.nodes.set(n.id, n);
-  return { nodes, failed };
+  // Two patches to one Node are one update: its final value, where it first appeared.
+  const unique = [...new Map(nodes.map((n) => [n.id, n])).values()];
+  for (const n of unique) doc.nodes.set(n.id, n);
+  return { nodes: unique, failed };
 }
 
 /** Deletes the Nodes and everything beneath them; `bounds` is where they were. */
