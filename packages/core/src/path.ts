@@ -1,5 +1,5 @@
 import { ZibelError } from "./errors.ts";
-import type { Rect } from "./schema.ts";
+import type { Rect, Shape } from "./schema.ts";
 
 /** One absolute path command with its numbers, e.g. `{cmd: "C", args: [x1, y1, x2, y2, x, y]}`. */
 export interface Segment {
@@ -127,4 +127,73 @@ function bezier(p: number[], t: number): number {
   return p.length === 3
     ? u * u * p0 + 2 * u * t * p1 + t * t * p2
     : u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
+}
+
+/** 4 (√2 − 1) / 3: cubic control distance that approximates a quarter circle. */
+const KAPPA = 0.5522847498307936;
+
+/** Outline of a Live Shape, or the parsed `d` of a Path. */
+export function shapeSegments(shape: Shape): Segment[] {
+  const M = (x: number, y: number): Segment => ({ cmd: "M", args: [x, y] });
+  const L = (x: number, y: number): Segment => ({ cmd: "L", args: [x, y] });
+  const Z: Segment = { cmd: "Z", args: [] };
+  /** Vertices on a circle, the first straight up, clockwise (y down). */
+  const ring = (cx: number, cy: number, radii: number[]): Segment[] => [
+    ...radii.map((r, i) => {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / radii.length;
+      return (i === 0 ? M : L)(cx + r * Math.cos(a), cy + r * Math.sin(a));
+    }),
+    Z,
+  ];
+  switch (shape.type) {
+    case "rect": {
+      const { x, y, width: w, height: h } = shape;
+      const r = Math.min(shape.radius, w / 2, h / 2);
+      if (r === 0) return [M(x, y), L(x + w, y), L(x + w, y + h), L(x, y + h), Z];
+      const k = r * (1 - KAPPA);
+      const C = (...args: number[]): Segment => ({ cmd: "C", args });
+      return [
+        M(x + r, y),
+        L(x + w - r, y),
+        C(x + w - k, y, x + w, y + k, x + w, y + r),
+        L(x + w, y + h - r),
+        C(x + w, y + h - k, x + w - k, y + h, x + w - r, y + h),
+        L(x + r, y + h),
+        C(x + k, y + h, x, y + h - k, x, y + h - r),
+        L(x, y + r),
+        C(x, y + k, x + k, y, x + r, y),
+        Z,
+      ];
+    }
+    case "ellipse": {
+      const rx = shape.width / 2;
+      const ry = shape.height / 2;
+      const cx = shape.x + rx;
+      const cy = shape.y + ry;
+      const kx = rx * KAPPA;
+      const ky = ry * KAPPA;
+      return [
+        M(cx, cy - ry),
+        { cmd: "C", args: [cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy] },
+        { cmd: "C", args: [cx + rx, cy + ky, cx + kx, cy + ry, cx, cy + ry] },
+        { cmd: "C", args: [cx - kx, cy + ry, cx - rx, cy + ky, cx - rx, cy] },
+        { cmd: "C", args: [cx - rx, cy - ky, cx - kx, cy - ry, cx, cy - ry] },
+        Z,
+      ];
+    }
+    case "line":
+      return [M(shape.x1, shape.y1), L(shape.x2, shape.y2)];
+    case "polygon":
+      return ring(shape.cx, shape.cy, Array(shape.sides).fill(shape.radius));
+    case "star":
+      return ring(
+        shape.cx,
+        shape.cy,
+        Array.from({ length: shape.points * 2 }, (_, i) =>
+          i % 2 ? shape.innerRadius : shape.outerRadius,
+        ),
+      );
+    case "path":
+      return parsePath(shape.d, "d");
+  }
 }

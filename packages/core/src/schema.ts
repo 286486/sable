@@ -40,6 +40,60 @@ export interface Artboard {
   background?: string;
 }
 
+const size = z.number().nonnegative();
+const count = z.number().int().min(3).max(1000);
+
+/** Live Shape parameters (F-DRAW-01) and a Path's `d`, in document coordinates. */
+export const RectShape = z.object({
+  type: z.literal("rect"),
+  x: z.number(),
+  y: z.number(),
+  width: size,
+  height: size,
+  radius: size.default(0).describe("Corner radius, clamped to half the shorter side."),
+});
+export const EllipseShape = z.object({
+  type: z.literal("ellipse"),
+  x: z.number().describe("Left edge of the bounding box."),
+  y: z.number().describe("Top edge of the bounding box."),
+  width: size,
+  height: size,
+});
+export const LineShape = z.object({
+  type: z.literal("line"),
+  x1: z.number(),
+  y1: z.number(),
+  x2: z.number(),
+  y2: z.number(),
+});
+export const PolygonShape = z.object({
+  type: z.literal("polygon"),
+  cx: z.number(),
+  cy: z.number(),
+  radius: size.describe("Center to each vertex; the first vertex is straight up."),
+  sides: count,
+});
+export const StarShape = z.object({
+  type: z.literal("star"),
+  cx: z.number(),
+  cy: z.number(),
+  outerRadius: size.describe("Center to each point; the first point is straight up."),
+  innerRadius: size.describe("Center to each inner vertex."),
+  points: count,
+});
+export const PathShape = z.object({
+  type: z.literal("path"),
+  d: z.string().describe("SVG path data, absolute M, L, C, Q and Z only, e.g. M 0 0 L 10 0 Z."),
+});
+export type Shape = z.output<
+  | typeof RectShape
+  | typeof EllipseShape
+  | typeof LineShape
+  | typeof PolygonShape
+  | typeof StarShape
+  | typeof PathShape
+>;
+
 export const RectInput = z.object({
   type: z.literal("rect"),
   parentId: z.string().describe("Id of a Layer or Group. doc_create returns the default Layer id."),
