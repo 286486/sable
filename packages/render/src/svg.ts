@@ -44,14 +44,25 @@ function node(doc: Document, n: Node): string {
       .join("");
     return `<g${attrs({ opacity })}>${kids}</g>`;
   }
-  // ponytail: paints the top Fill and Stroke only; stacked Appearance needs one element per layer.
-  const fill = n.appearance.fills.at(-1);
-  const stroke = n.appearance.strokes.at(-1);
-  return `<path${attrs({
-    d: formatPath(shapeSegments(n)),
-    fill: fill?.color ?? "none",
-    stroke: stroke?.color,
-    "stroke-width": stroke?.width,
-    opacity,
-  })}/>`;
+  // Every leaf is a <path> of the same outline node_get reports as d, painted once per Fill, then
+  // once per Stroke: Illustrator's default stacking, Fills below Strokes.
+  const d = formatPath(shapeSegments(n));
+  const paints = [
+    ...n.appearance.fills.map((f) => `<path${attrs({ d, fill: f.color })}/>`),
+    ...n.appearance.strokes.map(
+      (s) =>
+        `<path${attrs({
+          d,
+          fill: "none",
+          stroke: s.color,
+          "stroke-width": s.width,
+          "stroke-linecap": s.cap === "butt" ? undefined : s.cap,
+          "stroke-linejoin": s.join === "miter" ? undefined : s.join,
+          // SVG's default miter limit is 4, Illustrator's is 10: always write it for miter joins.
+          "stroke-miterlimit": s.join === "miter" ? s.miterLimit : undefined,
+          "stroke-dasharray": s.dash.length > 0 ? s.dash.join(" ") : undefined,
+        })}/>`,
+    ),
+  ].join("");
+  return opacity === undefined || !paints ? paints : `<g${attrs({ opacity })}>${paints}</g>`;
 }

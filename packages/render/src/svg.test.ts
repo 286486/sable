@@ -1,13 +1,18 @@
-import { createDocument, createNodes } from "@zibel/core";
+import {
+  createDocument,
+  createNodes,
+  formatPath,
+  type ShapeNode,
+  shapeSegments,
+} from "@zibel/core";
 import { expect, it } from "vitest";
 import { toSvg } from "./svg.ts";
 
-it("serialises the first Artboard with its Layers and rects", () => {
-  const { doc, defaultLayerId } = createDocument({
-    id: "d",
-    name: "Doc",
-    artboards: [{ width: 200, height: 100 }],
-  });
+const newDoc = () =>
+  createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
+
+it("serialises the Artboards with a rect's Fill below its Stroke", () => {
+  const { doc, defaultLayerId } = newDoc();
   createNodes(doc, [
     {
       type: "rect",
@@ -22,6 +27,74 @@ it("serialises the first Artboard with its Layers and rects", () => {
   const svg = toSvg(doc);
   expect(svg).toContain('viewBox="0 0 200 100"');
   expect(svg).toContain(
-    '<path d="M 10 10 L 60 10 L 60 40 L 10 40 Z" fill="#FF0000" stroke="#000000" stroke-width="2"/>',
+    '<g><path d="M 10 10 L 60 10 L 60 40 L 10 40 Z" fill="#FF0000"/>' +
+      '<path d="M 10 10 L 60 10 L 60 40 L 10 40 Z" fill="none" stroke="#000000" stroke-width="2" stroke-miterlimit="10"/></g>',
   );
+});
+
+it("serialises every node type with the same d that node_get returns", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const { nodes } = createNodes(doc, [
+    {
+      type: "group",
+      parentId,
+      children: [
+        { type: "rect", x: 0, y: 0, width: 10, height: 10, radius: 2 },
+        { type: "group", children: [{ type: "line", x1: 0, y1: 0, x2: 5, y2: 5 }] },
+      ],
+    },
+    { type: "ellipse", parentId, x: 0, y: 0, width: 20, height: 10 },
+    { type: "polygon", parentId, cx: 50, cy: 50, radius: 10, sides: 5 },
+    { type: "star", parentId, cx: 80, cy: 50, outerRadius: 10, innerRadius: 4, points: 5 },
+    { type: "path", parentId, d: "M 0 0 Q 10 20 20 0 Z" },
+    { type: "layer" },
+  ]);
+  const svg = toSvg(doc);
+  const leaves = nodes.filter((n): n is ShapeNode => "appearance" in n);
+  expect(leaves).toHaveLength(6);
+  for (const n of leaves) expect(svg).toContain(`d="${formatPath(shapeSegments(n))}"`);
+  // Layer 1 > Group > [rect, Group > line]; the second top-level Layer is empty.
+  expect(svg).toMatch(/<g><g><path[^>]*\/><path[^>]*\/><g><path/);
+  expect(svg).toMatch(/<g><\/g><\/svg>$/);
+});
+
+it("paints stacked Fills and Strokes bottom to top, with Stroke attributes only when set", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "line",
+      parentId,
+      x1: 0,
+      y1: 0,
+      x2: 10,
+      y2: 0,
+      appearance: {
+        fills: [{ color: "#111111" }, { color: "#222222" }],
+        strokes: [
+          { color: "#333333", width: 4, cap: "round", join: "bevel", dash: [4, 2] },
+          { color: "#44444480" },
+        ],
+      },
+    },
+  ]);
+  const svg = toSvg(doc);
+  const colors = [...svg.matchAll(/(?:fill|stroke)="(#\w+)"/g)].map((m) => m[1]);
+  expect(colors).toEqual(["#111111", "#222222", "#333333", "#44444480"]);
+  expect(svg).toContain(
+    'stroke="#333333" stroke-width="4" stroke-linecap="round" stroke-linejoin="bevel" stroke-dasharray="4 2"/>',
+  );
+  expect(svg).toContain('stroke="#44444480" stroke-width="1" stroke-miterlimit="10"/>');
+});
+
+it("emits nothing for an empty Appearance or a hidden Node, and wraps a translucent one", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const [bare, hidden, faded] = createNodes(doc, [
+    { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1, appearance: {} },
+    { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
+    { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
+  ]).nodes;
+  if (!bare || !hidden || !faded) throw new Error("setup");
+  hidden.visible = false;
+  faded.opacity = 0.5;
+  expect(toSvg(doc)).toMatch(/<g><g opacity="0.5"><path[^>]*\/><path[^>]*\/><\/g><\/g><\/svg>$/);
 });
