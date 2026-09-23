@@ -323,3 +323,55 @@ it("expires a Transaction idle for 5 minutes through the alarm", async () => {
   expect(await s.rollback(b, "agent-a")).toMatchObject({ error: { code: "TX_EXPIRED" } });
   expect(await runDurableObjectAlarm(s)).toBe(false);
 });
+
+/** The rect's left edge as `user` reads it, or null once it is gone. */
+async function xOf(s: ReturnType<typeof stub>, id: string) {
+  const got = await s.get([id], "concise", "user");
+  return "error" in got ? null : (got.nodes[0]?.geometricBounds?.x ?? null);
+}
+
+it("has nothing to undo or redo on a new Document: its creation is not undoable", async () => {
+  ok(await stub("u1").create({ docId: "u1", name: "Doc", artboards, actor: "agent-a" }));
+  expect(await stub("u1").undo("user")).toMatchObject({ error: { code: "NOTHING_TO_UNDO" } });
+  expect(await stub("u1").redo("user")).toMatchObject({ error: { code: "NOTHING_TO_REDO" } });
+  expect(await stub("u1").info()).toMatchObject({ rev: 1 });
+});
+
+it("undoes and redoes as new Transactions, back to the Document's creation", async () => {
+  const { s: doc, rectId: id } = await withRect("u2");
+  const x = () => xOf(doc, id);
+  ok(await stub("u2").transformNodes({ nodeIds: [id], translate: { x: 5 } }, "agent-a"));
+  expect(await x()).toBe(5);
+
+  expect(ok(await stub("u2").undo("user"))).toMatchObject({ rev: 4, updatedIds: [id] });
+  expect(await x()).toBe(0);
+  expect(ok(await stub("u2").redo("user"))).toMatchObject({ rev: 5 });
+  expect(await x()).toBe(5);
+  expect(await stub("u2").redo("user")).toMatchObject({ error: { code: "NOTHING_TO_REDO" } });
+
+  ok(await stub("u2").undo("user"));
+  expect(ok(await stub("u2").undo("user"))).toMatchObject({ deletedIds: [id] });
+  expect(await x()).toBeNull();
+  expect(await stub("u2").undo("user")).toMatchObject({ error: { code: "NOTHING_TO_UNDO" } });
+
+  const { changes } = ok(await stub("u2").changes(2));
+  expect(changes.map((c) => [c.actor, c.summary])).toEqual([
+    ["agent-a", "Transform 1 Node"],
+    ["user", 'Undo "Transform 1 Node"'],
+    ["user", 'Redo "Transform 1 Node"'],
+    ["user", 'Undo "Transform 1 Node"'],
+    ["user", 'Undo "Create 1 Node"'],
+  ]);
+});
+
+it("keeps the latest 200 Transactions on the undo stack", async () => {
+  const { s: doc, rectId: id } = await withRect("u3");
+  const x = () => xOf(doc, id);
+  for (let i = 0; i < 201; i++) {
+    ok(await stub("u3").transformNodes({ nodeIds: [id], translate: { x: 1 } }, "agent-a"));
+  }
+  for (let i = 0; i < 200; i++) ok(await stub("u3").undo("user"));
+  expect(await stub("u3").undo("user")).toMatchObject({ error: { code: "NOTHING_TO_UNDO" } });
+  // The create and the first move fell off the stack.
+  expect(await x()).toBe(1);
+});

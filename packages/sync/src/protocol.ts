@@ -34,6 +34,8 @@ export interface TxMessage {
   deletedIds: string[];
   /** The `id` of the browser command this Transaction answers. */
   commandId?: string;
+  /** An undo or redo: Nodes it skipped because they were deleted since (ADR-0011). */
+  skippedIds?: string[];
 }
 
 /** Sent only to the browser whose command changed nothing. */
