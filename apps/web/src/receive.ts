@@ -61,7 +61,7 @@ export function receive(
     doc,
     selection: s.selection.filter((id) => doc.nodes.has(id)),
     ...(answered && { drag: null }),
-    ...(skipped > 0 && { notice: `Undo skipped ${skipped} deleted object(s); they stay deleted.` }),
+    ...(skipped > 0 && { notice: `Skipped ${skipped} deleted object(s); they stay deleted.` }),
   };
 }
 

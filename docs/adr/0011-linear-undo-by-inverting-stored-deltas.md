@@ -5,7 +5,7 @@ date: 2026-09-23
 
 # Undo and redo invert the stored delta of a committed Transaction, per top-level key, on one linear stack
 
-Every committed Transaction stores its delta in the Document Durable Object's SQLite: one row per Node it changed, with the Node's copy before (none when it created the Node) and after (none when it deleted the Node). A delete stores every descendant it took, parent before child. The Transaction that creates the Document stores none and is never undone.
+Every committed Transaction stores its delta in the Document Durable Object's SQLite: one row per Node it changed, with the Node's copy before (none when it created the Node) and after (none when it deleted the Node). A delete stores every descendant it took; `revert` recreates parents before children whatever the row order. The Transaction that creates the Document stores none and is never undone.
 
 The Document has one undo stack and one redo stack of `rev`s, whoever committed them (F-HIST-01). A committed Transaction goes on the undo stack and clears the redo stack. Undo pops the top `rev`, commits its inverse as a new Transaction attributed to the Actor who undid, and pushes that new `rev` onto the redo stack. Redo pops the redo stack, commits the inverse of that undo, and pushes the new `rev` onto the undo stack. So both are "invert the delta of the `rev` you pop", undo and redo are ordinary Transactions that increment `rev` and appear in `doc_changes` and the `tx` broadcast, and what is inverted is always what was actually applied, skips included. The undo stack keeps the latest 200 `rev`s; older ones drop off with their delta rows.
 

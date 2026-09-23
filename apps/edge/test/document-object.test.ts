@@ -364,6 +364,19 @@ it("undoes and redoes as new Transactions, back to the Document's creation", asy
   ]);
 });
 
+it("redoes in the reverse order of the undos", async () => {
+  const { s: doc, rectId: id } = await withRect("u4");
+  const x = () => xOf(doc, id);
+  for (const dx of [5, 7])
+    ok(await doc.transformNodes({ nodeIds: [id], translate: { x: dx } }, "agent-a"));
+  const steps: (number | null)[] = [];
+  for (const step of ["undo", "undo", "redo", "redo"] as const) {
+    ok(await doc[step]("user"));
+    steps.push(await x());
+  }
+  expect(steps).toEqual([5, 0, 5, 12]);
+});
+
 it("keeps the latest 200 Transactions on the undo stack", async () => {
   const { s: doc, rectId: id } = await withRect("u3");
   const x = () => xOf(doc, id);

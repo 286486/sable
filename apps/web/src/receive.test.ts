@@ -79,7 +79,7 @@ it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
   const { doc, a } = fixture();
   const state = { doc, selection: [], drag: null, notice: null };
   expect(receive(state, tx(doc, { skippedIds: [a.id] }), "d")).toMatchObject({
-    notice: expect.stringContaining("skipped"),
+    notice: expect.stringContaining("Skipped 1"),
   });
   expect(receive(state, tx(doc, {}), "d")).not.toHaveProperty("notice");
 });

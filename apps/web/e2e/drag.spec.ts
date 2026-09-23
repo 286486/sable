@@ -43,10 +43,11 @@ test("a rectangle an Agent drew can be dragged, undone, redone and deleted in th
   await page.mouse.up();
 
   const bounds = async () =>
-    (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent.nodes[0]
+    // Undefined while the Node is gone: poll callbacks must not throw.
+    (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent?.nodes[0]
       .geometricBounds;
-  await expect.poll(async () => (await bounds()).x).toBeGreaterThan(75);
-  expect((await bounds()).y).toBe(25);
+  await expect.poll(async () => (await bounds())?.x).toBeGreaterThan(75);
+  expect((await bounds())?.y).toBe(25);
   const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
     .structuredContent;
   expect(changes).toMatchObject([{ actor: "user", updatedIds: [id] }]);
@@ -57,11 +58,11 @@ test("a rectangle an Agent drew can be dragged, undone, redone and deleted in th
   };
   // Undo the drag, then the Agent's create; redo brings the rectangle back (#11).
   await page.keyboard.press("Control+z");
-  await expect.poll(async () => (await bounds()).x).toBe(75);
+  await expect.poll(async () => (await bounds())?.x).toBe(75);
   await page.keyboard.press("Control+z");
   await expect.poll(gone).toBe("NODE_NOT_FOUND");
   await page.keyboard.press("Control+Shift+z");
-  await expect.poll(async () => (await bounds()).x).toBe(75);
+  await expect.poll(async () => (await bounds())?.x).toBe(75);
 
   // The redone rectangle is not selected: the undo that deleted it pruned the Selection.
   await page.mouse.click(cx, cy);
