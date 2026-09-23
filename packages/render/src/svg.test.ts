@@ -6,7 +6,7 @@ import {
   shapeSegments,
 } from "@zibel/core";
 import { expect, it } from "vitest";
-import { toSvg } from "./svg.ts";
+import { fit, scopeRect, toSvg } from "./svg.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -136,4 +136,94 @@ it("writes Point Type as one <text> per Fill, then per Stroke, in the bundled fo
     '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="#FF0000">a&lt;b&amp;&quot;c&quot;</text>' +
       '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="none" stroke="#0000FF" stroke-width="2" stroke-miterlimit="10">a&lt;b&amp;&quot;c&quot;</text>',
   );
+});
+
+const errorOf = (fn: () => unknown) => {
+  try {
+    fn();
+  } catch (e) {
+    return (e as { data?: unknown }).data;
+  }
+  throw new Error("did not throw");
+};
+
+it("resolves each Render Scope to the rect the image covers", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [
+      { width: 200, height: 100 },
+      { x: 300, y: 0, width: 50, height: 50 },
+    ],
+  });
+  const [rect, group] = createNodes(doc, [
+    {
+      type: "rect",
+      parentId,
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 30,
+      appearance: { strokes: [{ color: "#000000", width: 4 }] },
+    },
+    { type: "group", parentId, children: [] },
+  ]).nodes;
+  if (!rect || !group) throw new Error("setup");
+  const second = doc.artboards[1];
+  if (!second) throw new Error("setup");
+  expect(scopeRect(doc)).toEqual({ x: 0, y: 0, width: 350, height: 100 });
+  expect(scopeRect(doc, { artboardId: second.id })).toEqual(second.frame);
+  expect(scopeRect(doc, { rect: { x: 1, y: 2, width: 3, height: 4 } })).toEqual({
+    x: 1,
+    y: 2,
+    width: 3,
+    height: 4,
+  });
+  expect(scopeRect(doc, { nodeIds: [rect.id, group.id] })).toEqual({
+    x: 8,
+    y: 8,
+    width: 54,
+    height: 34,
+  });
+  expect(errorOf(() => scopeRect(doc, { artboardId: "nope" }))).toMatchObject({
+    code: "ARTBOARD_NOT_FOUND",
+    path: "scope.artboardId",
+  });
+  expect(errorOf(() => scopeRect(doc, { nodeIds: [rect.id, "nope"] }))).toMatchObject({
+    code: "NODE_NOT_FOUND",
+    path: "scope.nodeIds[1]",
+  });
+  expect(errorOf(() => scopeRect(doc, { nodeIds: [group.id] }))).toMatchObject({
+    code: "NOTHING_TO_RENDER",
+  });
+});
+
+it("fits a rect to whole pixels, lowering the scale to maxSize and refusing more than 4096 px", () => {
+  const rect = (width: number, height: number) => ({ x: 0, y: 0, width, height });
+  expect(fit(rect(200, 100), 2)).toEqual({
+    rect: rect(200, 100),
+    scale: 2,
+    pixelSize: { width: 400, height: 200 },
+  });
+  expect(fit(rect(2000, 100), 1, 1600)).toEqual({
+    rect: rect(2000, 100),
+    scale: 0.8,
+    pixelSize: { width: 1600, height: 80 },
+  });
+  // Widened to whole pixels, since resvg stretches the drawing to its rounded size.
+  expect(fit(rect(10.2, 10), 2)).toEqual({
+    rect: rect(10.5, 10),
+    scale: 2,
+    pixelSize: { width: 21, height: 20 },
+  });
+  expect(errorOf(() => fit(rect(2000, 100), 4, 8000))).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    path: "maxSize",
+    hint: expect.stringContaining("4096"),
+  });
+  expect(errorOf(() => fit(rect(2000, 100), 4))).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    path: "scale",
+    hint: expect.stringContaining("scale <= 2.04"),
+  });
 });

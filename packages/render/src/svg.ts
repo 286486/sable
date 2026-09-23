@@ -4,11 +4,18 @@ import {
   formatNumber,
   formatPath,
   IDENTITY,
+  lookup,
   type Node,
   type Rect,
+  type RenderScope,
   shapeSegments,
   union,
+  visibleBounds,
+  ZibelError,
 } from "@zibel/core";
+
+/** The longest side `render` and `export` rasterise (REQUIREMENTS §7). */
+export const MAX_RENDER_SIDE = 4096;
 
 const esc = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
@@ -24,6 +31,68 @@ const attrs = (a: Attrs) =>
 /** The area a doc-scope render covers: every Artboard. */
 export function docRect(doc: Document): Rect {
   return union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 0, height: 0 };
+}
+
+/** The rect a Render Scope covers, in document coordinates (ADR-0014). */
+export function scopeRect(doc: Document, scope?: RenderScope): Rect {
+  if (!scope) return docRect(doc);
+  if ("rect" in scope) return scope.rect;
+  if ("artboardId" in scope) {
+    const artboard = doc.artboards.find((a) => a.id === scope.artboardId);
+    if (artboard) return artboard.frame;
+    throw new ZibelError({
+      code: "ARTBOARD_NOT_FOUND",
+      message: `No Artboard with id ${scope.artboardId}.`,
+      hint: "zibel_doc_get_info lists the Artboards with their ids.",
+      path: "scope.artboardId",
+    });
+  }
+  const rect = union(
+    scope.nodeIds.map((id, i) => visibleBounds(doc, lookup(doc, id, `scope.nodeIds[${i}]`))),
+  );
+  if (rect) return rect;
+  throw new ZibelError({
+    code: "NOTHING_TO_RENDER",
+    message: "The listed Nodes are empty Layers or Groups: there is nothing to draw.",
+    hint: "List Nodes that contain artwork, or pass scope {rect} instead.",
+    path: "scope.nodeIds",
+  });
+}
+
+/**
+ * The scale, pixel size and rect of an image of `rect` at `scale`, lowered to fit `maxSize`.
+ * resvg rounds the pixel size and stretches the drawing to it, so the rect widens to whole pixels
+ * (by less than one) to keep `scale` the exact zoom drawn.
+ */
+export function fit(rect: Rect, scale: number, maxSize?: number) {
+  const long = Math.max(rect.width, rect.height);
+  const used = maxSize !== undefined && long * scale > maxSize ? maxSize / long : scale;
+  // The epsilon keeps float noise such as 2000 × 0.8 = 1600.0000000000002 from adding a pixel.
+  const px = (side: number) => Math.max(1, Math.ceil(side * used - 1e-6));
+  if (px(long) > MAX_RENDER_SIDE) {
+    const fits = Math.floor((MAX_RENDER_SIDE / long) * 100) / 100;
+    const viaMaxSize = maxSize !== undefined && maxSize > MAX_RENDER_SIDE;
+    throw new ZibelError({
+      code: "LIMIT_EXCEEDED",
+      message: `The image would be ${px(long)} px on its longest side; the limit is ${MAX_RENDER_SIDE}.`,
+      hint: viaMaxSize
+        ? `Use maxSize <= ${MAX_RENDER_SIDE} (default 1600), or scale <= ${fits}.`
+        : `Use scale <= ${fits}, or a smaller scope.`,
+      path: viaMaxSize ? "maxSize" : "scale",
+    });
+  }
+  const pixelSize = { width: px(rect.width), height: px(rect.height) };
+  const widen = (side: number, pixels: number) =>
+    Math.abs(pixels / used - side) < 1e-9 ? side : pixels / used;
+  return {
+    rect: {
+      ...rect,
+      width: widen(rect.width, pixelSize.width),
+      height: widen(rect.height, pixelSize.height),
+    },
+    scale: used,
+    pixelSize,
+  };
 }
 
 /** SVG of `rect` in document coordinates (default: every Artboard). Layers become `<g>` in stacking order. */

@@ -1,6 +1,8 @@
 export type ErrorCode =
   | "DOC_NOT_FOUND"
   | "NODE_NOT_FOUND"
+  | "ARTBOARD_NOT_FOUND"
+  | "NOTHING_TO_RENDER"
   | "INVALID_PARENT"
   | "INVALID_COLOR"
   | "INVALID_PATH"

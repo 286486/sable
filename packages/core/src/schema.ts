@@ -21,6 +21,19 @@ export const Rect = z.object({
 });
 export type Rect = z.infer<typeof Rect>;
 
+/** What `render` and `export` draw (ADR-0014); omitted, the whole Document. */
+export const RenderScope = z.union([
+  z.strictObject({ artboardId: z.string() }),
+  z.strictObject({ nodeIds: z.array(z.string()).min(1).max(1000) }),
+  z.strictObject({
+    rect: Rect.extend({ width: z.number().positive(), height: z.number().positive() }),
+  }),
+]);
+export type RenderScope = z.infer<typeof RenderScope>;
+
+export const Overlay = z.enum(["bounds", "ids", "artboards"]);
+export type Overlay = z.infer<typeof Overlay>;
+
 export const Fill = z.object({ type: z.literal("solid").default("solid"), color: Color });
 export const Stroke = z.object({
   color: Color,
