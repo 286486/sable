@@ -18,6 +18,7 @@ import {
   ChangesOutput,
   CreatedDocumentOutput,
   DocInfoOutput,
+  DocListOutput,
   ExportOutput,
   NodeGetOutput,
   OutlineOutput,
@@ -349,6 +350,19 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         const { svg, docRect } = await service.svg(docId, opts);
         return { structuredContent: { docRect }, content: [{ type: "text", text: svg }] };
       }),
+  );
+
+  server.registerTool(
+    "zibel_doc_list",
+    {
+      title: "List Documents",
+      description:
+        "Every Document, newest first: docId, name and createdAt. Use zibel_doc_get_info on one for its Artboards and rev.",
+      inputSchema: {},
+      outputSchema: DocListOutput.shape,
+      annotations: read,
+    },
+    () => run("zibel_doc_list", async () => json(await service.list())),
   );
 
   server.registerTool(

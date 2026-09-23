@@ -12,6 +12,10 @@ export const CreatedDocumentOutput = z.object({
   rev: z.number().int(),
 });
 
+export const DocListOutput = z.object({
+  documents: z.array(z.object({ docId: z.string(), name: z.string(), createdAt: z.string() })),
+});
+
 export const DocInfoOutput = z.object({
   docId: z.string(),
   name: z.string(),

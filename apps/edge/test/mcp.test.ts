@@ -30,6 +30,7 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_doc_changes",
     "zibel_doc_create",
     "zibel_doc_get_info",
+    "zibel_doc_list",
     "zibel_doc_outline",
     "zibel_export",
     "zibel_node_create",
@@ -67,6 +68,7 @@ it("lists tools with annotations and an outputSchema", async () => {
   );
   expect(byName.zibel_doc_changes?.annotations).toMatchObject({ readOnlyHint: true });
   expect(byName.zibel_doc_get_info?.annotations).toMatchObject({ readOnlyHint: true });
+  expect(byName.zibel_doc_list?.annotations).toMatchObject({ readOnlyHint: true });
   expect(byName.zibel_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
   expect(byName.zibel_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
   expect(JSON.stringify(tools)).not.toContain("no effect yet");
@@ -260,6 +262,19 @@ it("returns DOC_NOT_FOUND for an unknown docId", async () => {
     const result = await call(tool, { docId: "01NOPE" });
     expect(errorOf(result)).toMatchObject({ code: "DOC_NOT_FOUND", hint: expect.any(String) });
   }
+});
+
+it("lists Documents created in earlier requests, newest first, with doc_list", async () => {
+  const create = async (name: string) =>
+    (await call("zibel_doc_create", { name, artboards: [{ width: 10, height: 10 }] }))
+      .structuredContent.docId;
+  const first = await create("First");
+  const second = await create("Second");
+  const { documents } = (await call("zibel_doc_list", {})).structuredContent;
+  expect(documents.slice(0, 2)).toEqual([
+    { docId: second, name: "Second", createdAt: expect.any(String) },
+    { docId: first, name: "First", createdAt: expect.any(String) },
+  ]);
 });
 
 it("reports name, Artboards, node count, rev and no browsers with doc_get_info", async () => {
