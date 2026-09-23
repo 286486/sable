@@ -20,10 +20,10 @@ export function documentService(env: Env, actor: string): DocumentService {
       unwrap(await doc(docId).deleteNodes(nodeIds, actor, opts)),
     transformNodes: async (docId, input, opts) =>
       unwrap(await doc(docId).transformNodes(input, actor, opts)),
-    get: async (docId, nodeIds, detail) => unwrap(await doc(docId).get(nodeIds, detail)),
-    outline: async (docId, depth) => unwrap(await doc(docId).outline(depth)),
+    get: async (docId, nodeIds, detail) => unwrap(await doc(docId).get(nodeIds, detail, actor)),
+    outline: async (docId, depth) => unwrap(await doc(docId).outline(depth, actor)),
     render: async (docId, scale) => {
-      const { svg, docRect } = unwrap(await doc(docId).svg());
+      const { svg, docRect } = unwrap(await doc(docId).svg(actor));
       const side = Math.ceil(Math.max(docRect.width, docRect.height) * scale);
       if (side > MAX_RENDER_SIDE) {
         throw new ZibelError({
