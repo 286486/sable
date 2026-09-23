@@ -209,3 +209,9 @@ _Avoid_: Search、Filter、Find
 **Cursor（游标）**：
 分页结果里的 `nextCursor`：上一页最后一个 Node 的 id，原样传回取下一页。它不在服务器上保存任何状态。
 _Avoid_: Page token、Offset、Session
+
+## MCP 接口
+
+**Skill（技能文档）**：
+随服务分发的 `skill://zibel/*` 资源，写绘图约定、坐标 / 颜色 / 路径规范与推荐工作流。Agent 按需读取；工具描述只指向它，不重复它。
+_Avoid_: Prompt（那是 MCP prompts，F-MCP-20）、Guide、Instructions、README

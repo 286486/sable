@@ -16,6 +16,7 @@ import {
 } from "@zibel/core";
 import type { DocumentService, Viewport } from "@zibel/sync";
 import { z } from "zod";
+import conventions from "./drawing-conventions.md";
 import {
   ChangesOutput,
   CreatedDocumentOutput,
@@ -29,6 +30,7 @@ import {
   TxOutput,
 } from "./schemas.ts";
 
+const CONVENTIONS = "skill://zibel/drawing-conventions";
 const docId = z.string().describe("Document id returned by zibel_doc_create.");
 const intent = z
   .string()
@@ -64,8 +66,7 @@ const writeFields = {
       "false: one bad item fails the call and changes nothing. true: apply the valid items and list the others in the receipt's failed.",
     ),
 };
-const coordinates =
-  "A Live Shape's parameters, a path's d and a text's x, y are in the Node's own coordinates, mapped to the Document by its transform; geometricBounds says where it is.";
+const coordinates = `A Live Shape's parameters, a path's d and a text's x, y are in the Node's own coordinates, mapped to the Document by its transform; geometricBounds says where it is (${CONVENTIONS}).`;
 const edit = {
   readOnlyHint: false,
   destructiveHint: true,
@@ -92,7 +93,23 @@ const color = (value: unknown) =>
 
 /** A fresh server per request: MCP is stateless (ADR-0006). */
 export function createMcpServer(service: DocumentService, actor: string): McpServer {
-  const server = new McpServer({ name: "zibel", version: "0.0.0" });
+  const server = new McpServer(
+    { name: "zibel", version: "0.0.0" },
+    { instructions: `Before your first write, read the resource ${CONVENTIONS}.` },
+  );
+
+  // The SDK advertises resources.listChanged but never sends it; no resources/subscribe (ADR-0006).
+  server.registerResource(
+    "drawing-conventions",
+    CONVENTIONS,
+    {
+      title: "Drawing conventions",
+      description:
+        "Coordinates, colours, path d, Layer-first structure, Transactions and the write-check workflow. Read before your first write.",
+      mimeType: "text/markdown",
+    },
+    (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: conventions }] }),
+  );
 
   /** Runs a tool handler, maps ZibelError to an error result and logs one line per call (§7.7). */
   const run = async (tool: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> => {
@@ -125,8 +142,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     "zibel_doc_create",
     {
       title: "Create Document",
-      description:
-        "Create a Document with one or more Artboards. Returns docId and the id of its default Layer, which is the parent for your first Nodes. Coordinates are document points, origin top-left, y down.",
+      description: `Create a Document with one or more Artboards. Returns docId and the id of its default Layer, which is the parent for your first Nodes. Read ${CONVENTIONS} before your first write.`,
       inputSchema: {
         name: z.string().min(1),
         artboards: z.array(ArtboardInput).min(1).max(1000),
@@ -150,7 +166,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Create Nodes in one atomic write: one bad item fails the call and creates nothing.",
         "Each node needs parentId, the id of a Layer or Group, never an Artboard; a layer omits it to sit at the Document root.",
-        "Types, in document coordinates (pt, origin top-left, y down):",
+        "Types:",
         "layer {name}: parent is the root or another Layer.",
         "group {children}: children are nodes of any type but layer, without parentId, created inside the Group.",
         "rect {x, y, width, height, radius}: radius is the corner radius.",
@@ -160,10 +176,11 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "star {cx, cy, outerRadius, innerRadius, points}.",
         "path {d}: SVG path data with absolute M, L, C, Q and Z only.",
         "text {x, y, content, fontSize}: Point Type; x, y is where the baseline of the first character starts. content is one line, no line breaks; fontSize is in pt, default 12. The only font is Source Sans 3.",
-        "Live Shapes, paths and text take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}, colors #RRGGBB or #RRGGBBAA; omit it for a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke.",
+        "Live Shapes, paths and text take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}; omit it for a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke.",
         "Give each node a clientKey to find its new id in the receipt's keyMap.",
         "At most 2000 Nodes per call, counting inline children.",
         "Also accepts tags and meta (any JSON) on each node.",
+        `Coordinates, colours, d and defaults: ${CONVENTIONS}.`,
       ].join(" "),
       inputSchema: { docId, nodes: z.array(NodeInput).min(1), ...writeFields },
       outputSchema: WriteReceipt.shape,

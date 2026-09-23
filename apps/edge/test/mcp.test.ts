@@ -1,6 +1,6 @@
 import { evictAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
-import { COLOR_PATTERN } from "@zibel/core";
+import { COLOR_PATTERN, type ErrorCode } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { call, errorOf, rpc } from "./rpc.ts";
 
@@ -79,10 +79,20 @@ it("lists tools with annotations and an outputSchema", async () => {
   expect(byName.zibel_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
   expect(byName.zibel_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
   expect(JSON.stringify(tools)).not.toContain("no effect yet");
+  // Descriptions point at the Skill document instead of repeating its conventions.
+  const described = (name: string) => (byName[name] as { description?: string })?.description;
+  for (const name of ["zibel_doc_create", "zibel_node_create", "zibel_node_update"]) {
+    expect(described(name)).toContain("skill://zibel/drawing-conventions");
+  }
+  expect(described("zibel_node_create")).not.toContain("origin top-left");
   for (const t of tools) {
-    expect(t.annotations).toHaveProperty("readOnlyHint");
-    expect(t.annotations).toHaveProperty("openWorldHint", false);
-    expect(t.outputSchema).toMatchObject({ type: "object" });
+    expect(t.annotations, t.name).toEqual({
+      readOnlyHint: expect.any(Boolean),
+      destructiveHint: expect.any(Boolean),
+      idempotentHint: expect.any(Boolean),
+      openWorldHint: false,
+    });
+    expect(t.outputSchema, t.name).toMatchObject({ type: "object" });
   }
   // Core validates colours, but Agents still read the pattern from the published schema (§6.5).
   const nodeCreate = tools.find((t) => t.name === "zibel_node_create");
@@ -1133,4 +1143,76 @@ describe("doc_outline options", () => {
     ]);
     expect(JSON.stringify(nodes)).not.toContain("bounds");
   });
+});
+
+it("returns a non-empty hint with every error code a tool can return", async () => {
+  const doc = await newDoc();
+  const { docId, defaultLayerId } = doc;
+  const tool = async (name: string, args: object) => errorOf(await call(name, { docId, ...args }));
+  const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 };
+  const create = async (node: object) =>
+    (await call("zibel_node_create", { docId, nodes: [node] })).structuredContent.createdIds[0];
+  // A new ErrorCode fails tsc here until it gets a trigger.
+  const triggers: Record<ErrorCode, (() => Promise<{ code: string; hint: string }>) | null> = {
+    DOC_NOT_FOUND: () => call("zibel_doc_get_info", { docId: "nope" }).then(errorOf),
+    NODE_NOT_FOUND: () => tool("zibel_node_get", { nodeIds: ["nope"] }),
+    ARTBOARD_NOT_FOUND: () => tool("zibel_render", { scope: { artboardId: "nope" } }),
+    NOTHING_TO_RENDER: async () =>
+      tool("zibel_render", {
+        scope: { nodeIds: [await create({ type: "group", parentId: defaultLayerId })] },
+      }),
+    INVALID_PARENT: () =>
+      tool("zibel_node_create", { nodes: [{ ...rect, parentId: doc.artboards[0].id }] }),
+    INVALID_COLOR: () => tool("zibel_render", { background: "red" }),
+    INVALID_PATH: () =>
+      tool("zibel_node_create", { nodes: [{ type: "path", parentId: defaultLayerId, d: "h 1" }] }),
+    INVALID_PATCH: () =>
+      tool("zibel_node_update", { updates: [{ nodeId: defaultLayerId, patch: { type: "rect" } }] }),
+    LIMIT_EXCEEDED: () => tool("zibel_node_create", { nodes: Array(2001).fill(rect) }),
+    PERMISSION_DENIED: async () => (await rpc("tools/list", {}, "nope")).body.error.data,
+    REV_CONFLICT: () => tool("zibel_node_create", { nodes: [rect], ifRev: 99 }),
+    NODE_GONE: async () => {
+      const id = await create(rect);
+      const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
+      await call("zibel_node_update", { docId, txId, updates: [{ nodeId: id, patch: { x: 1 } }] });
+      await call("zibel_node_delete", { docId, nodeIds: [id] });
+      return tool("zibel_tx_commit", { txId });
+    },
+    TX_NOT_FOUND: () => tool("zibel_tx_commit", { txId: "nope" }),
+    TX_EXPIRED: async () => {
+      const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
+      await call("zibel_tx_rollback", { docId, txId });
+      return tool("zibel_tx_commit", { txId });
+    },
+    // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).
+    NOTHING_TO_UNDO: null,
+    NOTHING_TO_REDO: null,
+  };
+  for (const [code, trigger] of Object.entries(triggers)) {
+    if (!trigger) continue;
+    expect(await trigger(), code).toMatchObject({ code, hint: expect.stringMatching(/\S/) });
+  }
+});
+
+it("serves skill://zibel/drawing-conventions as a resource and points at it on initialize", async () => {
+  const uri = "skill://zibel/drawing-conventions";
+  const init = await rpc("initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "test", version: "0" },
+  });
+  expect(init.body.result.instructions).toContain(uri);
+  const listed = (await rpc("resources/list")).body.result.resources;
+  expect(listed).toContainEqual(expect.objectContaining({ uri, mimeType: "text/markdown" }));
+  const [doc] = (await rpc("resources/read", { uri })).body.result.contents;
+  expect(doc).toMatchObject({ uri, mimeType: "text/markdown" });
+  for (const fact of ["#RRGGBB", "y down", "parentId", "ifRev", "zibel_doc_changes"]) {
+    expect(doc.text).toContain(fact);
+  }
+  // Drift guard: the document names only tools that exist.
+  const tools = new Set(
+    (await rpc("tools/list")).body.result.tools.map((t: { name: string }) => t.name),
+  );
+  for (const [name] of doc.text.matchAll(/zibel_[a-z_]+/g)) expect(tools).toContain(name);
+  expect((await rpc("resources/read", { uri: "skill://zibel/nope" })).body.error).toBeDefined();
 });
