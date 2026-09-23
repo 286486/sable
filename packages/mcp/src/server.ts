@@ -2,18 +2,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   ArtboardInput,
+  Color,
   NodeInput,
+  Overlay,
+  parseColor,
+  RenderScope,
   TransformInput,
   UpdateInput,
   WriteReceipt,
   ZibelError,
 } from "@zibel/core";
-import type { DocumentService } from "@zibel/sync";
+import type { DocumentService, Viewport } from "@zibel/sync";
 import { z } from "zod";
 import {
   ChangesOutput,
   CreatedDocumentOutput,
   DocInfoOutput,
+  ExportOutput,
   NodeGetOutput,
   OutlineOutput,
   RenderOutput,
@@ -63,6 +68,23 @@ const edit = {
   idempotentHint: true,
   openWorldHint: false,
 };
+
+const read = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
+const scopes =
+  "scope is one of {artboardId}, {nodeIds} or {rect: {x, y, width, height}} in document coordinates; omitted, the whole Document (every Artboard). An Artboard or rect draws everything inside it. nodeIds draws only those Nodes and what they contain, framed by their visibleBounds, with no Artboard background.";
+const scope = RenderScope.optional();
+const scale = z.number().positive().max(4).default(1);
+const background = Color.optional().describe(
+  "Fills the whole image beneath everything; otherwise pixels outside every Artboard are transparent.",
+);
+/** Parses `background` here, so a bad colour is INVALID_COLOR with a hint (§6.5). */
+const color = (value: unknown) =>
+  value === undefined ? undefined : parseColor(value, "background");
 
 /** A fresh server per request: MCP is stateless (ADR-0006). */
 export function createMcpServer(service: DocumentService, actor: string): McpServer {
@@ -271,28 +293,69 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     "zibel_render",
     {
       title: "Render",
-      description:
-        "Render the whole Document (every Artboard) to a PNG so you can see what you drew. viewport maps pixels back to document coordinates: docX = docRect.x + px / scale.",
+      description: [
+        "Render part of the Document to a PNG so you can see what you drew.",
+        scopes,
+        "overlays draw aids over the artwork, a fixed pixel size at any scale: bounds boxes each Node's geometricBounds, ids labels each Node with its id at the top-left corner of those bounds (Layers get neither), artboards outlines every Artboard.",
+        "When the image's longer side would pass maxSize (default 1600 px), the scale is lowered to fit; read the scale actually used from viewport.scale.",
+        "viewport maps pixels back to document coordinates: docX = docRect.x + px / scale, docY = docRect.y + py / scale.",
+      ].join(" "),
       inputSchema: {
         docId,
-        scale: z.number().positive().max(4).default(1).describe("Pixels per point."),
+        scope,
+        scale: scale.describe("Pixels per point, before maxSize."),
+        maxSize: z
+          .number()
+          .int()
+          .positive()
+          .default(1600)
+          .describe("Longest side in pixels; the scale is lowered to fit. At most 4096 is drawn."),
+        background,
+        overlays: z.array(Overlay).default([]),
         txId: readTxId,
       },
       outputSchema: RenderOutput.shape,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: read,
     },
-    ({ docId, scale, txId }) =>
+    ({ docId, background, ...req }) =>
       run("zibel_render", async () => {
-        const { png, viewport } = await service.render(docId, scale, txId);
-        return {
-          structuredContent: { viewport },
-          content: [{ type: "image", data: png.toBase64(), mimeType: "image/png" }],
-        };
+        const { png, viewport } = await service.render(docId, {
+          ...req,
+          background: color(background),
+        });
+        return image(png, viewport);
+      }),
+  );
+
+  server.registerTool(
+    "zibel_export",
+    {
+      title: "Export",
+      description: [
+        "Export the artwork of part of the Document, returned inline: svg as text content with docRect, its viewBox; png as image content with viewport, as zibel_render returns it.",
+        scopes,
+        "No overlays and no maxSize: a png is scale pixels per point, at most 4096 px on its longer side.",
+      ].join(" "),
+      inputSchema: {
+        docId,
+        format: z.enum(["svg", "png"]),
+        scope,
+        scale: scale.describe("png only: pixels per point."),
+        background,
+        txId: readTxId,
+      },
+      outputSchema: ExportOutput.shape,
+      annotations: read,
+    },
+    ({ docId, format, scale, background, ...req }) =>
+      run("zibel_export", async () => {
+        const opts = { ...req, background: color(background) };
+        if (format === "png") {
+          const { png, viewport } = await service.render(docId, { ...opts, scale });
+          return image(png, viewport);
+        }
+        const { svg, docRect } = await service.svg(docId, opts);
+        return { structuredContent: { docRect }, content: [{ type: "text", text: svg }] };
       }),
   );
 
@@ -345,7 +408,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Begin Transaction",
       description: [
         "Start a Transaction to make several writes one step that people see, and undo, at once.",
-        "Pass the returned txId to each write, and to node_get, doc_outline and render to see your uncommitted work; nobody else sees it until zibel_tx_commit.",
+        "Pass the returned txId to each write, and to node_get, doc_outline, render and export to see your uncommitted work; nobody else sees it until zibel_tx_commit.",
         "It rolls back after 5 minutes without a call carrying its txId. label becomes the summary in zibel_doc_changes. rev is the committed rev, for ifRev.",
       ].join(" "),
       inputSchema: { docId, label: z.string().min(1).max(200).optional() },
@@ -405,6 +468,11 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
 
   return server;
 }
+
+const image = (png: Uint8Array, viewport: Viewport): CallToolResult => ({
+  structuredContent: { viewport },
+  content: [{ type: "image", data: png.toBase64(), mimeType: "image/png" }],
+});
 
 /** A structured result plus the same JSON as text, for clients that ignore structuredContent. */
 const json = (result: object): CallToolResult => ({

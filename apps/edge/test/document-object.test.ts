@@ -388,3 +388,22 @@ it("keeps the latest 200 Transactions on the undo stack", async () => {
   // The create and the first move fell off the stack.
   expect(await x()).toBe(1);
 });
+
+it("writes each Node id into the SVG it hands the Worker to rasterise, with the ids overlay", async () => {
+  const { defaultLayerId: parentId } = ok(
+    await stub("ids").create({ docId: "ids", name: "Doc", artboards, actor: "agent-a" }),
+  );
+  const receipt = ok(
+    await stub("ids").createNodes(
+      [
+        { type: "rect", parentId, x: 10, y: 10, width: 20, height: 20 },
+        { type: "group", parentId, children: [{ type: "line", x1: 0, y1: 0, x2: 5, y2: 5 }] },
+      ],
+      "agent-a",
+    ),
+  );
+  const { svg } = ok(await stub("ids").raster("agent-a", { scale: 1, overlays: ["ids"] }));
+  expect(receipt.createdIds).toHaveLength(3);
+  for (const id of receipt.createdIds) expect(svg).toContain(`>${id}</text>`);
+  expect(svg).not.toContain(parentId);
+});

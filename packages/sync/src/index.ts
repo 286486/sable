@@ -7,7 +7,9 @@ import type {
   FullView,
   NodeInput,
   OutlineNode,
+  Overlay,
   Rect,
+  RenderScope,
   TransformInput,
   UpdateInput,
   WriteReceipt,
@@ -80,11 +82,10 @@ export interface DocumentService {
     depth: number,
     txId?: string,
   ): Promise<{ rev: number; layers: OutlineNode[] }>;
-  render(
-    docId: string,
-    scale: number,
-    txId?: string,
-  ): Promise<{ png: Uint8Array; viewport: Viewport }>;
+  /** A PNG of the scope, and the Viewport mapping its pixels back (ADR-0014). */
+  render(docId: string, req: RasterRequest): Promise<{ png: Uint8Array; viewport: Viewport }>;
+  /** The SVG of the scope, the artwork only. */
+  svg(docId: string, req: RenderRequest): Promise<{ svg: string; docRect: Rect }>;
   begin(docId: string, label?: string): Promise<{ txId: string; rev: number }>;
   commitTx(
     docId: string,
@@ -97,6 +98,24 @@ export interface DocumentService {
     sinceRev: number,
     limit?: number,
   ): Promise<{ rev: number; changes: ChangeEntry[] }>;
+}
+
+/** What `render` and `export` draw (ADR-0014). */
+export interface RenderRequest {
+  /** Omitted: the whole Document, every Artboard. */
+  scope?: RenderScope;
+  /** A parsed `#RRGGBB` or `#RRGGBBAA` filling the whole scope beneath everything. */
+  background?: string;
+  /** See this open Transaction's uncommitted edits. */
+  txId?: string;
+}
+
+export interface RasterRequest extends RenderRequest {
+  /** Pixels per point. */
+  scale: number;
+  /** Lower `scale` until the longer side is at most this many pixels. */
+  maxSize?: number;
+  overlays?: Overlay[];
 }
 
 /** Maps rendered pixels back to document coordinates (F-MCP-11). */
