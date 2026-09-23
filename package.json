@@ -1,0 +1,24 @@
+{
+  "name": "zibel",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "tsc --noEmit && biome check . && vitest run",
+    "dev": "wrangler dev -c apps/edge/wrangler.jsonc",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@cloudflare/vitest-plugin": "1.2.3",
+    "@cloudflare/workers-types": "^5.20260922.1",
+    "@vitest/runner": "4.1.11",
+    "@vitest/snapshot": "4.1.11",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.136.3"
+  }
+}

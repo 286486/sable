@@ -1,0 +1,13 @@
+{
+  "name": "@zibel/render",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@resvg/resvg-wasm": "2.6.2",
+    "@zibel/core": "workspace:*"
+  }
+}

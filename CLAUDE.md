@@ -48,7 +48,7 @@ Every change passes these gates in order. A gate is done only when its criterion
 3. **Plan (Fable).** Dispatch `planner` with the issue number; it posts the plan as an issue comment. When the main session is Opus, call the advisor on the plan. Done: the plan comment lists units, each with its red test and the command that turns it green.
 4. **Branch.** `<issue-number>-<slug>` from `main`.
 5. **Implement (Opus).** One unit at a time: test red, smallest change to green, `pnpm check`, commit. Use `/mattpocock-skills:tdd` when the unit has a cheap test target. Done: every unit green and committed.
-6. **Verify (Opus).** `pnpm check` (typecheck, Biome, Vitest including the workerd pool) plus the suites the change reaches:
+6. **Verify (Opus).** `pnpm check` (typecheck, Biome, Vitest in workerd via `@cloudflare/vitest-plugin`) plus the suites the change reaches:
     - MCP tools, schemas or `skill://` docs: agent benchmarks in `fixtures/agent-benchmarks/`.
     - `packages/io` or `packages/render`: SVG round-trip fixtures.
     - `packages/geometry`: boolean and offset regression fixtures.

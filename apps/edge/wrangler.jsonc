@@ -1,0 +1,16 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zibel",
+  "main": "src/index.ts",
+  // Must not be later than the workerd bundled with @cloudflare/vitest-plugin.
+  "compatibility_date": "2026-09-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "DOCUMENT", "class_name": "DocumentObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocumentObject"] }],
+  // Dev tokens for local Agent Actors, `token=actor` pairs. Replaced by OAuth in M1.
+  "vars": {
+    "DEV_TOKENS": "dev-token-a=agent-a,dev-token-b=agent-b"
+  }
+}
