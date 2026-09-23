@@ -56,7 +56,7 @@ const writeFields = {
     ),
 };
 const coordinates =
-  "A Live Shape's parameters and a path's d are in the Node's own coordinates, mapped to the Document by its transform; geometricBounds says where it is.";
+  "A Live Shape's parameters, a path's d and a text's x, y are in the Node's own coordinates, mapped to the Document by its transform; geometricBounds says where it is.";
 const edit = {
   readOnlyHint: false,
   destructiveHint: true,
@@ -133,7 +133,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "polygon {cx, cy, radius, sides}: radius is center to vertex.",
         "star {cx, cy, outerRadius, innerRadius, points}.",
         "path {d}: SVG path data with absolute M, L, C, Q and Z only.",
-        "Live Shapes and paths take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}, colors #RRGGBB or #RRGGBBAA; omit it for a white Fill and a 1 pt black Stroke.",
+        "text {x, y, content, fontSize}: Point Type; x, y is where the baseline of the first character starts. content is one line, no line breaks; fontSize is in pt, default 12. The only font is Source Sans 3.",
+        "Live Shapes, paths and text take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}, colors #RRGGBB or #RRGGBBAA; omit it for a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke.",
         "Give each node a clientKey to find its new id in the receipt's keyMap.",
         "At most 2000 Nodes per call, counting inline children.",
         "Also accepts tags and meta (any JSON) on each node.",
@@ -157,7 +158,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Update Nodes",
       description: [
         "Change Nodes with one JSON Merge Patch (RFC 7396) each: objects merge, null deletes a key, arrays and everything else replace.",
-        "Writable on every Node: name, visible, locked, opacity (0-1), blendMode (stored, not rendered yet), tags, meta. A Live Shape or path also takes its parameters (see zibel_node_create) and appearance; a path takes d.",
+        "Writable on every Node: name, visible, locked, opacity (0-1), blendMode (stored, not rendered yet), tags, meta. A Live Shape or path also takes its parameters (see zibel_node_create) and appearance; a path takes d; a text takes content, fontSize, x, y and appearance.",
         "fills and strokes replace as a whole list, so send every Fill or Stroke you want to keep.",
         "Move, rotate or scale with zibel_node_transform; transform, type, parentId and derived bounds are read-only.",
         coordinates,
@@ -225,7 +226,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Read Nodes by id, in document coordinates.",
         "concise (default): id, type, name, parentId, visible, locked, childCount and geometricBounds.",
-        "full adds every stored property (Live Shape parameters, appearance, transform, opacity, blendMode, tags, meta), the outline d and closed of a Live Shape or path, visibleBounds (including Strokes) and worldTransform.",
+        "full adds every stored property (Live Shape parameters, text content and font, appearance, transform, opacity, blendMode, tags, meta), the outline d and closed of a Live Shape or path (a text has none), visibleBounds (including Strokes) and worldTransform.",
+        "A text's geometricBounds run from its font's ascender to its descender, as wide as its characters.",
         coordinates,
       ].join(" "),
       inputSchema: {

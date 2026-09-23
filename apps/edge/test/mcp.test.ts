@@ -81,6 +81,47 @@ it("lists tools with annotations and an outputSchema", async () => {
   );
 });
 
+// #4: Point Type measured by Source Sans 3's advances, read straight from the TTF: H 652, i 246,
+// space 200 per 1000 units; ascender 1000, descender -326.
+it("creates text whose bounds grow with its content by the font's advance widths", async () => {
+  const doc = await newDoc();
+  const text = (content: string) => ({
+    type: "text",
+    parentId: doc.defaultLayerId,
+    x: 10,
+    y: 50,
+    content,
+  });
+  const { tools } = (await rpc("tools/list")).body.result as {
+    tools: { name: string; description: string }[];
+  };
+  expect(tools.find((t) => t.name === "zibel_node_create")?.description).toContain("text {");
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [text("Hi"), text("Hi Hi")],
+  });
+  const ids = created.structuredContent.createdIds as string[];
+  const bounds = async () =>
+    (
+      (await call("zibel_node_get", { docId: doc.docId, nodeIds: ids })).structuredContent
+        .nodes as { geometricBounds: { x: number; y: number; width: number; height: number } }[]
+    ).map((n) => n.geometricBounds);
+  const [hi, longer] = await bounds();
+  expect(hi?.x).toBeCloseTo(10);
+  expect(hi?.y).toBeCloseTo(50 - 12);
+  expect(hi?.width).toBeCloseTo(((652 + 246) * 12) / 1000);
+  expect(hi?.height).toBeCloseTo((1326 * 12) / 1000);
+  expect(longer?.width).toBeCloseTo((((652 + 246) * 2 + 200) * 12) / 1000);
+
+  await call("zibel_node_update", {
+    docId: doc.docId,
+    updates: [{ nodeId: ids[0], patch: { content: "H" } }],
+  });
+  expect((await bounds())[0]?.width).toBeCloseTo((652 * 12) / 1000);
+  const rendered = await call("zibel_render", { docId: doc.docId });
+  expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
+});
+
 it("creates a rect in the default Layer and reads it back from doc_outline", async () => {
   const doc = await newDoc();
   expect(doc).toMatchObject({
