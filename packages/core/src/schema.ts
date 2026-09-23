@@ -370,5 +370,17 @@ export const WriteReceipt = z.object({
   warnings: z.array(
     z.object({ code: z.string(), nodeId: z.string().optional(), message: z.string() }),
   ),
+  failed: z
+    .array(
+      z.object({
+        index: z.number().int(),
+        code: z.string(),
+        message: z.string(),
+        hint: z.string(),
+        path: z.string().optional(),
+      }),
+    )
+    .optional()
+    .describe("Only with partial: true. The items that did not apply, by input index."),
 });
 export type WriteReceipt = z.infer<typeof WriteReceipt>;

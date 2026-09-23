@@ -327,3 +327,51 @@ describe("deleteNodes", () => {
     expect(doc.nodes.has(defaultLayerId)).toBe(true);
   });
 });
+
+describe("partial", () => {
+  it("applies the valid items and reports the rest by index", () => {
+    const { doc, rect } = newDoc();
+    const [a] = createNodes(doc, [rect(0, 0)]).nodes;
+    if (!a) throw new Error("setup");
+    const { nodes, failed } = updateNodes(
+      doc,
+      [
+        { nodeId: a.id, patch: { name: "ok" } },
+        { nodeId: "nope", patch: { name: "x" } },
+        { nodeId: a.id, patch: { appearance: { fills: [{ color: "red" }] } } },
+      ],
+      { partial: true },
+    );
+    expect(nodes.map((n) => n.id)).toEqual([a.id]);
+    expect(doc.nodes.get(a.id)?.name).toBe("ok");
+    expect(failed).toEqual([
+      expect.objectContaining({ index: 1, code: "NODE_NOT_FOUND", path: "updates[1].nodeId" }),
+      expect.objectContaining({
+        index: 2,
+        code: "INVALID_COLOR",
+        path: "updates[2].patch.appearance.fills[0].color",
+        hint: expect.any(String),
+      }),
+    ]);
+  });
+
+  it("does the same for delete and transform, and throws when nothing applies", () => {
+    const { doc, rect } = newDoc();
+    const [a, b] = createNodes(doc, [rect(0, 0), rect(0, 50)]).nodes;
+    if (!a || !b) throw new Error("setup");
+    const moved = transformNodes(
+      doc,
+      { nodeIds: ["nope", a.id], translate: { x: 1 } },
+      { partial: true },
+    );
+    expect(moved.nodes.map((n) => n.id)).toEqual([a.id]);
+    expect(moved.failed).toMatchObject([{ index: 0, code: "NODE_NOT_FOUND" }]);
+    const gone = deleteNodes(doc, [b.id, "nope"], { partial: true });
+    expect(gone.deletedIds).toEqual([b.id]);
+    expect(gone.failed).toMatchObject([{ index: 1, path: "nodeIds[1]" }]);
+    expect(errorOf(() => deleteNodes(doc, ["x", "y"], { partial: true }))).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "nodeIds[0]",
+    });
+  });
+});

@@ -496,3 +496,26 @@ describe("the 2000-Node cap per node_create", () => {
     expect(createNodes(doc, flat.slice(1)).nodes).toHaveLength(2000);
   });
 });
+
+it("creates the valid items with partial and reports the invalid one", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const { nodes, failed, keyMap } = createNodes(
+    doc,
+    [
+      { ...rect(defaultLayerId), clientKey: "a" },
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        clientKey: "g",
+        children: [rect(defaultLayerId), { type: "layer" }],
+      },
+    ],
+    { partial: true },
+  );
+  expect(nodes).toHaveLength(1);
+  expect(Object.keys(keyMap)).toEqual(["a"]);
+  expect(failed).toMatchObject([
+    { index: 1, code: "INVALID_PARENT", path: "nodes[1].children[1].type" },
+  ]);
+  expect(outline(doc)[0]?.childCount).toBe(1);
+});

@@ -2,7 +2,7 @@ import { generateKeyBetween } from "fractional-indexing";
 import { ulid } from "ulid";
 import type { z } from "zod";
 import { parseColor } from "./color.ts";
-import { ZibelError } from "./errors.ts";
+import { collect, type Failed, ZibelError } from "./errors.ts";
 import { IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
 import {
@@ -90,9 +90,8 @@ const countNodes = (items: { children?: unknown[] }[]): number =>
 export function createNodes(
   doc: Document,
   inputs: NodeInput[],
-): { nodes: Node[]; keyMap: Record<string, string> } {
-  const nodes: Node[] = [];
-  const keyMap: Record<string, string> = {};
+  { partial = false } = {},
+): { nodes: Node[]; keyMap: Record<string, string>; failed: Failed[] } {
   const lastIndex = new Map<string | null, string | null>();
   const nextIndex = (parentId: string | null) => {
     const prev = lastIndex.has(parentId)
@@ -106,6 +105,7 @@ export function createNodes(
     input: z.output<typeof NodeInput> | ChildInput,
     parentId: string | null,
     path: string,
+    out: { nodes: Node[]; keyMap: Record<string, string> },
   ) => {
     const at = {
       ...base(parentId, nextIndex(parentId)),
@@ -123,8 +123,8 @@ export function createNodes(
       const appearance = paint(input.appearance ?? defaultAppearance(), `${path}.appearance`);
       node = { ...at, ...shape, name, appearance };
     }
-    nodes.push(node);
-    if (input.clientKey !== undefined) keyMap[input.clientKey] = node.id;
+    out.nodes.push(node);
+    if (input.clientKey !== undefined) out.keyMap[input.clientKey] = node.id;
     if (input.type === "group") {
       input.children.forEach((child, k) => {
         if (child.type === "layer") {
@@ -135,7 +135,7 @@ export function createNodes(
             path: `${path}.children[${k}].type`,
           });
         }
-        add(child, node.id, `${path}.children[${k}]`);
+        add(child, node.id, `${path}.children[${k}]`, out);
       });
     }
   };
@@ -148,13 +148,20 @@ export function createNodes(
       path: "nodes",
     });
   }
-  inputs.forEach((raw, i) => {
+  const { ok, failed } = collect(inputs, partial, (raw, i) => {
+    // Each item collects into its own lists, so a failure halfway through a Group leaves no trace.
+    const out = { nodes: [] as Node[], keyMap: {} as Record<string, string> };
     const input = NodeInput.parse(raw);
     assertParent(doc, input, input.parentId, `nodes[${i}].parentId`);
-    add(input, input.parentId, `nodes[${i}]`);
+    add(input, input.parentId, `nodes[${i}]`, out);
+    return out;
   });
-  for (const node of nodes) doc.nodes.set(node.id, node);
-  return { nodes, keyMap };
+  for (const item of ok) for (const node of item.nodes) doc.nodes.set(node.id, node);
+  return {
+    nodes: ok.flatMap((item) => item.nodes),
+    keyMap: Object.assign({}, ...ok.map((item) => item.keyMap)),
+    failed,
+  };
 }
 
 /**

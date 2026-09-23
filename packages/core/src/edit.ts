@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { bounds, childrenOf, paint, union } from "./document.ts";
-import { ZibelError } from "./errors.ts";
+import { collect, type Failed, ZibelError } from "./errors.ts";
 import { compose, multiply, round, scaleOf } from "./matrix.ts";
 import { formatPath, parsePath } from "./path.ts";
 import {
@@ -66,9 +66,12 @@ function pivotOf(pivot: z.output<typeof TransformInput>["pivot"], b: Rect | null
 export function transformNodes(
   doc: Document,
   raw: TransformInput,
-): { nodes: Node[]; warnings: Warning[] } {
+  { partial = false } = {},
+): { nodes: Node[]; warnings: Warning[]; failed: Failed[] } {
   const input = TransformInput.parse(raw);
-  const targets = input.nodeIds.map((id, i) => lookup(doc, id, `nodeIds[${i}]`));
+  const { ok: targets, failed } = collect(input.nodeIds, partial, (id, i) =>
+    lookup(doc, id, `nodeIds[${i}]`),
+  );
   const { kept, nested } = outermost(doc, targets);
   const warnings = nested.map((n) => ({
     code: "NESTED_TARGET",
@@ -102,7 +105,7 @@ export function transformNodes(
       nodes.push(next);
     }
   }
-  return { nodes, warnings };
+  return { nodes, warnings, failed };
 }
 
 /** Keys `node_update` never writes, with where to go instead. */
@@ -191,26 +194,33 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
  * Applies one merge patch per item, in order, so two patches to one Node both land. Validates every
  * item before storing any.
  */
-export function updateNodes(doc: Document, updates: UpdateInput[]): { nodes: Node[] } {
+export function updateNodes(
+  doc: Document,
+  updates: UpdateInput[],
+  { partial = false } = {},
+): { nodes: Node[]; failed: Failed[] } {
   const staged = { ...doc, nodes: new Map(doc.nodes) };
-  const nodes = updates.map((u, i) => {
+  const { ok: nodes, failed } = collect(updates, partial, (u, i) => {
     const next = patched(staged, u, i);
     staged.nodes.set(next.id, next);
     return next;
   });
   for (const n of nodes) doc.nodes.set(n.id, n);
-  return { nodes };
+  return { nodes, failed };
 }
 
 /** Deletes the Nodes and everything beneath them; `bounds` is where they were. */
 export function deleteNodes(
   doc: Document,
   nodeIds: string[],
-): { deletedIds: string[]; bounds: Rect | null } {
-  const targets = nodeIds.map((id, i) => lookup(doc, id, `nodeIds[${i}]`));
+  { partial = false } = {},
+): { deletedIds: string[]; bounds: Rect | null; failed: Failed[] } {
+  const { ok: targets, failed } = collect(nodeIds, partial, (id, i) =>
+    lookup(doc, id, `nodeIds[${i}]`),
+  );
   const { kept } = outermost(doc, targets);
   const gone = kept.flatMap((n) => subtree(doc, n));
   const before = union(kept.map((n) => bounds(doc, n)));
   for (const n of gone) doc.nodes.delete(n.id);
-  return { deletedIds: gone.map((n) => n.id), bounds: before };
+  return { deletedIds: gone.map((n) => n.id), bounds: before, failed };
 }

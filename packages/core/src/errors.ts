@@ -22,3 +22,35 @@ export class ZibelError extends Error {
     this.name = "ZibelError";
   }
 }
+
+/** One batch item that did not apply under `partial: true`. */
+export interface Failed extends ErrorData {
+  index: number;
+}
+
+/**
+ * Runs `prepare` on every item. Atomic (default): the first ZibelError propagates. With `partial`,
+ * failures are collected by index; if nothing succeeded, the first failure is thrown instead.
+ */
+export function collect<T, R>(
+  items: T[],
+  partial: boolean,
+  prepare: (item: T, i: number) => R,
+): { ok: R[]; failed: Failed[] } {
+  const ok: R[] = [];
+  const failed: Failed[] = [];
+  items.forEach((item, index) => {
+    try {
+      ok.push(prepare(item, index));
+    } catch (e) {
+      if (!partial || !(e instanceof ZibelError)) throw e;
+      failed.push({ index, ...e.data });
+    }
+  });
+  const first = failed[0];
+  if (ok.length === 0 && first) {
+    const { index: _, ...data } = first;
+    throw new ZibelError(data);
+  }
+  return { ok, failed };
+}
