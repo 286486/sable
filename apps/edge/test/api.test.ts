@@ -175,6 +175,38 @@ it("commits a delete command and broadcasts the deleted ids", async () => {
   expect(tx).toMatchObject({ type: "tx", actor: "user", commandId: "c2", deletedIds: [id] });
 });
 
+it("commits an update command that hides a Node as one Transaction of the User Actor", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { createdIds, rev } = (
+    await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] })
+  ).structuredContent;
+  const [id] = createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+
+  ws.send(command("c4", { type: "update", nodeId: id, patch: { visible: false } }));
+  const [, tx] = await received(2);
+  expect(tx).toMatchObject({ type: "tx", actor: "user", commandId: "c4" });
+  expect(tx?.type === "tx" && tx.updated).toMatchObject([{ id, visible: false, locked: false }]);
+  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id] })).structuredContent;
+  expect(nodes[0]).toMatchObject({ visible: false });
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: rev })).structuredContent;
+  expect(changes).toMatchObject([{ actor: "user", summary: "Update 1 Node", updatedIds: [id] }]);
+});
+
+it("closes the socket with 1007 on an update patch other than visible or locked", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id] = (await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] }))
+    .structuredContent.createdIds;
+  for (const patch of [{}, { name: "x" }]) {
+    const { ws, received } = await subscribe(docId);
+    await received(1);
+    const closed = new Promise<CloseEvent>((r) => ws.addEventListener("close", r));
+    ws.send(command("c5", { type: "update", nodeId: id, patch }));
+    expect((await closed).code).toBe(1007);
+  }
+});
+
 it("rejects a move of a Node deleted meanwhile with NODE_GONE, and commits nothing", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const [id, kept] = (
