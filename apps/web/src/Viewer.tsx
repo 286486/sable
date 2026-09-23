@@ -1,5 +1,6 @@
 import { bounds, type Document, type Rect, union } from "@zibel/core";
 import { drawDocument } from "@zibel/render/canvas";
+import fontUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
 import { useEffect, useRef, useState } from "react";
 import { Layers } from "./Layers.tsx";
 import { preview } from "./receive.ts";
@@ -30,6 +31,11 @@ const rectOf = (a: Point, b: Point): Rect => ({
 /** Pinch sends small deltas and passes through; a mouse-wheel notch (about 100) is capped to x1.65. */
 const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
 
+// The font the Worker renders with (ADR-0013), loaded once per page.
+const font = new FontFace("Source Sans 3", `url(${fontUrl})`);
+document.fonts.add(font);
+const fontLoaded = font.load();
+
 const artboardsRect = (doc: Document) =>
   union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 100, height: 100 };
 
@@ -47,6 +53,13 @@ export function Viewer({ docId }: { docId: string }) {
   const last = useRef({ x: 0, y: 0 });
   const gesture = useRef<Gesture | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
+  /** Settled once the font has loaded, or failed to and text falls back to another font. */
+  const [fontReady, setFontReady] = useState(false);
+
+  useEffect(() => {
+    const ready = () => setFontReady(true);
+    fontLoaded.then(ready, ready);
+  }, []);
 
   useEffect(() => connect(docId), [docId]);
 
@@ -76,7 +89,7 @@ export function Viewer({ docId }: { docId: string }) {
   useEffect(() => {
     const el = canvas.current;
     const ctx = el?.getContext("2d");
-    if (!el || !ctx || !doc || !viewport) return;
+    if (!el || !ctx || !doc || !viewport || !fontReady) return;
     const dpr = devicePixelRatio;
     el.width = Math.round(size.width * dpr);
     el.height = Math.round(size.height * dpr);
@@ -108,7 +121,7 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.strokeRect(mx, my, width, height);
       ctx.setLineDash([]);
     }
-  }, [doc, viewport, size, selection, drag, marqueeRect]);
+  }, [doc, viewport, size, selection, drag, marqueeRect, fontReady]);
 
   // Ctrl+wheel (and trackpad pinch) zooms at the cursor; plain wheel and two-finger scroll pan.
   // A native listener, because React's onWheel is passive and cannot preventDefault.

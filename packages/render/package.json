@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./canvas": "./src/canvas.ts"
+    "./canvas": "./src/canvas.ts",
+    "./fonts/*": "./fonts/*"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "2.6.2",

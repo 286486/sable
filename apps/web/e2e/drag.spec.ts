@@ -135,3 +135,29 @@ test("the Layers panel shows, hides, locks and selects an Agent's rectangle", as
   await page.keyboard.press("Delete");
   await expect.poll(async () => (await node()) ?? null).toBeNull();
 });
+
+// #4: an Agent's Point Type draws in the bundled font, and the Layers panel names it by content.
+test("an Agent's text draws in Source Sans 3", async ({ page, request }) => {
+  const { docId, defaultLayerId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Text",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  await call(request, "zibel_node_create", {
+    docId,
+    nodes: [
+      { type: "text", parentId: defaultLayerId, x: 40, y: 70, content: "Hello", fontSize: 48 },
+    ],
+  });
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.locator("body")).toContainText(/\d+%/);
+  await expect(page.getByRole("button", { name: "Hello", exact: true })).toBeVisible();
+  // fonts.check() is true when no FontFace matches at all; load() lists the faces it found.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await document.fonts.load('12px "Source Sans 3"')).length),
+    )
+    .toBe(1);
+});
