@@ -199,7 +199,7 @@ _Avoid_: Annotation、Guide（那是参考线）；不要单说 Overlay（ADR-00
 ## 读取与查询
 
 **Document Outline（文档大纲）**：
-`doc_outline` 返回的稀疏 Node 树：每项只有 id、type、name、bounds、childCount、visible、locked，子项展开到 `depth` 层。不带 `rootId` 时顶层永远是 Layer 列表。
+`doc_outline` 返回的稀疏 Node 树：每项只有 id、type、name、bounds（`includeBounds: false` 时省略）、childCount、visible、locked，子项展开到 `depth` 层。不带 `rootId` 时顶层永远是 Layer 列表。
 _Avoid_: Tree、Layers（那是面板）；不要单说 Outline（Illustrator 的 Outline 是轮廓视图或 Create Outlines）
 
 **Node Query（节点查询）**：

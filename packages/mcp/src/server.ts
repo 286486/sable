@@ -274,7 +274,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Query Nodes",
       description: [
-        "Find Nodes by filter without reading the whole Document. Every filter given must hold; with none, every Node matches, hidden and locked ones included.",
+        "Node Query: the Nodes matching every filter given, without reading the whole Document; with none, every Node matches, hidden and locked ones included.",
         'types: any of these. nameRegex: tested against the stored name (unnamed is ""). tags: carries every one. parentId: direct children only. withinRect: geometricBounds entirely inside; intersectsRect: touching. Rects are {x, y, width, height} in document coordinates; a Layer or Group with nothing in it has no bounds and never matches them.',
         "Returns the concise view of zibel_node_get, sorted by id, limit per page (default 100, max 1000). While more follow, nextCursor is set: pass it back as cursor with the same filters for the next page; null means the last page.",
       ].join(" "),

@@ -13,7 +13,7 @@ An Agent finds Documents and Nodes without loading everything (F-SEL-07, REQUIRE
   - `nameRegex`: a JavaScript regular expression, without flags, tested against `name` with `RegExp.test`. The schema rejects a pattern that does not compile, and caps it at 200 characters. It matches the stored `name`, not the Auto-name; an unnamed Node has the name `""`.
   - `tags`: the Node carries every listed tag.
   - `parentId`: the Node's direct parent is this id. It does not match deeper descendants, as the name says. An Agent that wants a whole subtree combines `withinRect` with the container's bounds, or walks `doc_outline`.
-  - `withinRect`: the Node's `geometricBounds` lie entirely inside the rect.
+  - `withinRect`: the Node's `geometricBounds` lie entirely inside the rect, edges included.
   - `intersectsRect`: the Node's `geometricBounds` touch the rect, edges included. This is the browser marquee's test (#9), which moves into core so both use one function.
   - A Node without bounds, such as an empty Group or Layer, never matches `withinRect` or `intersectsRect`.
   - Hidden and locked Nodes are included. The Agent side does not follow UI selectability (F-SEL-07).

@@ -440,17 +440,19 @@ export const WriteReceipt = z.object({
 });
 export type WriteReceipt = z.infer<typeof WriteReceipt>;
 
-export const NodeType = z.enum([
-  "layer",
-  "group",
-  "rect",
-  "ellipse",
-  "line",
-  "polygon",
-  "star",
-  "path",
-  "text",
-]) satisfies z.ZodType<Node["type"]>;
+/** Every Node type once: the Record fails to compile when a type is added or dropped. */
+const NODE_TYPES = {
+  layer: true,
+  group: true,
+  rect: true,
+  ellipse: true,
+  line: true,
+  polygon: true,
+  star: true,
+  path: true,
+  text: true,
+} satisfies Record<Node["type"], true>;
+export const NodeType = z.enum(Object.keys(NODE_TYPES) as [Node["type"]]);
 
 const compiles = (pattern: string) => {
   try {
