@@ -1,10 +1,30 @@
-import { type Document, union } from "@zibel/core";
+import { bounds, type Document, type Rect, union } from "@zibel/core";
 import { drawDocument } from "@zibel/render/canvas";
 import { useEffect, useRef, useState } from "react";
-import { connect, useStore } from "./store.ts";
-import { fit, type Viewport, zoomAt } from "./viewport.ts";
+import { preview } from "./receive.ts";
+import { combine, hitTest, inverse, marquee, objects } from "./selection.ts";
+import { connect, send, useStore } from "./store.ts";
+import { fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
 
 const PASTEBOARD = "#E6E6E6";
+/** Illustrator's first Layer colour, used for the Selection and the marquee. */
+const SELECTION = "#4F80FF";
+/** Screen px the pointer may wander before a press becomes a drag, and the hit tolerance. */
+const SLOP = 3;
+
+type Point = { x: number; y: number };
+type Mods = { shift: boolean; alt: boolean };
+/** A press of the Selection tool: moving the Selection, or drawing a marquee. */
+type Gesture =
+  | { kind: "move"; start: Point; nodeIds: string[]; moved: boolean }
+  | { kind: "marquee"; start: Point; mods: Mods; moved: boolean };
+
+const rectOf = (a: Point, b: Point): Rect => ({
+  x: Math.min(a.x, b.x),
+  y: Math.min(a.y, b.y),
+  width: Math.abs(a.x - b.x),
+  height: Math.abs(a.y - b.y),
+});
 
 /** Pinch sends small deltas and passes through; a mouse-wheel notch (about 100) is capped to x1.65. */
 const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
@@ -12,10 +32,10 @@ const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, delta
 const artboardsRect = (doc: Document) =>
   union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 100, height: 100 };
 
-/** A live, read-only view of one Document. */
+/** A live view of one Document: select, drag-move and delete its objects. */
 export function Viewer({ docId }: { docId: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const { doc, live, viewport } = useStore();
+  const { doc, live, viewport, selection, drag, notice } = useStore();
   const [size, setSize] = useState({ width: 0, height: 0 });
   /** Space held: drag pans. */
   const [hand, setHand] = useState(false);
@@ -24,6 +44,8 @@ export function Viewer({ docId }: { docId: string }) {
   const [alt, setAlt] = useState(false);
   /** Pointer position at the last pan step; movementX/Y scale with devicePixelRatio in some Chromes. */
   const last = useRef({ x: 0, y: 0 });
+  const gesture = useRef<Gesture | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
 
   useEffect(() => connect(docId), [docId]);
 
@@ -69,8 +91,23 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.strokeStyle = "#000000";
       ctx.strokeRect(frame.x, frame.y, frame.width, frame.height);
     }
-    drawDocument(ctx, doc);
-  }, [doc, viewport, size]);
+    // Hit tests use `doc`; only the drawing shows the drag.
+    const shown = drag ? preview(doc, drag) : doc;
+    drawDocument(ctx, shown);
+    ctx.lineWidth = 1 / scale;
+    ctx.strokeStyle = SELECTION;
+    for (const id of selection) {
+      const node = shown.nodes.get(id);
+      const b = node && bounds(shown, node);
+      if (b) ctx.strokeRect(b.x, b.y, b.width, b.height);
+    }
+    if (marqueeRect) {
+      ctx.setLineDash([4 / scale, 4 / scale]);
+      const { x: mx, y: my, width, height } = marqueeRect;
+      ctx.strokeRect(mx, my, width, height);
+      ctx.setLineDash([]);
+    }
+  }, [doc, viewport, size, selection, drag, marqueeRect]);
 
   // Ctrl+wheel (and trackpad pinch) zooms at the cursor; plain wheel and two-finger scroll pan.
   // A native listener, because React's onWheel is passive and cannot preventDefault.
@@ -104,10 +141,18 @@ export function Viewer({ docId }: { docId: string }) {
         return;
       }
       if (!down) return;
-      const { doc, viewport: v } = useStore.getState();
+      const { doc, viewport: v, selection } = useStore.getState();
       if (!doc || !v) return;
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key === "0") {
+      const key = e.key.toLowerCase();
+      if (mod && key === "a") {
+        e.preventDefault();
+        useStore.setState({ selection: e.shiftKey ? [] : objects(doc).map((n) => n.id) });
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selection.length > 0) {
+        e.preventDefault();
+        send({ type: "delete", nodeIds: selection });
+        useStore.setState({ selection: [] });
+      } else if (mod && e.key === "0") {
         e.preventDefault();
         set(fit(artboardsRect(doc), size.width, size.height));
       } else if (mod && e.key === "1") {
@@ -127,26 +172,94 @@ export function Viewer({ docId }: { docId: string }) {
     };
   }, [size]);
 
+  /** The pointer in document coordinates. */
+  const docPoint = (e: React.PointerEvent<HTMLCanvasElement>, v: Viewport) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return toDoc(v, e.clientX - r.left, e.clientY - r.top);
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const v = useStore.getState().viewport;
-    if (!v) return;
+    const { doc, viewport: v, selection } = useStore.getState();
+    if (!doc || !v) return;
     if (hand) {
       e.currentTarget.setPointerCapture(e.pointerId);
       last.current = { x: e.clientX, y: e.clientY };
-    } else if (zoomTool) {
+      return;
+    }
+    if (zoomTool) {
       const r = e.currentTarget.getBoundingClientRect();
       const factor = e.altKey ? 0.5 : 2;
       useStore.setState({ viewport: zoomAt(v, factor, e.clientX - r.left, e.clientY - r.top) });
+      return;
+    }
+    const ctx = e.currentTarget.getContext("2d");
+    if (!ctx) return;
+    const start = docPoint(e, v);
+    const mods = { shift: e.shiftKey, alt: e.altKey };
+    const hit = hitTest(ctx, doc, start.x, start.y, SLOP / v.scale);
+    useStore.setState({ notice: null });
+    if (hit && mods.shift) {
+      useStore.setState({ selection: combine(selection, [hit], mods) });
+      return;
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    if (hit) {
+      // Pressing a selected object keeps the Selection, so the whole Selection moves.
+      const nodeIds = selection.includes(hit) ? selection : [hit];
+      useStore.setState({ selection: nodeIds });
+      gesture.current = { kind: "move", start, nodeIds, moved: false };
+    } else {
+      gesture.current = { kind: "marquee", start, mods, moved: false };
     }
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const v = useStore.getState().viewport;
     if (!v || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
-    const dx = e.clientX - last.current.x;
-    const dy = e.clientY - last.current.y;
-    last.current = { x: e.clientX, y: e.clientY };
-    useStore.setState({ viewport: { ...v, x: v.x + dx, y: v.y + dy } });
+    const g = gesture.current;
+    if (!g) {
+      const dx = e.clientX - last.current.x;
+      const dy = e.clientY - last.current.y;
+      last.current = { x: e.clientX, y: e.clientY };
+      useStore.setState({ viewport: { ...v, x: v.x + dx, y: v.y + dy } });
+      return;
+    }
+    const p = docPoint(e, v);
+    const [dx, dy] = [p.x - g.start.x, p.y - g.start.y];
+    g.moved ||= Math.hypot(dx, dy) * v.scale >= SLOP;
+    if (!g.moved) return;
+    if (g.kind === "move")
+      useStore.setState({ drag: { nodeIds: g.nodeIds, dx, dy, commandId: null } });
+    else setMarqueeRect(rectOf(g.start, p));
+  };
+
+  /** Releasing commits a move as one Transaction, or applies the marquee (a click if it never moved). */
+  const onPointerUp = () => {
+    const g = gesture.current;
+    gesture.current = null;
+    const { doc, drag, selection } = useStore.getState();
+    if (!g || !doc) return;
+    if (g.kind === "marquee") {
+      const ids = g.moved && marqueeRect ? marquee(doc, marqueeRect) : [];
+      useStore.setState({ selection: combine(selection, ids, g.mods) });
+      setMarqueeRect(null);
+    } else if (g.moved && drag && drag.commandId === null) {
+      // ponytail: TransformInput takes at most 1000 nodeIds; chunk or lift the max when Documents grow.
+      const translate = { x: drag.dx, y: drag.dy };
+      const commandId = send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
+      useStore.setState({ drag: { ...drag, commandId } });
+    }
+  };
+
+  const onPointerCancel = () => {
+    gesture.current = null;
+    setMarqueeRect(null);
+    if (useStore.getState().drag?.commandId === null) useStore.setState({ drag: null });
+  };
+
+  const select = (pick: (doc: Document, selection: string[]) => string[]) => () => {
+    const { doc, selection } = useStore.getState();
+    if (doc) useStore.setState({ selection: pick(doc, selection) });
   };
 
   const cursor = hand ? "grab" : zoomTool ? (alt ? "zoom-out" : "zoom-in") : "default";
@@ -158,11 +271,23 @@ export function Viewer({ docId }: { docId: string }) {
         style={{ width: "100%", height: "100%", display: "block", cursor }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
       />
       <div style={{ position: "absolute", top: 8, left: 12, color: "#444" }}>
         <a href="/">Documents</a> / {doc?.name ?? docId}
         {viewport && ` · ${Math.round(viewport.scale * 100)}%`}
-        {!live && " · connecting…"}
+        {!live && " · connecting…"}{" "}
+        <button type="button" onClick={select((d) => objects(d).map((n) => n.id))}>
+          Select All
+        </button>{" "}
+        <button type="button" onClick={select(() => [])}>
+          Deselect
+        </button>{" "}
+        <button type="button" onClick={select(inverse)}>
+          Inverse
+        </button>
+        {notice && <div style={{ color: "#B00020" }}>{notice}</div>}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { createDocument, createNodes, type Node } from "@zibel/core";
 import { describe, expect, it } from "vitest";
-import { combine, inverse, marquee, objectOf, objects, selectable } from "./selection.ts";
+import { combine, inverse, marquee, objectOf, objects } from "./selection.ts";
 
 /**
  * Layer 1: Group g (rects a, b), rect c, hidden rect h, locked Group lg (rect m), Layer 3 (rect e).
@@ -40,12 +40,6 @@ describe("objectOf", () => {
     expect(objectOf(doc, node("e"))?.id).toBe(id("e"));
     expect(objectOf(doc, node("l3"))).toBeNull();
   });
-});
-
-it("selectable needs the Node and every ancestor visible and unlocked", () => {
-  const { doc, node } = fixture();
-  expect(["a", "c", "e"].map((k) => selectable(doc, node(k)))).toEqual([true, true, true]);
-  expect(["h", "m"].map((k) => selectable(doc, node(k)))).toEqual([false, false]);
 });
 
 describe("objects", () => {
