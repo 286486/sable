@@ -74,3 +74,12 @@ it("previews a drag as core moves it, skipping Nodes deleted meanwhile", () => {
   expect(shown.nodes.get(b.id)).toBe(b);
   expect(doc.nodes.get(a.id)).toBe(a);
 });
+
+it("tells the person when an undo skipped Nodes deleted meanwhile", () => {
+  const { doc, a } = fixture();
+  const state = { doc, selection: [], drag: null, notice: null };
+  expect(receive(state, tx(doc, { skippedIds: [a.id] }), "d")).toMatchObject({
+    notice: expect.stringContaining("skipped"),
+  });
+  expect(receive(state, tx(doc, {}), "d")).not.toHaveProperty("notice");
+});

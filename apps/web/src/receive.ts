@@ -56,10 +56,12 @@ export function receive(
   // A reconnect loses the answer to a command in flight, so its preview goes with it.
   const answered =
     msg.type === "document" || (!!msg.commandId && msg.commandId === s.drag?.commandId);
+  const skipped = msg.type === "tx" ? (msg.skippedIds?.length ?? 0) : 0;
   return {
     doc,
     selection: s.selection.filter((id) => doc.nodes.has(id)),
     ...(answered && { drag: null }),
+    ...(skipped > 0 && { notice: `Undo skipped ${skipped} deleted object(s); they stay deleted.` }),
   };
 }
 
