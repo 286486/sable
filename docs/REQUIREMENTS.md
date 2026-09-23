@@ -1,10 +1,10 @@
-# Sable — MCP 驱动的 Web 矢量绘图工具 需求文档
+# Zibel — MCP 驱动的 Web 矢量绘图工具 需求文档
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v0.3（草案） |
+| 文档版本 | v0.4（草案） |
 | 日期 | 2026-09-22 |
-| 状态 | 待评审；v0.3 落实 grilling 第一轮 12 项决策（团队、hero slice、M0 范围、core 语言、客户端、登录、商业形态、脚本开放时机、4 条术语），见 §10.2；术语表见根目录 `CONTEXT.md`，架构决策见 `docs/adr/` |
+| 状态 | 待评审；v0.4 落实 grilling 前三轮共 28 项决策（含更名 Zibel、MCP 无状态网络化），见 §10.2；术语表见根目录 `CONTEXT.md`，架构决策见 `docs/adr/` |
 | 调研依据 | `docs/research/01-illustrator-core-features.md`（Illustrator 功能盘点）、`02-web-vector-tech-landscape.md`（Web 矢量技术与竞品）、`03-mcp-design-tool-patterns.md`（MCP 设计工具接口模式） |
 
 > 本文档中出现的 Illustrator 工具、面板、菜单名保留英文原名；本项目自身的模块、工具（MCP tool）名使用 `snake_case` 英文。"Agent" 指通过 MCP 调用本系统的 AI 客户端（Claude Code、Claude Desktop、Cursor 等）。
@@ -51,15 +51,16 @@
 
 ### 1.1 一句话定位
 
-**Sable 是一个运行在浏览器里的专业矢量绘图工具，文档模型从第一天起就是为 AI Agent 通过 MCP 读写而设计的，同时给人类用户提供接近 Adobe Illustrator 核心体验的画布与面板。**
+**Zibel 是一个运行在浏览器里的专业矢量绘图工具，文档模型从第一天起就是为 AI Agent 通过 MCP 读写而设计的，同时给人类用户提供接近 Adobe Illustrator 核心体验的画布与面板。**
 
-### 1.1.1 产品名：Sable
+### 1.1.1 产品名：Zibel
 
-- **含义**：sable = 貂毫。Kolinsky sable 是水彩与插画领域最顶级的画笔毛料，寓意"最好的笔"；同时 sable 也是一种深棕黑色，呼应墨迹。
-- **形式**：5 个字母、单音节、中英文都好读（中文可写"貂毫"或直接 Sable）；CLI 命令 `sable`，npm scope `@sable/*`（2026-09-22 查证 `@sable/core` 未被占用；bare 包名 `sable` 已被占，不使用），URI scheme `sable://`，MCP 工具前缀 `sable_`。
-- **已知同名**：Sable 是常见英文词，存在同名金融产品与游戏，均非设计 / 开发工具领域，冲突风险可接受；正式发布前需做商标检索。
-- **备选**：Kolinsky（完全无冲突但过长）、Vexel（vector + pixel）。
-- 当前仓库目录名 `sable/`（原 `drawer/`）在文档中统一使用新名，实际目录可在初始化代码库时重命名。
+- **含义**：Zibel 是德语 Zobel、法语 zibeline（貂）的短拼。貂毫（Kolinsky sable）是插画与水彩领域最顶级的画笔毛料，寓意"最好的笔"。中文读作"齐贝尔"。
+- **形式**：5 个字母的自造词。CLI `zibel`，npm 包名 `zibel` 与 scope `@zibel/*`，URI scheme `zibel://`，MCP 工具前缀 `zibel_`。
+- **核查**（`docs/research/05-name-conflict-check.md`，2026-09-23）：npm、PyPI、crates.io 均空闲，`zibel.dev` 与 `zibel.app` 未注册，GitHub 无同名项目。商标未查，发布前需手工检索 USPTO / EUIPO / WIPO。
+- **为何不用 Sable**：原名 Sable 的包名与短域名全部被占，且 Sable AI 在同一开发者 / Agent 受众中已有品牌。
+- **备选**：Kolinsky（全部空闲，但属艺术材料通用词，商标有描述性风险）、Zibeline。
+- 仓库：`github.com/286486/zibel`（由 `sable` 更名，旧地址自动重定向）。
 
 ### 1.2 要解决的问题
 
@@ -70,7 +71,7 @@
 | Excalidraw / tldraw 有优秀的 agent 集成，但只是白板：无真正贝塞尔编辑、无布尔、无排版引擎 | 产出物是草图，不是可交付的矢量作品 |
 | 图表 MCP（antvis、Vega-Lite）输出 PNG 或不可编辑 SVG | 图表生成后人无法继续在同一工具里精修 |
 
-Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一份可编辑矢量文档**。
+Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一份可编辑矢量文档**。
 
 ### 1.3 目标
 
@@ -89,7 +90,8 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - `.ai` 私有格式的高保真读写（只做 PDF 兼容层的基本导入）。
 - 栅格图像编辑（只做置入、裁切、描摹）。
 - 原生桌面客户端（第一阶段只做 Web，PWA 可离线是加分项）。
-- 非 Cloudflare 的官方托管形态（自托管用户可用 Node 单机模式，见 §6.2）。
+- 非 Cloudflare 的官方托管形态（自托管用户运行同一 Worker 包于 workerd，见 §6.2）。
+- stdio 传输与任何有状态 MCP 会话（见 §6.1 原则 11）。
 
 ### 1.5 成功指标（V1 验收）
 
@@ -131,7 +133,7 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - 反馈回路必须同时有"给人看的图"（PNG）和"给模型继续操作的结构"（ID 列表、稀疏大纲、SVG 文本）。Figma `get_metadata` 的稀疏 XML 与 Excalidraw `describe_scene` 是范例。
 - 事务：Canva 的 `start / perform / commit editing transaction` 三段式解决了 Agent 多步操作在人类撤销栈里碎成几十步的问题。
 - 常见坑：颜色格式（0–1 vs 0–255）、隐式"当前页 / 当前选区"状态导致多 Agent 竞态、大文档 token 膨胀、脚本工具安全边界。需求上要求：单一 canonical 颜色格式、所有寻址显式传 ID、分层读取 API、脚本工具沙箱化并标注 `destructiveHint`。
-- MCP 规范提供的 `outputSchema` / `structuredContent`、image content、resource_link、工具 annotations、分页、progress、elicitation 都应使用。
+- MCP 规范提供的 `outputSchema` / `structuredContent`、image content、resource_link、工具 annotations、分页、progress 都应使用；resources/subscribe 与 elicitation 依赖有状态会话，本项目不用（见 §6.1 原则 11）。
 
 ---
 
@@ -144,7 +146,7 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 | **P1 AI Agent** | Claude Code / Claude Desktop / Cursor 等 MCP 客户端中的模型，代表人类执行绘图任务 | 工具少而高层、schema 清晰、每步有回执与视觉反馈、错误可修正 |
 | **P2 设计师 / 插画师** | 熟悉 Illustrator，希望在浏览器里获得相近的手感 | 钢笔手感、快捷键一致、布尔与外观栈可靠、导出可交付 |
 | **P3 知识工作者 / 开发者** | 需要做图表、架构图、流程图、幻灯片配图；愿意用自然语言让 Agent 起稿再手工微调 | 从数据 / 描述到图，一分钟内出可编辑结果 |
-| **P4 开发者（集成方）** | 想把 Sable 嵌入自己的产品或流水线，headless 生成 SVG / PNG | 无 UI 运行、稳定 API、可自托管 |
+| **P4 开发者（集成方）** | 想把 Zibel 嵌入自己的产品或流水线，headless 生成 SVG / PNG | 无 UI 运行、稳定 API、可自托管 |
 
 ### 3.2 三大场景
 
@@ -198,9 +200,9 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 对齐 Illustrator 脚本 DOM（`Document → Artboard / Layer → PageItem`），但采用 Figma / tldraw 式扁平存储。
 
 **F-DOC-01 文档（Document）**（P0）
-- 属性：`id`、`name`、`version`（schema 版本）、`units`（pt，固定）、`colorSpace`（sRGB，固定）、`createdAt / updatedAt`、`assets`（资源库）、`nodes`（节点表）、`artboards`、`rootOrder`（顶层图层顺序）。
+- 属性：`id`、`name`、`version`（schema 版本）、`rev`（单调递增的文档修订号，每个提交的 Transaction 加一）、`units`（pt，固定）、`colorSpace`（sRGB，固定）、`createdAt / updatedAt`、`assets`（资源库）、`nodes`（节点表）、`artboards`、`rootOrder`（顶层图层顺序）。
 - 一个文档可包含 1–1000 个画板（与 Illustrator 上限一致）。
-- 原生文件格式 `.sable.json`：UTF-8 JSON，可读、可 diff、可 git 管理。内嵌位图以 base64 或相对路径引用（可选）。
+- 原生文件格式 `.zibel.json`：UTF-8 JSON，可读、可 diff、可 git 管理。内嵌位图以 base64 或相对路径引用（可选）。
 
 **F-DOC-02 节点（Node）通用属性**（P0）
 - `id`（稳定，ULID）、`type`、`name`、`parentId`、`index`（分数索引字符串，用于排序）、`visible`、`locked`、`opacity`（0–1）、`blendMode`（16 种，与 Illustrator 一致）、`transform`（2×3 仿射矩阵）、`tags`（字符串数组）、`meta`（任意 JSON，供 Agent 存备注 / 数据绑定）。
@@ -408,7 +410,7 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）
 - **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）
 - **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator 复制出来的 SVG、位图。（P0 SVG 与位图）
-- **F-IO-05** 原生 `.sable.json` 打开与拖入。（P0）
+- **F-IO-05** 原生 `.zibel.json` 打开与拖入。（P0）
 
 **导出**
 - **F-IO-06** SVG 导出（P0）：范围（文档 / 画板 / 选中对象）、精度（小数位 1–7）、样式写法（presentation attributes / inline style / `<style>` 类）、文字处理（保留 `<text>` / 转曲 / 嵌入字体子集 P1）、是否包含 `id` 与 `data-*`、是否压缩（SVGO）、是否响应式（去 width/height 留 viewBox）。实时对象展开导出；效果映射到 SVG filter 或栅格化。
@@ -421,19 +423,20 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 ### 5.17 历史、撤销与版本
 
 - **F-HIST-01** 无限撤销 / 重做（内存上限可配，默认 200 步），基于可逆命令（delta）；历史面板可跳转到任一步。（P0）
-- **F-HIST-02** 事务：UI 一次拖拽 = 一个事务；Agent 通过 `tx_begin / tx_commit` 包裹多步为一个撤销单元，未 commit 的事务在断连后自动回滚（超时可配，默认 5 分钟）。（P0）
+- **F-HIST-02** 事务：UI 一次拖拽 = 一个事务；Agent 通过 `tx_begin / tx_commit` 包裹多步为一个撤销单元。事务状态存于文档（Durable Object）而非连接，`txId` 由每个写工具显式传入；5 分钟无活动自动回滚（可配）。（P0）
 - **F-HIST-03** 命名快照：手动或 Agent 创建快照，可对比与恢复。（P1）
 - **F-HIST-04** 自动保存：本地 IndexedDB 每 5 秒增量保存；崩溃恢复。（P0）
 - **F-HIST-05** 版本历史（服务器端，按时间点恢复）。（P2）
 
 ### 5.18 人机协作
 
-- **F-COLLAB-01** 同一文档同时被浏览器 UI 与一个或多个 MCP 会话打开：所有变更经文档服务广播，UI 实时看到 Agent 的修改（带来源标识与高亮闪烁），Agent 通过 `doc_subscribe` / 资源订阅收到变更通知。（P0）
+- **F-COLLAB-01** 同一文档同时被浏览器 UI 与一个或多个 Agent 编辑：所有变更经文档服务广播，UI 实时看到 Agent 的修改（带来源标识与高亮闪烁），Agent 通过 `doc_changes(sinceRev)` 拉取变更摘要（MCP 层无推送）。（P0）
 - **F-COLLAB-02** 冲突策略：服务端权威，按属性最后写入胜出；对结构性操作（删除父节点 vs 子节点被编辑）定义确定性规则（删除胜出，编辑方收到 `NODE_GONE`）。（P0）
 - **F-COLLAB-03** 节点软锁：UI 用户正在拖拽的对象对 Agent 返回 `LOCKED_BY_USER`；Agent 事务中的节点在 UI 显示"Agent 正在编辑"并禁止拖拽（可强制解锁）。（P1）
 - **F-COLLAB-04** Agent 光标 / 意图展示：UI 显示 Agent 当前正在操作的区域与一行说明（来自工具调用的 `intent` 字段）。（P1）
 - **F-COLLAB-05** 多人协作（多浏览器用户）：光标、选区、评论。（P2）
-- **F-COLLAB-06** 权限：文档级 owner / editor / viewer；MCP 会话凭 token 获得 editor 或 viewer；`run_script` 需要额外授权标志。（P1）
+- **F-COLLAB-06** 权限：文档级 owner / editor / viewer；每个 Agent Actor 凭自己的 token 获得 editor 或 viewer；`run_script` 需要额外授权标志。（P1）
+- **F-COLLAB-07** Actor：每次修改都记录其 Actor（人类 User，或一个 Agent 凭证）。每个 MCP 客户端授权时获得独立 token，一个 token 即一个 Agent Actor，历史中显示为"Claude Code（woody）"；人类可按 Actor 撤销或回看修改。（P0）
 
 ---
 
@@ -443,7 +446,7 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 依据报告三 §A–D 的对比与 Anthropic「Writing effective tools for agents」指南：
 
-1. **混合粒度**：约 55 个具名工具（含 9 个 P0 图表工具），统一前缀 `sable_`，按"名词_动词"命名并分组；大多数写工具接受**数组**（批量）；图表每类型一个工具族共享 schema；保留一个沙箱化 `run_script` 作为逃生舱。
+1. **混合粒度**：约 55 个具名工具（含 9 个 P0 图表工具），统一前缀 `zibel_`，按"名词_动词"命名并分组；大多数写工具接受**数组**（批量）；图表每类型一个工具族共享 schema；保留一个沙箱化 `run_script` 作为逃生舱。
 2. **显式寻址**：所有工具都要 `docId`；节点操作要 `nodeIds`。没有"当前文档 / 当前选区 / 当前图层"的隐式参数。UI 选区可通过 `selection_get` 读到，但只是便利。
 3. **回执标准化**：所有写工具返回统一 `WriteReceipt`（见 6.5）。
 4. **分层读取**：`doc_outline`（稀疏）→ `node_get`（详情）→ `export`（全量）。默认返回 `concise`，可选 `detailed`。
@@ -452,11 +455,12 @@ Sable 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 7. **工具 annotations 全部声明**：`readOnlyHint`、`destructiveHint`、`idempotentHint`、`openWorldHint`（本服务全部为 false，除 `image_place` 从 URL 拉图时）。
 8. **`outputSchema` + `structuredContent`**：每个工具声明输出 schema，客户端可程序化消费。
 9. **错误即修正提示**：错误消息包含 `code`、`message`、`hint`（下一步该做什么）、`path`（schema 中出错字段），不返回堆栈。
-10. **Skill 文档随服务分发**：`skill://sable/*` 资源提供绘图约定、坐标 / 颜色规范、推荐工作流（骨架优先 → 填充 → 校验），客户端按需加载，不塞进工具描述。
+10. **Skill 文档随服务分发**：`skill://zibel/*` 资源提供绘图约定、坐标 / 颜色规范、推荐工作流（骨架优先 → 填充 → 校验），客户端按需加载，不塞进工具描述。
+11. **MCP 层无状态**：只用 Streamable HTTP，不发 `Mcp-Session-Id`；每个请求自带 Bearer token 与全部寻址信息（`docId`、`txId`），任意 Worker 实例都能处理，请求之间 MCP 服务端不留任何状态。文档的权威状态（含未提交事务、锁、修订号）全部在该文档的 Durable Object 里。因此：无 stdio、无 `resources/subscribe`、无 elicitation、无服务端发起的请求；进度通知只在单个请求的 SSE 响应流内发送。见 ADR-0006。
 
 ### 6.2 Server 形态与部署
 
-两种运行形态共用同一套 `core`：**本地单机模式**（开发者 / 自托管 / 离线）与**Cloudflare 托管模式**（官方 SaaS）。
+只有一种运行形态：**同一个 Worker 包**。官方托管跑在 Cloudflare；本地开发用 `wrangler dev`（本地 workerd，`http://localhost:8787/mcp`）；自托管用 workerd 的 Docker 镜像。三者行为一致。
 
 ```mermaid
 flowchart LR
@@ -470,7 +474,7 @@ flowchart LR
     DO[Durable Object: Document<br/>每文档一个实例<br/>权威状态 · 事务 · WebSocket 广播]
     R2[R2<br/>文档快照 · 位图 · 字体 · 导出物]
     D1[D1<br/>用户 · 文档元数据 · 权限 · 审计]
-    KV[KV<br/>会话 · 字体索引缓存]
+    KV[KV<br/>OAuth token · 字体索引缓存]
     Q[Queues<br/>批量导出 · 描摹等长任务]
     RW[Render Worker<br/>resvg / CanvasKit WASM → PNG]
   end
@@ -486,12 +490,12 @@ flowchart LR
   RW --> R2
 ```
 
-- **F-MCP-01 传输**：本地模式 `stdio`（`npx @sable/mcp`，进程内启动 Document Service，可选拉起本地 UI）；托管模式 Streamable HTTP（`https://mcp.<domain>/mcp`），OAuth 2.1 授权（MCP 规范的 authorization flow），**首发仅 GitHub 作为身份提供方**，token 绑定用户与文档权限。（P0 两种都要；M0 只做 stdio，HTTP 随 M1 托管上线）
+- **F-MCP-01 传输**：仅无状态 Streamable HTTP。托管地址 `https://mcp.<domain>/mcp`，OAuth 2.1 授权（MCP authorization 规范），**首发仅 GitHub 作为身份提供方**，每个 MCP 客户端一个 token（即一个 Agent Actor）。本地 `wrangler dev` 默认关闭鉴权或使用固定开发 token。M0 即走 HTTP（localhost），M1 上线托管与 OAuth。（P0）
 - **F-MCP-02 Headless 渲染**：`render` / `export` 在 Node 端或 Worker 端用 resvg-wasm（SVG → PNG，小体积，P0）完成；需要与浏览器像素一致的效果（混合模式、效果栈）时用 CanvasKit WASM（P1）。渲染输入统一是 core 的 SVG 序列化结果，保证三端一致。（P0）
-- **F-MCP-03 UI 附着**：浏览器与 MCP 会话连接同一个 Document DO，变更实时互见；`render` 可选 `source: "ui" | "headless"`。（P0）
-- **F-MCP-04 多文档**：本地模式一个进程可持有多个文档；托管模式每个文档一个 Durable Object，天然隔离与水平扩展。（P0）
-- **F-MCP-05 会话**：MCP 会话拥有 `sessionId`；事务、软锁、订阅按会话隔离；断开自动回滚未提交事务并释放锁。托管模式下会话状态存于 DO 内存 + KV。（P0）
-- **F-MCP-06 打包与部署**：`@sable/mcp` npm 包（本地）；`wrangler deploy` 一键部署官方托管栈（Worker + DO + R2 + D1 迁移脚本）；Docker 镜像供非 Cloudflare 自托管（Node 单机模式）。Claude Desktop / Claude Code / Cursor 配置示例文档。（P0）
+- **F-MCP-03 UI 附着**：浏览器经 WebSocket 连接 Document DO 实时看到变更；Agent 的每次工具调用由无状态 Worker 转发到同一个 DO；`render` 可选 `source: "ui" | "headless"`。（P0）
+- **F-MCP-04 多文档**：每个文档一个 Durable Object，天然隔离与水平扩展；本地 `wrangler dev` 同样如此。（P0）
+- **F-MCP-05 无会话**：不存在 MCP 会话。事务以 `txId` 标识、存于 DO、5 分钟无活动超时回滚；软锁挂在 `txId` 上随事务释放；变更感知用 `rev` + `doc_changes` 拉取，写工具可带 `ifRev` 做乐观并发检查。（P0）
+- **F-MCP-06 打包与部署**：`wrangler dev` 本地运行；`wrangler deploy` 一键部署官方托管栈（Worker + DO + R2 + D1 迁移脚本）；workerd Docker 镜像供非 Cloudflare 自托管。Claude Code / Claude Desktop / Cursor 的 HTTP MCP 配置示例。开发阶段 Cloudflare Free 档足够（本地 workerd 无 CPU 限制），**M1 托管上线第一周切 Workers Paid（$5/月）**，因 Free 档 CPU 10 ms 跑不了 headless 渲染。（P0）
 - **F-MCP-06a Cloudflare 资源映射**（P0 设计，M1 落地）：
 
 | 需求 | Cloudflare 资源 | 说明 |
@@ -501,7 +505,7 @@ flowchart LR
 | 前端静态资源 | **Workers Static Assets**（或 Pages） | 全球 CDN |
 | 文档快照、位图、上传字体、导出文件 | **R2** | S3 兼容，无出站流量费；导出物用预签名 URL 作为 `resource_link` |
 | 用户、文档索引、权限、审计日志、分享链接 | **D1** | 关系型元数据 |
-| 会话 token、Google Fonts 索引缓存、渲染缓存 | **KV** | 最终一致即可的数据 |
+| OAuth token、Google Fonts 索引缓存、渲染缓存 | **KV** | 最终一致即可的数据 |
 | 批量导出、Image Trace、PDF 生成等长任务 | **Queues** + Worker consumer | 配合 MCP progress token / `job_status` |
 | Headless PNG 渲染 | Worker 内 **resvg-wasm**；复杂效果走 **Browser Rendering**（headless Chromium）作为回退 | 已核实（`docs/research/04-cloudflare-limits.md`）：脚本上限 64 MiB 未压缩、内存 128 MB、Free 档 CPU 仅 10 ms → 渲染必须在 **Workers Paid（$5/月）** 上跑；Browser Rendering 每月仅含 10 小时，只能做回退 |
 | `run_script` 沙箱 | DO 内 **QuickJS WASM**；后续可评估 Cloudflare **Dynamic Workers / Worker Loaders** 做真隔离 | 见 F-MCP-07 |
@@ -510,31 +514,43 @@ flowchart LR
 
 - **F-MCP-06b 数据驻留与限制**（已按 `docs/research/04-cloudflare-limits.md` 核实）：单 DO SQLite 上限 10 GB（Paid）远超需求，但**单键值上限 2 MB**，因此文档不能整块存一个键：事务日志按行写 SQLite，节点表按节点或分片存储，完整快照写 R2；单文档 JSON 建议 < 50 MB，位图一律外置 R2；同一文档 ≤ 50 个活跃连接为设计目标。（P0 设计约束）
 
-- **F-MCP-06c 托管首发形态**：M1 托管版为**免费 beta + 硬配额**（每用户文档数、R2 存储、每日渲染次数；数字见 §10.2），不做计费；计费与付费档推到 M3。（P0）
+- **F-MCP-06c 托管首发形态**：M1 托管版为**免费 beta + 硬配额**，不做计费；计费与付费档推到 M3。超限返回 `LIMIT_EXCEEDED` 并提示。（P0）
+
+| 配额（每用户） | 值 |
+|---|---|
+| 文档数 | 50 |
+| R2 存储（位图、字体、导出物、快照） | 200 MB |
+| 每日 `render` | 500 次 |
+| 每日 `export` | 200 次 |
+| 单文档 JSON | 20 MB |
+| 单次上传位图 | 5 MB |
+| 同一文档并发浏览器连接 | 20 |
+
+- **F-MCP-06d 域名**：注册于 Cloudflare Registrar（`zibel.dev` 为首选）；M1 前用 `wizard` 生成一份手动配置向导，覆盖 Cloudflare 账号、域名、GitHub OAuth App。（P0）
 
 ### 6.3 Resources（资源）
 
 | URI 模板 | 内容 | 用途 |
 |---|---|---|
-| `sable://docs` | 打开的文档列表（JSON） | 发现 |
-| `sable://docs/{docId}/outline?depth=&filter=` | 稀疏大纲（id、type、name、bounds、childCount），Figma `get_metadata` 式 | 低 token 概览，可订阅（`subscribe`）变更 |
-| `sable://docs/{docId}/nodes/{nodeId}` | 单节点完整 JSON | 精读 |
-| `sable://docs/{docId}/render.png?scope=&scale=` | 渲染快照 | 视觉反馈 |
-| `sable://docs/{docId}/export.svg?scope=` | SVG 文本 | 可被模型读取并推理 |
-| `sable://docs/{docId}/assets` | 色板 / 渐变 / 符号 / 主题清单 | 复用资源 |
-| `sable://docs/{docId}/history?limit=` | 最近事务列表（who / when / summary / ids） | 了解人类做了什么 |
-| `skill://sable/drawing-conventions` | 坐标、单位、颜色、path `d` 规范、命名建议 | 首次使用必读 |
-| `skill://sable/workflows` | 图表 / 插画 / 手绘的推荐调用序列与校验清单 | 任务指南 |
-| `skill://sable/chart-recipes` | 每种图表的示例输入与典型错误 | 图表 |
-| `skill://sable/script-api` | `run_script` 可用的 Editor API 参考 | 脚本 |
+| `zibel://docs` | 打开的文档列表（JSON） | 发现 |
+| `zibel://docs/{docId}/outline?depth=&filter=` | 稀疏大纲（id、type、name、bounds、childCount），Figma `get_metadata` 式 | 低 token 概览 |
+| `zibel://docs/{docId}/nodes/{nodeId}` | 单节点完整 JSON | 精读 |
+| `zibel://docs/{docId}/render.png?scope=&scale=` | 渲染快照 | 视觉反馈 |
+| `zibel://docs/{docId}/export.svg?scope=` | SVG 文本 | 可被模型读取并推理 |
+| `zibel://docs/{docId}/assets` | 色板 / 渐变 / 符号 / 主题清单 | 复用资源 |
+| `zibel://docs/{docId}/history?limit=` | 最近事务列表（who / when / summary / ids） | 了解人类做了什么 |
+| `skill://zibel/drawing-conventions` | 坐标、单位、颜色、path `d` 规范、命名建议 | 首次使用必读 |
+| `skill://zibel/workflows` | 图表 / 插画 / 手绘的推荐调用序列与校验清单 | 任务指南 |
+| `skill://zibel/chart-recipes` | 每种图表的示例输入与典型错误 | 图表 |
+| `skill://zibel/script-api` | `run_script` 可用的 Editor API 参考 | 脚本 |
 
-资源列表与模板列表支持 cursor 分页；大纲资源支持 `resources/subscribe`，文档变更时推送 `notifications/resources/updated`。
+资源列表与模板列表支持 cursor 分页。不提供 `resources/subscribe`：变更用 `doc_changes` 拉取。
 
 ### 6.4 工具清单
 
-标注：R = readOnlyHint，D = destructiveHint，I = idempotentHint。未标 D 的写工具为追加式（不覆盖已有内容）。所有写工具接受可选 `txId`（在事务内）与 `intent`（一句话说明，显示给 UI 用户）。
+标注：R = readOnlyHint，D = destructiveHint，I = idempotentHint。未标 D 的写工具为追加式（不覆盖已有内容）。所有写工具接受可选 `txId`（在事务内）、`ifRev`（文档修订号不等于该值时拒绝写入，返回 `REV_CONFLICT`）与 `intent`（一句话说明，显示给 UI 用户）。
 
-#### 6.4.1 文档与会话
+#### 6.4.1 文档与变更
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
@@ -543,8 +559,8 @@ flowchart LR
 | `doc_open` | `path` 或 `docId` 或 `url` | 大纲 | |
 | `doc_save` | `docId`, `path?` | 保存位置 | I |
 | `doc_close` | `docId`, `discardChanges?` | — | D |
-| `doc_get_info` | `docId` | 名称、画板、节点计数、资源计数、打开的 UI 会话数 | R |
-| `doc_subscribe` | `docId`, `events[]` | 订阅确认；后续以 notification 推送变更摘要 | R |
+| `doc_get_info` | `docId` | 名称、画板、节点计数、资源计数、当前 `rev`、在线浏览器连接数 | R |
+| `doc_changes` | `docId`, `sinceRev`, `limit?` | 该修订号之后已提交的事务摘要：`{rev, txId, actor, summary, createdIds, updatedIds, deletedIds}`，以及当前 `rev` | R |
 
 #### 6.4.2 读取与查询
 
@@ -628,17 +644,17 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `export` | `docId`, `format`（svg / png / jpeg / webp / pdf / sable_json）, `scope`, `options`（见 F-IO-06/07/08）, `destination`（inline / path / resource） | inline 时返回文本或 image content；path 时返回文件路径；resource 时返回 `resource_link` | R |
+| `export` | `docId`, `format`（svg / png / jpeg / webp / pdf / zibel_json）, `scope`, `options`（见 F-IO-06/07/08）, `destination`（inline / path / resource） | inline 时返回文本或 image content；path 时返回文件路径；resource 时返回 `resource_link` | R |
 | `export_batch` | `docId`, `jobs[]` | zip 路径或多个 resource_link；长任务用 progress token 汇报 | R |
 
 #### 6.4.8 脚本
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `run_script` | `docId`, `code`（JavaScript / TypeScript），`timeoutMs`（默认 5000，上限 30000）, `dryRun?` | 脚本 `return` 值（要求为 `{createdIds, updatedIds, deletedIds, result?}`）+ 控制台输出 + 自动汇总的回执 | D；需会话拥有 `script` 权限。**M1 仅本地 stdio 模式开放，托管版 M2 开放** |
+| `run_script` | `docId`, `code`（JavaScript / TypeScript），`timeoutMs`（默认 5000，上限 30000）, `dryRun?` | 脚本 `return` 值（要求为 `{createdIds, updatedIds, deletedIds, result?}`）+ 控制台输出 + 自动汇总的回执 | D；调用方 token 需拥有 `script` 权限。**M1 仅在本地 `wrangler dev` 开放，官方托管 M2 开放** |
 
 - **F-MCP-07** 脚本沙箱：在 QuickJS（WASM）或 isolated-vm 中执行，只暴露 Editor API（与 MCP 工具同源的命令集 + 只读查询 + 几何数学库），无 `fetch`、无文件系统、无 `eval` 宿主；CPU 与内存配额；脚本内所有写操作自动包进一个事务，异常则整体回滚。（P1）
-- **F-MCP-08** Editor API 文档以 `skill://sable/script-api` 与 TypeScript `.d.ts` 资源提供，Agent 可先读类型再写脚本。（P1）
+- **F-MCP-08** Editor API 文档以 `skill://zibel/script-api` 与 TypeScript `.d.ts` 资源提供，Agent 可先读类型再写脚本。（P1）
 
 ### 6.5 Schema 规范
 
@@ -661,6 +677,7 @@ flowchart LR
 ```json
 {
   "txId": "…",
+  "rev": 42,
   "createdIds": ["…"],
   "updatedIds": ["…"],
   "deletedIds": ["…"],
@@ -686,20 +703,20 @@ flowchart LR
 - **F-MCP-11** `render` 返回 `viewport` 元数据：`{docRect, pixelSize, scale}`，Agent 可把像素坐标换算为文档坐标再 `hit_test`。（P0）
 - **F-MCP-12** `scene_describe` 输出结构化 + 自然语言两段，包括"可疑问题"（文字溢出、对象重叠、超出画板、颜色过多）。（P1）
 - **F-MCP-13** `validate` 规则可扩展；推荐工作流在 skill 中写明"每完成一个逻辑阶段调用 `render` + `validate`"。（P0）
-- **F-MCP-14** 文档变更通知：订阅后，人类的编辑以摘要形式（`{txId, source:"user", summary:"moved 3 nodes", ids}`）推送给 Agent，Agent 可据此避免覆盖。（P1）
+- **F-MCP-14** 变更感知：人类的编辑以摘要形式（`{rev, txId, actor, summary:"moved 3 nodes", ids}`）出现在 `doc_changes` 中；skill 文档要求 Agent 在一轮写入前先拉一次，并对关键写入带 `ifRev`。（P0）
 
 ### 6.7 错误处理、并发与长任务
 
-- **F-MCP-15** 错误码枚举：`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
+- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
 - **F-MCP-16** 批量工具的部分失败：默认**原子**（任一失败整批回滚）；可选 `partial: true` 返回逐项结果。（P0）
-- **F-MCP-17** 长任务（`export_batch`、`image_trace`、大 `svg_import`）：支持 MCP progress token；超过 10 秒的任务可返回 `jobId`，用 `job_status` 轮询（工具清单中补 `job_status / job_cancel`）。（P1）
+- **F-MCP-17** 长任务（`export_batch`、`image_trace`、大 `svg_import`）：单个请求内可经 SSE 响应流发送 progress；预计超过 30 秒的任务一律返回 `jobId`，由 Queues 执行，用 `job_status / job_cancel` 轮询。（P1）
 - **F-MCP-18** 幂等：读工具与 `doc_save`、`tx_rollback` 幂等；`node_create` 通过 `clientKey` + `txId` 去重（同一事务内重复提交同 key 不重复创建）。（P1）
-- **F-MCP-19** Elicitation：当工具遇到需要人类决定的分歧（例如字体缺失的替换选择、覆盖人类刚做的修改）且客户端支持 elicitation 时，向用户发起询问；不支持时返回 `NEEDS_DECISION` 错误让 Agent 自行处理。（P2）
+- **F-MCP-19** 需要人类决定的分歧（例如字体缺失的替换选择、覆盖人类刚做的修改）：返回 `NEEDS_DECISION` 与选项，由 Agent 在自己的对话里问用户。不使用 elicitation。（P1）
 
 ### 6.8 Prompts 与 Skills
 
 - **F-MCP-20** MCP prompts：`draw_chart_from_data`、`illustrate_from_description`、`vectorize_sketch`、`review_document`（用 `render` + `validate` + `scene_describe` 做质检）。（P1）
-- **F-MCP-21** Skill 文档内容要点（`skill://sable/*`）：坐标 / 颜色 / 路径规范；"骨架优先"工作流（先建图层与占位组 → 分批创建 → `render` 校验 → 微调）；常见错误与修正；每类图表的最小示例；插画结构建议（背景 / 中景 / 前景图层、命名规范）；何时用 `run_script` 而非多次工具调用（例如 > 50 个节点的程序化排布）。（P0）
+- **F-MCP-21** Skill 文档内容要点（`skill://zibel/*`）：坐标 / 颜色 / 路径规范；"骨架优先"工作流（先建图层与占位组 → 分批创建 → `render` 校验 → 微调）；常见错误与修正；每类图表的最小示例；插画结构建议（背景 / 中景 / 前景图层、命名规范）；何时用 `run_script` 而非多次工具调用（例如 > 50 个节点的程序化排布）。（P0）
 
 ---
 
@@ -712,7 +729,7 @@ flowchart LR
 | 画布交互帧率 | 10,000 路径节点下平移 / 缩放 / 拖拽 ≥ 55 fps（MacBook Air M1 / 中端 Windows 笔记本，Chrome） | Canvas2D 阶段目标 5k，CanvasKit 阶段目标 10k+ |
 | 首屏加载 | 冷启动到可绘制 < 3 s（宽带）；核心包 gzip < 1.5 MB，CanvasKit / HarfBuzz WASM 懒加载 | |
 | 打开文档 | 5,000 节点文档 < 1 s；50,000 节点 < 5 s | |
-| MCP 简单写工具（≤ 50 节点） | 本地 stdio p95 < 200 ms | 不含 preview |
+| MCP 简单写工具（≤ 50 节点） | 本地 `wrangler dev` p95 < 200 ms；托管同区域 p95 < 400 ms | 不含 preview |
 | `render` | 2,000 节点画板 1x < 1 s；含 preview 的写工具额外 < 500 ms | |
 | 布尔运算 | 两个各 500 锚点的路径 < 100 ms | |
 | 手绘延迟 | 笔尖到屏幕 < 16 ms（一帧）；抬笔拟合 < 50 ms | |
@@ -730,7 +747,7 @@ flowchart LR
 - 浏览器：Chrome / Edge 最新 2 版、Safari 17+、Firefox 最新 2 版；WebGPU 不作为硬依赖。
 - 输入设备：鼠标、触控板、触控屏、Apple Pencil / Wacom / Surface Pen（Pointer Events 压力与倾斜）。
 - 屏幕：最小 1024×768 桌面布局；平板 768 宽简化布局；手机仅查看（P2）。
-- MCP：遵循 2025-06-18 或更新规范；stdio 与 Streamable HTTP；Claude Code、Claude Desktop、Cursor、VS Code 验证通过。
+- MCP：遵循 2025-06-18 或更新规范；仅无状态 Streamable HTTP；Claude Code、Claude Desktop、Cursor、VS Code 验证通过。
 - Node ≥ 20（headless / MCP server）。
 
 ### 7.4 可访问性与国际化
@@ -751,14 +768,14 @@ flowchart LR
 ### 7.6 可靠性与数据安全
 
 - 自动保存每 5 秒到 IndexedDB；关闭页面时 flush；崩溃后恢复提示。
-- 文档服务持久化：本地模式写事务日志到磁盘；托管模式每个事务写入 Document DO 的 SQLite（DO 提供持久化与自动重放），每 N 个事务或 60 秒生成一次完整快照到 R2，保留最近 30 天快照用于版本历史。
+- 文档服务持久化：每个事务写入 Document DO 的 SQLite（DO 提供持久化与自动重放），每 N 个事务或 60 秒生成一次完整快照到 R2，保留最近 30 天快照用于版本历史。
 - 托管 RPO ≤ 1 个事务，RTO ≤ 30 秒（DO 迁移 / 重启）；R2 跨区域冗余。
-- 事务超时回滚；MCP 会话断开释放锁。
+- 事务超时回滚并释放其持有的锁；MCP 层无状态，Worker 实例随时可被替换而不丢任何东西。
 
 ### 7.7 可观测性
 
 - 客户端性能指标（帧率、命令耗时）与错误上报（可关）。
-- MCP server 结构化日志（每次工具调用：会话、工具、耗时、受影响节点数、错误码）。
+- MCP server 结构化日志（每次工具调用：Actor、工具、耗时、受影响节点数、错误码、`rev`）。
 - Agent 基准任务集与自动评测脚本（成功率、平均工具调用数、token 消耗）。
 
 ---
@@ -780,7 +797,6 @@ flowchart TD
   IO[packages/io<br/>SVG / PDF / 位图 导入导出]
   SYNC[packages/sync<br/>Document Service 抽象 · 协议 · 权限]
   EDGE[apps/edge<br/>Cloudflare Worker + Durable Object]
-  LOCAL[apps/local<br/>Node 单机 Document Service]
   UI --> CORE
   MCP --> CORE
   CLI --> CORE
@@ -793,9 +809,7 @@ flowchart TD
   UI --> SYNC
   MCP --> SYNC
   EDGE --> SYNC
-  LOCAL --> SYNC
   EDGE --> CORE
-  LOCAL --> CORE
 ```
 
 - **`core` 是唯一的真理源**：纯 TypeScript，无 DOM 依赖，可在浏览器与 Node 运行。包含：节点表（`Map<id, Node>`）+ 索引（父子、类型、空间 rbush）、命令（Command）定义与执行、事务与历史（delta 反转）、查询、schema 校验（zod）、迁移。
@@ -804,8 +818,8 @@ flowchart TD
 - **几何**：贝塞尔基础（自研 + bezier-js 思路）、布尔与描边轮廓走 Skia PathOps（通过 CanvasKit，或独立编译的 pathops WASM 以减小体积）、折线级用 Clipper2 WASM 备选、拟合 fit-curve、简化 RDP、空间索引 rbush。
 - **文字**：harfbuzzjs 整形 + opentype.js / fontkit 读取字形轮廓；字体来源：系统（Local Font Access API，Chrome）、Google Fonts、用户上传；字体缓存 IndexedDB。
 - **图表**：内部用 D3 的 scale / shape / axis / hierarchy 计算几何，直接产出 core 节点（不经过 SVG DOM 再解析，保证 id 与语义 key 稳定）；图示布局 dagre（P0）/ ELK（P1）。Mermaid 解析用 mermaid 的 parser 或自研子集。
-- **同步**：`sync` 包定义 Document Service 接口（apply transaction、subscribe、lock）与线协议；两种实现：`apps/local`（Node 进程内，文件系统持久化）与 `apps/edge`（Cloudflare Durable Object，每文档一实例，SQLite 存储，WebSocket Hibernation）。冲突按属性 LWW + 结构规则。不引入 CRDT（可在 `sync` 包内后期替换为 Yjs 以支持离线）。
-- **存储**：本地模式文件系统 `.sable.json`；托管模式 DO SQLite 存事务日志与当前状态，R2 存快照 / 位图 / 字体 / 导出物，D1 存用户与文档元数据，KV 存会话与缓存。
+- **同步**：`sync` 包定义 Document Service 接口（apply transaction、向浏览器广播、lock）与线协议；唯一实现在 `apps/edge`（Cloudflare Durable Object，每文档一实例，SQLite 存储，浏览器连接用 WebSocket Hibernation）。冲突按属性 LWW + 结构规则。不引入 CRDT（可在 `sync` 包内后期替换为 Yjs 以支持离线）。
+- **存储**：`.zibel.json` 只是导入导出格式；运行时 DO SQLite（本地 `wrangler dev` 持久化到 `.wrangler/state`） 存事务日志与当前状态，R2 存快照 / 位图 / 字体 / 导出物，D1 存用户与文档元数据，KV 存 OAuth token 与缓存。
 - **core 必须能在 Worker 运行时执行**：无 Node 专有 API（fs、Buffer 直接依赖），WASM 模块以 `import` 方式打包，包体控制在 Worker 限制内；这一约束从 M0 起用 CI 在 `workerd` 中跑测试保证。
 - **脚本沙箱**：QuickJS WASM（与 Figma 同选型），暴露 Editor API 代理。
 
@@ -824,7 +838,8 @@ flowchart TD
 | 脚本沙箱 | QuickJS WASM | 安全边界清晰 | isolated-vm（仅 Node）、裸 eval（否） |
 | core 语言 | TypeScript；WASM 仅用于几何热点 | 三个运行时零成本共用、schema 同源；见 `docs/adr/0001` | Rust core + WASM |
 | 前端 | React + Zustand + TypeScript | 生态、人才、tldraw / Excalidraw 先例 | Solid / Svelte |
-| Monorepo | pnpm workspaces + Turborepo，Vite 构建 | 标准选择 | |
+| 工具链 | pnpm workspaces + Turborepo；Vite（apps/web）；tsup（packages）；Vitest（含 `@cloudflare/vitest-pool-workers` 跑 workerd）；Biome（lint + format）；Changesets；wrangler；Node 22 LTS | 单一配置、速度 | ESLint + Prettier |
+| MCP 传输 | 仅无状态 Streamable HTTP | 用户决策；任意实例可处理、本地线上一致；见 ADR-0006 | stdio + 有状态会话 |
 | 描摹 | imagetracerjs（Unlicense） | 许可干净 | potrace（GPL，否） |
 | 托管平台 | Cloudflare（Workers + DO + R2 + D1 + KV + Queues） | 用户决策；每文档一个 DO 天然契合"服务端权威 + 广播"模型；R2 无出站费；全球边缘 | AWS / Fly.io（运维更重） |
 | 开源许可 | Apache-2.0（全仓库） | 用户决策开源；Apache-2.0 含专利授权、对商业集成方友好，与 Skia（BSD）/ HarfBuzz（MIT）/ resvg（MPL）兼容 | MIT（无专利条款）；AGPL（保护托管业务但降低采用率） |
@@ -835,18 +850,17 @@ flowchart TD
 ### 8.3 仓库结构建议
 
 ```
-sable/
+zibel/
   apps/web/            # React UI
   apps/edge/           # Cloudflare Worker（API + MCP HTTP）+ Document Durable Object + Queue consumer + wrangler.toml
-  apps/local/          # Node 单机：stdio MCP + 本地 Document Service + 静态托管 UI
   packages/core/       # 文档模型、命令、事务、历史、查询、schema
   packages/geometry/   # 贝塞尔、布尔（PathOps WASM）、偏移、拟合、rbush
   packages/text/       # 字体加载、HarfBuzz、轮廓
   packages/chart/      # 图表与图示生成
   packages/render/     # Canvas2D / CanvasKit 渲染器、SVG 序列化
   packages/io/         # SVG / PDF / 位图 导入导出
-  packages/sync/       # Document Service 接口、线协议、权限模型（两种实现在 apps/edge 与 apps/local）
-  packages/mcp/        # MCP server（stdio + HTTP）、工具、资源、skills
+  packages/sync/       # Document Service 接口、线协议、权限模型（实现在 apps/edge）
+  packages/mcp/        # 无状态 MCP 工具与资源定义、skills（由 apps/edge 挂载到 /mcp）
   packages/cli/        # headless 导出、批处理
   docs/                # 本文档、调研、ADR
   fixtures/            # SVG 往返、布尔回归、Agent 基准任务
@@ -857,11 +871,11 @@ sable/
 ### 8.4 开源与许可
 
 - **许可证**：全仓库 Apache-2.0；贡献者需签 DCO（`Signed-off-by`），不要求 CLA。
-- **商标**：名称 "Sable" 与 logo 不在 Apache-2.0 授权范围内，单独的商标政策允许自托管者在"基于 Sable 构建"意义上使用名称。
+- **商标**：名称 "Zibel" 与 logo 不在 Apache-2.0 授权范围内，单独的商标政策允许自托管者在"基于 Zibel 构建"意义上使用名称。
 - **依赖许可白名单**：MIT、BSD、Apache-2.0、MPL-2.0（resvg、pdf.js）、BSL-1.0（Clipper2）、Unlicense；**禁止** GPL / AGPL 依赖（potrace）与需商业授权的代码（tldraw ≥ 2025-09 许可）。CI 用 license checker 强制。
 - **仓库结构**：单一 monorepo 公开；官方托管的部署配置（`apps/edge`）同样开源，秘密与域名通过 wrangler secrets 注入，任何人可 `wrangler deploy` 自己的实例。
 - **开源治理**：GitHub 公开 roadmap（本需求文档的里程碑）、ADR 目录 `docs/adr/`、CHANGELOG、语义化版本；`core` 与 `mcp` 的 schema 变更走 RFC 流程。
-- **社区扩展点**：MCP skills（`skill://sable/*` 的第三方补充）、图表主题、画笔库、符号库以 JSON 资源形式分发；插件 API（P2）与 `run_script` 共用 Editor API 与沙箱。
+- **社区扩展点**：MCP skills（`skill://zibel/*` 的第三方补充）、图表主题、画笔库、符号库以 JSON 资源形式分发；插件 API（P2）与 `run_script` 共用 Editor API 与沙箱。
 
 ---
 
@@ -871,13 +885,14 @@ sable/
 
 - **团队**：一人 + Claude Code 重度使用，接近全职。估算按此给出；若投入变化，先砍 M1 范围而不是延长周期。
 - **Hero slice**：第一个端到端可交付的场景是**图表 / 图示**（数据或 Mermaid 进，可编辑矢量出）。插画在 M1 后半接上，手绘在 M2。
-- **主要客户端**：Claude Code（stdio、本地文件）。skill 文档与基准任务按它编写；HTTP + OAuth 随 M1 托管上线。
+- **主要客户端**：Claude Code，以 HTTP 连接本地 `wrangler dev`。skill 文档与基准任务按它编写；OAuth 随 M1 托管上线。
+- **Agent 基准测试**：`fixtures/agent-benchmarks/` 每个任务一个 Markdown（提示词 + 结构断言）；用 `claude -p` 非交互模式连本地 MCP 端点跑，TypeScript 断言检查 `doc_outline` / `validate` 结果与 SVG 导出；CI 每晚运行。M0 即搭最小版（3 个任务），它也是调整工具描述与粒度的评测工具。
 
 ### 9.1 阶段
 
 | 阶段 | 周期（估） | 目标 | 退出标准 |
 |---|---|---|---|
-| **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.sable.json` 保存；MCP（stdio）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过 |
+| **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.zibel.json` 导入导出；MCP（无状态 HTTP，本地 `wrangler dev`）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过；3 个 Agent 基准任务在 CI 跑通 |
 | **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；SVG 导入；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接 |
 | **M2 手绘 + 插画深度** | 8 周 | 压感手绘管线、Blob Brush、Eraser、Shaper；Calligraphic / Art 画笔；Appearance 多重 fill / stroke + Graphic Styles + 基础 Effects（阴影 / 发光 / 模糊 / 圆角 / 偏移）；不透明度蒙版；Symbols；Repeat；Blend；Recolor；Image Trace；可变宽度描边；路径文字；Asset Export、PDF 导出；连接线绑定；`run_script` 沙箱 | 插画基准任务通过；触控笔设备实测 |
 | **M3 性能与协作** | 6–8 周 | CanvasKit 渲染后端（浏览器与 Worker）；10k 节点性能达标；多用户协作（光标 / 选区）；软锁与 Agent 意图展示；版本历史（R2 快照）；Queues 长任务；审计与配额；Docker 自托管镜像 | §7.1 性能表全部达标 |
@@ -889,7 +904,7 @@ sable/
 |---|---|
 | **Must（M0–M1）** | 扁平场景图与 JSON 格式；Canvas2D 渲染；选择 / 形状 / 钢笔 / 曲率 / 铅笔；路径编辑；布尔 + Shape Builder；变换 / 对齐 / 吸附；填充 / 描边 / 渐变 / 色板；文字基础与转曲；剪切蒙版；图层；画板；SVG / PNG 导入导出；撤销与事务；MCP 全部 P0 工具 + render + skills；P0 图表与 Mermaid 图示 |
 | **Should（M2）** | 手绘管线与 Shaper；画笔；Appearance 栈 / Graphic Styles / 基础 Effects；不透明度蒙版；Symbols / Repeat / Blend；Recolor；Image Trace；PDF 导出；连接线；`run_script` |
-| **Could（M3–M4）** | CanvasKit；多人协作；版本历史；Freeform 渐变；Envelope；Live Paint 组；CMYK 文档模式（近似）；更多图表；Pattern Brush；OpenType 面板；PDF 导入；插件 API；Elicitation |
+| **Could（M3–M4）** | CanvasKit；多人协作；版本历史；Freeform 渐变；Envelope；Live Paint 组；CMYK 文档模式（近似）；更多图表；Pattern Brush；OpenType 面板；PDF 导入；插件 API |
 | **Won't（本产品范围外）** | ICC 色彩管理与印刷生产；3D；Perspective Grid；Gradient Mesh；Liquify；Puppet Warp；`.ai` 高保真；EPS / DXF；非 Cloudflare 官方托管 |
 
 ---
@@ -916,8 +931,8 @@ sable/
 
 | # | 问题 | 决策 | 落点 |
 |---|---|---|---|
-| 1 | 产品名与工具前缀 | **Sable**；MCP 工具前缀 `sable_`，npm scope `@sable/*`，URI `sable://`，CLI `sable` | §1.1.1 |
-| 2 | 托管 vs 本地 | **两者都要**：本地 Node 单机模式（stdio）+ **Cloudflare 官方托管**（Workers / Durable Objects / R2 / D1 / KV / Queues），托管在 M1 上线 | §6.2、§8 |
+| 1 | 产品名与工具前缀 | **Zibel**（原 Sable，因包名 / 域名冲突更名）；MCP 工具前缀 `zibel_`，npm `zibel` 与 `@zibel/*`，URI `zibel://`，CLI `zibel` | §1.1.1 |
+| 2 | 托管 vs 本地 | **Cloudflare 官方托管**（Workers / Durable Objects / R2 / D1 / KV / Queues），M1 上线；本地与自托管运行同一 Worker 包（`wrangler dev` / workerd） | §6.2、§8 |
 | 3 | 图表工具粒度 | **每类型一个工具**，首批 9 个与 Illustrator Graph 工具一一对应 | §6.4.5 |
 | 4 | 字体策略 | 参照 Illustrator（系统字体 + Adobe Fonts）：本地字体 + Google Fonts + 上传 | F-TEXT-02、§8.2 |
 | 5 | 图表数据来源 | 参照 Illustrator（导入文件 / 粘贴）：P0 支持内联与文件；URL 数据源 P2 且需白名单 | F-CHART-02 |
@@ -930,7 +945,7 @@ sable/
 | 12 | Hero slice | 图表 / 图示先打通 | §9.0 |
 | 13 | M0 范围 | headless-first：浏览器只做查看器，Agent 是唯一画图者 | §9.1 |
 | 14 | core 语言 | TypeScript，WASM 仅几何热点 | ADR-0001 |
-| 15 | 主要客户端 | Claude Code（stdio）优先 | §9.0、F-MCP-01 |
+| 15 | 主要客户端 | Claude Code 优先（HTTP 连本地 `wrangler dev`） | §9.0、F-MCP-01 |
 | 16 | 登录 | 首发仅 GitHub OAuth | F-MCP-01、§6.2 |
 | 17 | 托管首发 | 免费 beta + 硬配额，计费 M3 | F-MCP-06c |
 | 18 | `run_script` 托管开放 | M1 仅本地，托管 M2 | §6.4.8 |
@@ -938,19 +953,32 @@ sable/
 | 20 | Layer 与 Group | 两种类型；Layer 父级只能是根或 Layer，Group 不含 Layer | `CONTEXT.md`、F-DOC-03 |
 | 21 | Artboard | 不是节点、不能作父级；`parentId` 必填 | `CONTEXT.md`、`node_create` |
 | 22 | Live Object | 正式上位术语，凡 Live Object 必支持 `expand`，Chart 包含在内 | `CONTEXT.md`、F-DOC-03a |
+| 23 | Cloudflare 付费档 | 开发用 Free，M1 上线第一周切 Workers Paid | F-MCP-06 |
+| 24 | 免费 beta 配额 | 50 文档 / 200 MB / 每日 500 render、200 export / 20 MB 文档 / 5 MB 位图 / 20 并发 | F-MCP-06c |
+| 25 | 域名与账号 | Cloudflare Registrar，首选 `zibel.dev`；M1 前出配置向导 | F-MCP-06d |
+| 26 | 仓库语言 | 代码、标识符、注释、提交信息、ADR、`CLAUDE.md` 用英文；需求文档与术语表现阶段中文，M1 对外宣布前译为英文 | `CLAUDE.md` |
+| 27 | ADR | 补记 0002–0006 | `docs/adr/` |
+| 28 | Agent 基准测试 | `claude -p` + 结构断言，CI 每晚，M0 起 3 个任务 | §9.0 |
+| 29 | 工具链 | pnpm + Turborepo + Vite + tsup + Vitest + Biome + Changesets + wrangler，Node 22 | §8.2 |
+| 30 | MCP 形态 | **无状态、仅网络连接**：Streamable HTTP，无 `Mcp-Session-Id`，无 stdio | §6.1、ADR-0006 |
+| 31 | 本地模式 | 删除 stdio 与 Node 版 Document Service；本地与自托管跑同一 Worker 包 | §6.2 |
+| 32 | 跨调用事务 | 保留，`txId` 显式传入，存于 DO，5 分钟无活动回滚 | F-MCP-05、F-HIST-02 |
+| 33 | 变更通知 | 删除订阅推送，改为 `rev` + `doc_changes` 拉取 + `ifRev` 乐观并发 | F-MCP-05、F-MCP-14 |
+| 34 | 软锁 | 挂在 `txId` 上，随事务释放 | F-MCP-05 |
+| 35 | 服务端发起交互 | 删除 elicitation，返回 `NEEDS_DECISION`；progress 仅在单请求 SSE 内；>30 秒任务用 `jobId` | F-MCP-17、F-MCP-19 |
+| 36 | 术语 | Session → **Actor** | `CONTEXT.md` |
+| 37 | Agent 身份 | 每个 MCP 客户端一个 token，即一个 Agent Actor | F-COLLAB-07 |
 
 **剩余开放问题**
 
-1. 域名。
-2. 免费 beta 的配额数字（文档数 / R2 存储 / 每日渲染次数）。Cloudflare 免费与付费限额已核实（`docs/research/04-cloudflare-limits.md`）：渲染需 Workers Paid（$5/月），DO 单键 2 MB。
-3. 商标检索结果与 Sable 名称的最终确认（若冲突则启用备选 Kolinsky / Vexel）。
-4. 仓库语言约定（代码与注释英文、需求与术语表中文？）。
+1. 商标：USPTO / EUIPO / WIPO 需手工检索 ZIBEL（第 9、42 类）。若冲突，备选 Zibeline / Kolinsky。
+2. 是否已有 Cloudflare 账号（影响 M1 前配置向导的起点）。
 
 ## 附录 A：Illustrator 功能映射表
 
 状态：✅ 复刻 / 🔁 简化或替代 / ⏳ 后续版本 / ❌ 不做。
 
-| Illustrator 功能 | 状态 | Sable 对应 | 阶段 |
+| Illustrator 功能 | 状态 | Zibel 对应 | 阶段 |
 |---|---|---|---|
 | Selection / Direct Selection / Group Selection / Lasso / Magic Wand | ✅ | F-SEL-01…05 | M0–M1 |
 | Rectangle / Rounded Rect / Ellipse / Polygon / Star / Line / Arc / Spiral / Grids | ✅ | F-DRAW-01（Live Shapes） | M0 |
@@ -997,7 +1025,7 @@ sable/
 | Place / Links / 裁切 | ✅ | F-IO-02 | M0 |
 | Artboards（≤1000、重排、导出） | ✅ | F-VIEW-06 | M0 |
 | Export for Screens / Asset Export / Export As | ✅ | F-IO-06…09 | M1–M2 |
-| Save AI / EPS / FXG | ❌ | `.sable.json` 替代；PDF 导出 | — |
+| Save AI / EPS / FXG | ❌ | `.zibel.json` 替代；PDF 导出 | — |
 | SVG 保存选项（样式写法、精度、字体） | ✅ | F-IO-06 | M1 |
 | PDF 导出 / 导入 | ✅ 导出 · ⏳ 导入 | F-IO-08 / F-IO-03 | M2 / M4 |
 | Isolation Mode / Outline Mode | ✅ | F-VIEW-02/05 | M1 |

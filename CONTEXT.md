@@ -1,4 +1,4 @@
-# Sable
+# Zibel
 
 浏览器里的矢量绘图工具。文档模型为 AI Agent 通过 MCP 读写而设计，人类用户在同一份文档上用 Illustrator 风格的画布编辑。术语以 Adobe Illustrator 的用法为准，Illustrator 没有的概念才自造。
 
@@ -145,13 +145,17 @@ _Avoid_: Palette entry、Color token
 ## 编辑与协作
 
 **Transaction（事务）**：
-一组作为整体提交或回滚的编辑，也是撤销的最小单位。UI 的一次拖拽和 Agent 的一组工具调用都各成一个 Transaction。
+一组作为整体提交或回滚的编辑，也是撤销的最小单位。UI 的一次拖拽和 Agent 的一组工具调用都各成一个 Transaction。它属于 Document 而不属于任何连接，超时未提交即回滚。
 _Avoid_: Batch、Undo step、Operation group
 
-**Session（会话）**：
-一个正在编辑 Document 的参与者连接：浏览器中的人，或一个 MCP 客户端里的 Agent。Transaction 归属于 Session。
-_Avoid_: User（Session 可能是 Agent）、Client、Connection
+**Revision（修订号）**：
+Document 单调递增的版本序号，每提交一个 Transaction 加一。用来判断"我读过之后文档是否被别人改过"。
+_Avoid_: Version（保留给 schema 版本）、Etag、Snapshot
+
+**Actor（参与者）**：
+做出修改的身份：一个人类 User，或一个 Agent 凭证。每个 Transaction 记录其 Actor；同一个人授权的两个 MCP 客户端是两个不同的 Actor。
+_Avoid_: Session、Client、Connection、User（Actor 可能是 Agent）
 
 **Agent**：
-通过 MCP 调用 Sable 的 AI 客户端。与人类用户拥有同等的编辑能力，只是入口不同。
+通过 MCP 调用 Zibel 的 AI 客户端，以自己的凭证作为一个 Actor。与人类用户拥有同等的编辑能力，只是入口不同。
 _Avoid_: Bot、AI、Model、Assistant

@@ -7,6 +7,6 @@
 | [research/02-web-vector-tech-landscape.md](./research/02-web-vector-tech-landscape.md) | 调研二：Figma / Penpot / Excalidraw / tldraw / Graphite 等竞品架构与许可，渲染 / 布尔 / 文字 / 手绘 / CRDT / 导入导出等技术选型，性能经验数字（Sonnet subagent） |
 | [research/03-mcp-design-tool-patterns.md](./research/03-mcp-design-tool-patterns.md) | 调研三：Figma / Canva / Excalidraw / Blender / antvis 等 MCP server 的工具设计、接口粒度对比、反馈回路模式、常见坑（Sonnet subagent） |
 | [research/04-cloudflare-limits.md](./research/04-cloudflare-limits.md) | 调研四：Cloudflare Workers / Durable Objects / R2 / D1 / KV / Queues / Browser Rendering 的限额与定价核查（Sonnet subagent，官方文档） |
-| [research/05-name-conflict-check.md](./research/05-name-conflict-check.md) | 调研五：Sable 与备选名（Kolinsky / Zibel / Zibeline / Vexel）在软件、包名、域名上的冲突核查 |
+| [research/05-name-conflict-check.md](./research/05-name-conflict-check.md) | 调研五：Zibel 与备选名（Kolinsky / Zibel / Zibeline / Vexel）在软件、包名、域名上的冲突核查 |
 
 调研日期：2026-09-22。调研报告中标注"未核实"的条目在需求文档 §10.1 风险表中有对应缓解措施。
