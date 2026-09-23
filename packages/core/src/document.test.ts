@@ -6,6 +6,7 @@ import {
   createNodes,
   nodeView,
   outline,
+  touches,
   visibleBounds,
 } from "./document.ts";
 import { ZibelError } from "./errors.ts";
@@ -588,4 +589,10 @@ describe("text", () => {
     expect(() => createNodes(doc, [text(defaultLayerId, content)])).toThrow();
     expect(doc.nodes.size).toBe(1);
   });
+});
+
+it("touches two rects that share only an edge, not two apart", () => {
+  const a = { x: 0, y: 0, width: 10, height: 10 };
+  expect(touches(a, { x: 10, y: 0, width: 5, height: 5 })).toBe(true);
+  expect(touches(a, { x: 10.5, y: 0, width: 5, height: 5 })).toBe(false);
 });

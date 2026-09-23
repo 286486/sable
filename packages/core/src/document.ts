@@ -379,6 +379,10 @@ export function outline(doc: Document, depth = 2): OutlineNode[] {
   return walk(null, 1);
 }
 
+/** Whether two rects overlap or touch, edges included. */
+export const touches = (a: Rect, b: Rect) =>
+  a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height;
+
 export function union(rects: (Rect | null)[]): Rect | null {
   const rs = rects.filter((r): r is Rect => r !== null);
   if (rs.length === 0) return null;
