@@ -11,7 +11,11 @@ export default defineConfig({
     }),
   ],
   test: {
-    include: ["apps/*/test/**/*.test.ts", "packages/*/src/**/*.test.ts"],
+    include: [
+      "apps/*/test/**/*.test.ts",
+      "apps/web/src/**/*.test.ts",
+      "packages/*/src/**/*.test.ts",
+    ],
     setupFiles: ["./apps/edge/test/setup.ts"],
   },
 });

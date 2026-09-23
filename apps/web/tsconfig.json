@@ -1,10 +1,11 @@
 {
   "compilerOptions": {
     "target": "es2023",
-    "lib": ["es2023"],
+    "lib": ["es2023", "dom", "dom.iterable"],
     "module": "esnext",
     "moduleResolution": "bundler",
-    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"],
+    "jsx": "react-jsx",
+    "types": [],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
@@ -13,7 +14,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["apps/*/src", "apps/*/test", "packages/*/src", "vitest.config.ts"],
-  // DOM types collide with workers-types; apps/web has its own tsconfig.
-  "exclude": ["apps/web"]
+  "include": ["src"]
 }
