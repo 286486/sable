@@ -1,3 +1,5 @@
+export * from "./protocol.ts";
+
 import type {
   Artboard,
   ArtboardInput,
