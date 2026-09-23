@@ -3,6 +3,7 @@ export type ErrorCode =
   | "NODE_NOT_FOUND"
   | "INVALID_PARENT"
   | "INVALID_COLOR"
+  | "INVALID_PATH"
   | "LIMIT_EXCEEDED"
   | "PERMISSION_DENIED";
 

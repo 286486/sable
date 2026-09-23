@@ -3,13 +3,16 @@ import {
   type Artboard,
   type ArtboardInput,
   bounds,
+  type ConciseView,
   createDocument,
   createNodes,
   type Document,
   type ErrorData,
+  type FullView,
   type Node,
   type NodeInput,
   newId,
+  nodeView,
   type OutlineNode,
   outline,
   type Rect,
@@ -57,22 +60,24 @@ export class DocumentObject extends DurableObject<Env> {
     name: string;
     artboards: ArtboardInput[];
     actor: string;
-  }): CreatedDocument {
-    const { doc, defaultLayerId } = createDocument({
-      id: input.docId,
-      name: input.name,
-      artboards: input.artboards,
+  }): Result<CreatedDocument> {
+    return guard(() => {
+      const { doc, defaultLayerId } = createDocument({
+        id: input.docId,
+        name: input.name,
+        artboards: input.artboards,
+      });
+      const { rev } = this.ctx.storage.transactionSync(() => {
+        this.sql.exec(
+          "INSERT INTO doc (id, name, rev, artboards) VALUES (?, ?, 0, ?)",
+          doc.id,
+          doc.name,
+          JSON.stringify(doc.artboards),
+        );
+        return this.commit(input.actor, `Create Document "${doc.name}"`, [...doc.nodes.values()]);
+      });
+      return { docId: doc.id, defaultLayerId, artboards: doc.artboards, rev };
     });
-    const { rev } = this.ctx.storage.transactionSync(() => {
-      this.sql.exec(
-        "INSERT INTO doc (id, name, rev, artboards) VALUES (?, ?, 0, ?)",
-        doc.id,
-        doc.name,
-        JSON.stringify(doc.artboards),
-      );
-      return this.commit(input.actor, `Create Document "${doc.name}"`, [...doc.nodes.values()]);
-    });
-    return { docId: doc.id, defaultLayerId, artboards: doc.artboards, rev };
   }
 
   info(): Result<{ docId: string; name: string; rev: number; artboards: Artboard[] }> {
@@ -85,16 +90,11 @@ export class DocumentObject extends DurableObject<Env> {
   createNodes(inputs: NodeInput[], actor: string): Result<WriteReceipt> {
     return guard(() => {
       const doc = this.load();
-      const created = createNodes(doc, inputs);
+      const { nodes: created, keyMap } = createNodes(doc, inputs);
       const noun = created.length === 1 ? "Node" : "Nodes";
       const { txId, rev } = this.ctx.storage.transactionSync(() =>
         this.commit(actor, `Create ${created.length} ${noun}`, created),
       );
-      const keyMap: Record<string, string> = {};
-      inputs.forEach((input, i) => {
-        const id = created[i]?.id;
-        if (input.clientKey && id) keyMap[input.clientKey] = id;
-      });
       return {
         txId,
         rev,
@@ -105,6 +105,28 @@ export class DocumentObject extends DurableObject<Env> {
         bounds: union(created.map((n) => bounds(doc, n))),
         warnings: [],
       };
+    });
+  }
+
+  get(
+    nodeIds: string[],
+    detail: "concise" | "full",
+  ): Result<{ rev: number; nodes: (ConciseView | FullView)[] }> {
+    return guard(() => {
+      const doc = this.load();
+      const nodes = nodeIds.map((id, i) => {
+        const node = doc.nodes.get(id);
+        if (!node) {
+          throw new ZibelError({
+            code: "NODE_NOT_FOUND",
+            message: `No Node with id ${id}.`,
+            hint: "Use doc_outline or the ids from a WriteReceipt.",
+            path: `nodeIds[${i}]`,
+          });
+        }
+        return nodeView(doc, node, detail);
+      });
+      return { rev: doc.rev, nodes };
     });
   }
 
