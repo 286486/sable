@@ -9,12 +9,14 @@
   "scripts": {
     "check": "tsc --noEmit && tsc --noEmit -p apps/web && biome check . && vitest run",
     "dev": "pnpm --filter @zibel/web build && wrangler d1 migrations apply zibel --local -c apps/edge/wrangler.jsonc && wrangler dev -c apps/edge/wrangler.jsonc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
     "@cloudflare/vitest-plugin": "1.2.3",
     "@cloudflare/workers-types": "^5.20260922.1",
+    "@playwright/test": "1.63.0",
     "@vitest/runner": "4.1.11",
     "@vitest/snapshot": "4.1.11",
     "typescript": "5.9.3",

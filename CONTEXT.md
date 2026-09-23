@@ -148,6 +148,10 @@ _Avoid_: Palette entry、Color token
 一组作为整体提交或回滚的编辑，也是撤销的最小单位。UI 的一次拖拽和 Agent 的一组工具调用都各成一个 Transaction。它属于 Document 而不属于任何连接，只有开启它的 Actor 能使用其 `txId`；5 分钟无活动未提交即回滚。
 _Avoid_: Batch、Undo step、Operation group
 
+**Command（命令）**：
+浏览器把一次手势（拖动、删除）作为一个 core 编辑经 WebSocket 发给 Document。Document 要么把它提交为一个归属 User Actor 的 Transaction 并广播，要么只向发送方回复拒绝；浏览器从不在本地先行应用它。
+_Avoid_: Operation、Action、Mutation
+
 **Revision（修订号）**：
 Document 单调递增的版本序号，每提交一个 Transaction 加一。用来判断"我读过之后文档是否被别人改过"。
 _Avoid_: Version（保留给 schema 版本）、Etag、Snapshot

@@ -1,0 +1,23 @@
+import { defineConfig, devices } from "@playwright/test";
+
+const PORT = 8788;
+/** Its own state, so test Documents never show up in `pnpm dev`'s list. */
+const STATE = "--persist-to .wrangler/e2e -c apps/edge/wrangler.jsonc";
+
+export default defineConfig({
+  testDir: "apps/web/e2e",
+  forbidOnly: !!process.env.CI,
+  use: { baseURL: `http://localhost:${PORT}`, ...devices["Desktop Chrome"] },
+  webServer: {
+    command: [
+      "pnpm --filter @zibel/web build",
+      `wrangler d1 migrations apply zibel --local ${STATE}`,
+      `wrangler dev ${STATE} --port ${PORT}`,
+    ].join(" && "),
+    url: `http://localhost:${PORT}/api/docs`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    // Non-interactive: wrangler applies the migration without asking and sends no metrics.
+    env: { CI: "1", WRANGLER_SEND_METRICS: "false" },
+  },
+});

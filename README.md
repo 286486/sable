@@ -6,7 +6,7 @@ Zibel is a short form of Zobel / zibeline, the sable marten whose hair makes the
 
 ## Status
 
-Milestone M0 is in progress (issue #1). A local Worker already takes MCP calls to create a Document, draw shapes into it, read its outline and render it to PNG. A browser viewer shows each Document live as an Agent draws; it cannot edit yet.
+Milestone M0 is in progress (issue #1). A local Worker already takes MCP calls to create a Document, draw shapes into it, read its outline and render it to PNG. A browser viewer shows each Document live as an Agent draws, and a person can select, move and delete what it drew.
 
 Start here. Domain vocabulary is in [CONTEXT.md](CONTEXT.md) and architecture decisions in [docs/adr/](docs/adr/).
 
@@ -25,10 +25,11 @@ Needs Node 22 or later.
 corepack enable
 pnpm install
 pnpm check   # typecheck, Biome, and Vitest inside workerd
+pnpm test:e2e # Playwright smoke test against its own wrangler dev (needs `pnpm exec playwright install chromium`)
 pnpm dev     # builds the web app, then wrangler dev: viewer at http://localhost:8787, MCP at /mcp
 ```
 
-Every MCP request needs `Authorization: Bearer <dev token>`. The dev tokens and the Agent Actor each one maps to are in `DEV_TOKENS` in [apps/edge/wrangler.jsonc](apps/edge/wrangler.jsonc). Documents are stored under `.wrangler/state` and survive a restart of `pnpm dev`. The viewer lists them at http://localhost:8787 and opens one at `/docs/<docId>`: Space-drag or scroll to pan, Ctrl+scroll or pinch to zoom, Z then click (Alt+click) to zoom in (out), Ctrl+0 to fit the Artboards, Ctrl+1 for 100%. The viewer has no login in M0. The first `pnpm dev` asks once to apply the local D1 migration that indexes Documents.
+Every MCP request needs `Authorization: Bearer <dev token>`. The dev tokens and the Agent Actor each one maps to are in `DEV_TOKENS` in [apps/edge/wrangler.jsonc](apps/edge/wrangler.jsonc). Documents are stored under `.wrangler/state` and survive a restart of `pnpm dev`. The viewer lists them at http://localhost:8787 and opens one at `/docs/<docId>`: Space-drag or scroll to pan, Ctrl+scroll or pinch to zoom, Z then click (Alt+click) to zoom in (out), Ctrl+0 to fit the Artboards, Ctrl+1 for 100%. Click an object to select it (Shift-click toggles, Alt+Shift-click removes) or drag a marquee over several; drag the Selection to move it, press Delete or Backspace to delete it, Ctrl+A to select all and Ctrl+Shift+A to deselect. Each move or delete is one Transaction by the Actor `user`. The viewer has no login in M0. The first `pnpm dev` asks once to apply the local D1 migration that indexes Documents.
 
 To connect Claude Code, copy [examples/claude-code.mcp.json](examples/claude-code.mcp.json) to `.mcp.json`, or run:
 
