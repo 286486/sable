@@ -73,6 +73,15 @@ export function createDocument(input: { id: string; name: string; artboards: Art
   return { doc, defaultLayerId: layer.id };
 }
 
+/** Most Nodes one `node_create` may add, counting inline Group children (REQUIREMENTS §6.5). */
+export const MAX_NODES_PER_CREATE = 2000;
+
+const countNodes = (items: { children?: unknown[] }[]): number =>
+  items.reduce(
+    (n, item) => n + 1 + countNodes((item.children ?? []) as { children?: unknown[] }[]),
+    0,
+  );
+
 /**
  * Validates every input first, then adds all Nodes, so a bad item leaves the Document unchanged.
  * Returns the new Nodes depth first in input order (a Group before its inline children), and the
@@ -130,6 +139,15 @@ export function createNodes(
       });
     }
   };
+  const count = countNodes(inputs as { children?: unknown[] }[]);
+  if (count > MAX_NODES_PER_CREATE) {
+    throw new ZibelError({
+      code: "LIMIT_EXCEEDED",
+      message: `${count} Nodes counting inline children; one node_create adds at most ${MAX_NODES_PER_CREATE}.`,
+      hint: `Split into several node_create calls of at most ${MAX_NODES_PER_CREATE} Nodes each, e.g. one per Layer or Group: create the Group first, then its children with its id as parentId.`,
+      path: "nodes",
+    });
+  }
   inputs.forEach((raw, i) => {
     const input = NodeInput.parse(raw);
     assertParent(doc, input, input.parentId, `nodes[${i}].parentId`);

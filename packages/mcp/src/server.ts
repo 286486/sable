@@ -77,8 +77,9 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "path {d}: SVG path data with absolute M, L, C, Q and Z only.",
         "Live Shapes and paths take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}, colors #RRGGBB or #RRGGBBAA; omit it for a white Fill and a 1 pt black Stroke.",
         "Give each node a clientKey to find its new id in the receipt's keyMap.",
+        "At most 2000 Nodes per call, counting inline children.",
       ].join(" "),
-      inputSchema: { docId, nodes: z.array(NodeInput).min(1).max(2000) },
+      inputSchema: { docId, nodes: z.array(NodeInput).min(1) },
       outputSchema: WriteReceipt.shape,
       annotations: {
         readOnlyHint: false,

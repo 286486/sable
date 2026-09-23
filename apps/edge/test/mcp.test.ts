@@ -241,8 +241,11 @@ it("rejects more than 1000 Artboards or 2000 nodes in one call", async () => {
     docId: doc.docId,
     nodes: Array(2001).fill(rect),
   });
-  expect(tooManyNodes.isError).toBe(true);
-  expect(tooManyNodes.content[0].text).toMatch(/nodes/);
+  expect(errorOf(tooManyNodes)).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    hint: expect.stringContaining("Split"),
+    path: "nodes",
+  });
 });
 
 it("creates every M0 type with an Appearance and reads each back in full", async () => {

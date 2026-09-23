@@ -470,3 +470,29 @@ it("stores tags and meta given at creation", () => {
   const [r] = createNodes(doc, [{ ...rect(defaultLayerId), tags: ["bar"], meta: { q: 3 } }]).nodes;
   expect(r).toMatchObject({ tags: ["bar"], meta: { q: 3 } });
 });
+
+describe("the 2000-Node cap per node_create", () => {
+  it("counts inline children and hints how to split", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const flat = Array.from({ length: 2001 }, () => rect(defaultLayerId));
+    const nested = [
+      {
+        type: "group" as const,
+        parentId: defaultLayerId,
+        children: Array.from({ length: 2000 }, () => ({
+          ...rect(defaultLayerId),
+          parentId: undefined,
+        })),
+      },
+    ];
+    for (const inputs of [flat, nested]) {
+      expect(codeOf(() => createNodes(doc, inputs))).toMatchObject({
+        code: "LIMIT_EXCEEDED",
+        path: "nodes",
+        hint: expect.stringMatching(/2000.*[Ss]plit|[Ss]plit.*2000/),
+      });
+    }
+    expect(doc.nodes.size).toBe(1);
+    expect(createNodes(doc, flat.slice(1)).nodes).toHaveLength(2000);
+  });
+});
