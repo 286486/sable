@@ -22,6 +22,6 @@ it("serialises the first Artboard with its Layers and rects", () => {
   const svg = toSvg(doc);
   expect(svg).toContain('viewBox="0 0 200 100"');
   expect(svg).toContain(
-    '<rect x="10" y="10" width="50" height="30" fill="#FF0000" stroke="#000000" stroke-width="2"/>',
+    '<path d="M 10 10 L 60 10 L 60 40 L 10 40 Z" fill="#FF0000" stroke="#000000" stroke-width="2"/>',
   );
 });

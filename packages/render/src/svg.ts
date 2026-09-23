@@ -1,4 +1,12 @@
-import { childrenOf, type Document, type Node, type Rect, union } from "@zibel/core";
+import {
+  childrenOf,
+  type Document,
+  formatPath,
+  type Node,
+  type Rect,
+  shapeSegments,
+  union,
+} from "@zibel/core";
 
 const esc = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
@@ -30,7 +38,7 @@ export function toSvg(doc: Document, rect: Rect = docRect(doc)): string {
 function node(doc: Document, n: Node): string {
   if (!n.visible) return "";
   const opacity = n.opacity === 1 ? undefined : n.opacity;
-  if (n.type === "layer") {
+  if (n.type === "layer" || n.type === "group") {
     const kids = childrenOf(doc, n.id)
       .map((c) => node(doc, c))
       .join("");
@@ -39,11 +47,8 @@ function node(doc: Document, n: Node): string {
   // ponytail: paints the top Fill and Stroke only; stacked Appearance needs one element per layer.
   const fill = n.appearance.fills.at(-1);
   const stroke = n.appearance.strokes.at(-1);
-  return `<rect${attrs({
-    x: n.x,
-    y: n.y,
-    width: n.width,
-    height: n.height,
+  return `<path${attrs({
+    d: formatPath(shapeSegments(n)),
     fill: fill?.color ?? "none",
     stroke: stroke?.color,
     "stroke-width": stroke?.width,

@@ -1,18 +1,22 @@
 import { generateKeyBetween } from "fractional-indexing";
 import { ulid } from "ulid";
+import type { z } from "zod";
 import { parseColor } from "./color.ts";
 import { ZibelError } from "./errors.ts";
+import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
 import {
   type Appearance,
   AppearanceInput,
   type Artboard,
   type ArtboardInput,
+  type ChildInput,
   type Document,
   type LayerNode,
   type Matrix,
   type Node,
   NodeInput,
   type Rect,
+  Shape,
 } from "./schema.ts";
 
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
@@ -70,55 +74,116 @@ export function createDocument(input: { id: string; name: string; artboards: Art
 
 /**
  * Validates every input first, then adds all Nodes, so a bad item leaves the Document unchanged.
- * Returns the new Nodes in input order.
+ * Returns the new Nodes depth first in input order (a Group before its inline children), and the
+ * `clientKey` → id map for the WriteReceipt.
  */
-export function createNodes(doc: Document, inputs: NodeInput[]): Node[] {
-  const lastIndex = new Map<string, string | null>();
-  const created = inputs.map((raw, i): Node => {
-    const input = NodeInput.parse(raw);
-    const path = `nodes[${i}].parentId`;
-    const parent = doc.nodes.get(input.parentId);
-    if (!parent) {
-      const isArtboard = doc.artboards.some((a) => a.id === input.parentId);
-      throw new ZibelError(
-        isArtboard
-          ? {
-              code: "INVALID_PARENT",
-              message: "An Artboard is not a Node and cannot be a parent.",
-              hint: "Use a Layer id as parentId; position the Node inside the Artboard's frame instead.",
-              path,
-            }
-          : {
-              code: "NODE_NOT_FOUND",
-              message: `No Node with id ${input.parentId}.`,
-              hint: "Use doc_outline to list Layer ids; doc_create returns the default Layer id.",
-              path,
-            },
-      );
+export function createNodes(
+  doc: Document,
+  inputs: NodeInput[],
+): { nodes: Node[]; keyMap: Record<string, string> } {
+  const nodes: Node[] = [];
+  const keyMap: Record<string, string> = {};
+  const lastIndex = new Map<string | null, string | null>();
+  const nextIndex = (parentId: string | null) => {
+    const prev = lastIndex.has(parentId)
+      ? (lastIndex.get(parentId) ?? null)
+      : (childrenOf(doc, parentId).at(-1)?.index ?? null);
+    const index = generateKeyBetween(prev, null);
+    lastIndex.set(parentId, index);
+    return index;
+  };
+  const add = (
+    input: z.output<typeof NodeInput> | ChildInput,
+    parentId: string | null,
+    path: string,
+  ) => {
+    const at = base(parentId, nextIndex(parentId));
+    const name = input.name ?? "";
+    let node: Node;
+    if (input.type === "layer" || input.type === "group") {
+      node = { ...at, type: input.type, name };
+    } else {
+      // Parsing with the Shape schema keeps the parameters and drops clientKey, name and the rest.
+      const shape = Shape.parse(input);
+      if (shape.type === "path") shape.d = formatPath(parsePath(shape.d, `${path}.d`));
+      const appearance = paint(input.appearance ?? DEFAULT_APPEARANCE, `${path}.appearance`);
+      node = { ...at, ...shape, name, appearance };
     }
-    if (parent.type !== "layer") {
-      throw new ZibelError({
-        code: "INVALID_PARENT",
-        message: `A ${parent.type} cannot contain other Nodes.`,
-        hint: "parentId must be a Layer or Group.",
-        path,
+    nodes.push(node);
+    if (input.clientKey !== undefined) keyMap[input.clientKey] = node.id;
+    if (input.type === "group") {
+      input.children.forEach((child, k) => {
+        add(child, node.id, `${path}.children[${k}]`);
       });
     }
-    const prev = lastIndex.has(parent.id)
-      ? (lastIndex.get(parent.id) ?? null)
-      : (childrenOf(doc, parent.id).at(-1)?.index ?? null);
-    const index = generateKeyBetween(prev, null);
-    lastIndex.set(parent.id, index);
-    const { parentId: _, clientKey: __, name, appearance, ...shape } = input;
-    return {
-      ...base(parent.id, index),
-      ...shape,
-      name: name ?? "",
-      appearance: paint(appearance ?? DEFAULT_APPEARANCE, `nodes[${i}].appearance`),
-    };
+  };
+  inputs.forEach((raw, i) => {
+    const input = NodeInput.parse(raw);
+    assertParent(doc, input, input.parentId, `nodes[${i}].parentId`);
+    add(input, input.parentId, `nodes[${i}]`);
   });
-  for (const node of created) doc.nodes.set(node.id, node);
-  return created;
+  for (const node of nodes) doc.nodes.set(node.id, node);
+  return { nodes, keyMap };
+}
+
+/**
+ * The tree rules (ADR-0005): a Layer's parent is the root or a Layer; every other Node's parent is a
+ * Layer or Group; an Artboard is never a parent; no Node is its own ancestor.
+ */
+export function assertParent(
+  doc: Document,
+  child: { type: Node["type"]; id?: string },
+  parentId: string | null,
+  path: string,
+): void {
+  const invalid = (message: string, hint: string) =>
+    new ZibelError({ code: "INVALID_PARENT", message, hint, path });
+  if (parentId === null) {
+    if (child.type === "layer") return;
+    throw invalid(
+      `A ${child.type} cannot sit at the Document root; only a Layer can.`,
+      "Use a Layer id as parentId; doc_create returns the default Layer id.",
+    );
+  }
+  const parent = doc.nodes.get(parentId);
+  if (!parent) {
+    if (doc.artboards.some((a) => a.id === parentId)) {
+      throw invalid(
+        "An Artboard is not a Node and cannot be a parent.",
+        "Use a Layer id as parentId; position the Node inside the Artboard's frame instead.",
+      );
+    }
+    throw new ZibelError({
+      code: "NODE_NOT_FOUND",
+      message: `No Node with id ${parentId}.`,
+      hint: "Use doc_outline to list Layer ids; doc_create returns the default Layer id.",
+      path,
+    });
+  }
+  if (child.type === "layer" && parent.type !== "layer") {
+    throw invalid(
+      `A Layer's parent is the Document root or another Layer, never a ${parent.type}.`,
+      "Omit parentId for a top-level Layer, or use a Layer id.",
+    );
+  }
+  if (parent.type !== "layer" && parent.type !== "group") {
+    throw invalid(
+      `A ${parent.type} cannot contain other Nodes.`,
+      "parentId must be a Layer or Group.",
+    );
+  }
+  for (
+    let p: Node | undefined = parent;
+    p;
+    p = p.parentId ? doc.nodes.get(p.parentId) : undefined
+  ) {
+    if (p.id === child.id) {
+      throw invalid(
+        "The parent is the Node itself or one of its descendants, which would make a cycle.",
+        "Choose a parent outside this Node's subtree.",
+      );
+    }
+  }
 }
 
 /** Illustrator's basic appearance for a new shape. */
@@ -150,8 +215,10 @@ export function childrenOf(doc: Document, parentId: string | null): Node[] {
 /** Geometric bounds in document coordinates (no stroke), or null for an empty container. */
 export function bounds(doc: Document, node: Node): Rect | null {
   // ponytail: ignores `transform`, which stays identity until node_transform (#5) can set it.
-  if (node.type === "rect") return { x: node.x, y: node.y, width: node.width, height: node.height };
-  return union(childrenOf(doc, node.id).map((c) => bounds(doc, c)));
+  if (node.type === "layer" || node.type === "group") {
+    return union(childrenOf(doc, node.id).map((c) => bounds(doc, c)));
+  }
+  return pathBounds(shapeSegments(node));
 }
 
 export interface OutlineNode {

@@ -110,27 +110,74 @@ export const PathShape = z.object({
   type: z.literal("path"),
   d: z.string().describe("SVG path data, absolute M, L, C, Q and Z only, e.g. M 0 0 L 10 0 Z."),
 });
-export type Shape = z.output<
-  | typeof RectShape
-  | typeof EllipseShape
-  | typeof LineShape
-  | typeof PolygonShape
-  | typeof StarShape
-  | typeof PathShape
->;
+export const Shape = z.discriminatedUnion("type", [
+  RectShape,
+  EllipseShape,
+  LineShape,
+  PolygonShape,
+  StarShape,
+  PathShape,
+]);
+export type Shape = z.output<typeof Shape>;
 
-export const RectInput = RectShape.extend({
-  parentId: z.string().describe("Id of a Layer or Group. doc_create returns the default Layer id."),
-  clientKey: z
-    .string()
-    .optional()
-    .describe("Your own key for this item; the receipt's keyMap maps it to the new id."),
+const clientKey = z
+  .string()
+  .optional()
+  .describe("Your own key for this item; the receipt's keyMap maps it to the new id.");
+const item = {
+  clientKey,
   name: z.string().optional(),
+};
+const leaf = {
+  ...item,
   appearance: AppearanceInput.optional().describe(
     "Omit for Illustrator's default, a white Fill and a 1 pt black Stroke; {} paints nothing.",
   ),
+};
+const RectItem = RectShape.extend(leaf);
+const EllipseItem = EllipseShape.extend(leaf);
+const LineItem = LineShape.extend(leaf);
+const PolygonItem = PolygonShape.extend(leaf);
+const StarItem = StarShape.extend(leaf);
+const PathItem = PathShape.extend(leaf);
+const LEAF_ITEMS = [RectItem, EllipseItem, LineItem, PolygonItem, StarItem, PathItem] as const;
+type LeafItem = (typeof LEAF_ITEMS)[number];
+interface GroupChild {
+  type: "group";
+  clientKey?: string;
+  name?: string;
+  children: ChildInput[];
+}
+interface GroupChildIn extends Omit<GroupChild, "children"> {
+  children?: ChildIn[];
+}
+/** A Node created inline in a Group: any type but `layer`, and no `parentId`. */
+export type ChildInput = z.output<LeafItem> | GroupChild;
+type ChildIn = z.input<LeafItem> | GroupChildIn;
+const ChildInput: z.ZodType<ChildInput, ChildIn> = z.lazy(() =>
+  z.discriminatedUnion("type", [...LEAF_ITEMS, GroupItem]),
+);
+const GroupItem = z.object({
+  type: z.literal("group"),
+  ...item,
+  children: z.array(ChildInput).default([]).describe("Created inside this Group, bottom to top."),
 });
-export const NodeInput = RectInput;
+
+const parentId = z
+  .string()
+  .describe("Id of a Layer or Group, never an Artboard. doc_create returns the default Layer id.");
+export const NodeInput = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("layer"),
+    ...item,
+    parentId: z
+      .string()
+      .nullable()
+      .default(null)
+      .describe("Id of the parent Layer; omit or null for a top-level Layer."),
+  }),
+  ...[...LEAF_ITEMS, GroupItem].map((s) => s.extend({ parentId })),
+]);
 export type NodeInput = z.input<typeof NodeInput>;
 
 /** `[a, b, c, d, e, f]` with SVG semantics. */
@@ -156,9 +203,14 @@ export interface LayerNode extends NodeBase {
   type: "layer";
 }
 
-export type RectNode = NodeBase & z.output<typeof RectShape> & { appearance: Appearance };
+export interface GroupNode extends NodeBase {
+  type: "group";
+}
 
-export type Node = LayerNode | RectNode;
+/** A Live Shape or Path: its parameters plus an Appearance. */
+export type ShapeNode = NodeBase & Shape & { appearance: Appearance };
+
+export type Node = LayerNode | GroupNode | ShapeNode;
 
 export interface Document {
   id: string;

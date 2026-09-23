@@ -87,16 +87,11 @@ export class DocumentObject extends DurableObject<Env> {
   createNodes(inputs: NodeInput[], actor: string): Result<WriteReceipt> {
     return guard(() => {
       const doc = this.load();
-      const created = createNodes(doc, inputs);
+      const { nodes: created, keyMap } = createNodes(doc, inputs);
       const noun = created.length === 1 ? "Node" : "Nodes";
       const { txId, rev } = this.ctx.storage.transactionSync(() =>
         this.commit(actor, `Create ${created.length} ${noun}`, created),
       );
-      const keyMap: Record<string, string> = {};
-      inputs.forEach((input, i) => {
-        const id = created[i]?.id;
-        if (input.clientKey && id) keyMap[input.clientKey] = id;
-      });
       return {
         txId,
         rev,

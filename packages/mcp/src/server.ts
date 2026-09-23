@@ -63,8 +63,21 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     "zibel_node_create",
     {
       title: "Create Nodes",
-      description:
-        "Create Nodes in one atomic write. Each node needs parentId, the id of a Layer or Group (never an Artboard). Only rect is supported for now: x, y, width, height in document coordinates, optional appearance {fills: [{color}], strokes: [{color, width}]} with colors as #RRGGBB or #RRGGBBAA.",
+      description: [
+        "Create Nodes in one atomic write: one bad item fails the call and creates nothing.",
+        "Each node needs parentId, the id of a Layer or Group, never an Artboard; a layer omits it to sit at the Document root.",
+        "Types, in document coordinates (pt, origin top-left, y down):",
+        "layer {name}: parent is the root or another Layer.",
+        "group {children}: children are nodes of any type but layer, without parentId, created inside the Group.",
+        "rect {x, y, width, height, radius}: radius is the corner radius.",
+        "ellipse {x, y, width, height}: its bounding box.",
+        "line {x1, y1, x2, y2}.",
+        "polygon {cx, cy, radius, sides}: radius is center to vertex.",
+        "star {cx, cy, outerRadius, innerRadius, points}.",
+        "path {d}: SVG path data with absolute M, L, C, Q and Z only.",
+        "Shapes take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}, colors #RRGGBB or #RRGGBBAA; omit it for a white Fill and a 1 pt black Stroke.",
+        "Give each node a clientKey to find its new id in the receipt's keyMap.",
+      ].join(" "),
       inputSchema: { docId, nodes: z.array(NodeInput).min(1).max(2000) },
       outputSchema: WriteReceipt.shape,
       annotations: {
