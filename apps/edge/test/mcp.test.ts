@@ -79,6 +79,12 @@ it("lists tools with annotations and an outputSchema", async () => {
   expect(byName.zibel_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
   expect(byName.zibel_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
   expect(JSON.stringify(tools)).not.toContain("no effect yet");
+  // Descriptions point at the Skill document instead of repeating its conventions.
+  const described = (name: string) => (byName[name] as { description?: string })?.description;
+  for (const name of ["zibel_doc_create", "zibel_node_create", "zibel_node_update"]) {
+    expect(described(name)).toContain("skill://zibel/drawing-conventions");
+  }
+  expect(described("zibel_node_create")).not.toContain("origin top-left");
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({
       readOnlyHint: expect.any(Boolean),
