@@ -5,7 +5,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 ## Coordinates
 
 - Units are points (pt). The origin is the top-left of the Document; x grows right, y down.
-- Every tool input and every `geometricBounds`, `visibleBounds` and `worldTransform` is in document coordinates. Artboards are regions of that one plane, not Nodes: read their placement from `artboards[].frame` in `zibel_doc_create` or `zibel_doc_get_info`, and add `frame.x` / `frame.y` to draw on an Artboard that is not at the origin.
+- Every tool input (except a transformed Node's own parameters, below) and every `geometricBounds`, `visibleBounds` and `worldTransform` is in document coordinates. Artboards are regions of that one plane, not Nodes: read their placement from `artboards[].frame` in `zibel_doc_create` or `zibel_doc_get_info`, and add `frame.x` / `frame.y` to draw on an Artboard that is not at the origin.
 - Angles are degrees, clockwise on screen. A `matrix` is `[a, b, c, d, e, f]` with SVG semantics.
 - `zibel_node_transform` never rewrites a shape's parameters or a path's `d`: it gives the Node a `transform`. After that, the `x`, `y` or `d` you read with `zibel_node_get` (detail `full`) and write with `zibel_node_update` are in the Node's own coordinates; read where it is from `geometricBounds`. Layers and Groups never carry a transform, so creating Nodes inside a moved Group still takes document coordinates.
 
@@ -13,11 +13,11 @@ Read this once before your first write. Tool descriptions cover each call; this 
 
 - `#RRGGBB` or `#RRGGBBAA` only, case-insensitive: `#FF8800`, `#FF880080` for half opacity. No `rgb()`, no names, no 0–1 floats. An `INVALID_COLOR` hint gives the hex form of what you probably meant.
 - Omit `appearance` for a white Fill and a 1 pt black Stroke (text: a black Fill, no Stroke). `{}` paints nothing.
-- On `zibel_node_update`, `fills` and `strokes` replace as whole lists: send every Fill or Stroke you want to keep.
+- On `zibel_node_update`, a `fills` or `strokes` list you send replaces that list entirely, so include every Fill or Stroke you want to keep; a list you omit is kept.
 
 ## Path data (`d`)
 
-- Absolute `M`, `L`, `C`, `Q` and `Z` only, uppercase. Write `H` and `V` as `L`, `S` as `C`, `T` as `Q`, and arcs `A` as `C`.
+- Absolute `M`, `L`, `C`, `Q` and `Z` only, uppercase. Numbers are stored with at most 3 decimals. Write `H` and `V` as `L`, `S` as `C`, `T` as `Q`, and arcs `A` as `C`.
 - Start with `M x y`. Extra pairs after `M` are implicit `L`. `Z` closes the subpath.
 - Example, a closed triangle and a curve: `M 0 0 L 100 0 L 50 80 Z M 0 100 C 30 60 70 140 100 100`.
 - Prefer a Live Shape (`rect`, `ellipse`, `line`, `polygon`, `star`) to a path when one fits: its parameters stay editable.
@@ -59,7 +59,7 @@ Go from coarse to fine: `zibel_doc_outline` for the Layer tree, `zibel_node_quer
 
 - A failed call returns `{code, message, hint, path}`: `hint` says what to do next and `path` names the field.
 - A value the input schema rejects returns text starting `Input validation error:` that names the field.
-- Common mistakes: an Artboard id as `parentId` (`INVALID_PARENT`), `rgb()` or named colours (`INVALID_COLOR`), lowercase or `H`/`V`/`A` path commands (`INVALID_PATH`), `transform` or `parentId` in a `zibel_node_update` patch (`INVALID_PATCH`: use `zibel_node_transform`).
+- Common mistakes: an Artboard id as `parentId` (`INVALID_PARENT`), `rgb()` or named colours (`INVALID_COLOR`), lowercase or `H`/`V`/`A` path commands (`INVALID_PATH`), `transform` in a `zibel_node_update` patch (`INVALID_PATCH`: use `zibel_node_transform`), `parentId` in a patch (`INVALID_PATCH`: a Node cannot move to another parent yet).
 
 ## Limits
 
