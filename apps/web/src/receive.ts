@@ -9,7 +9,7 @@ export interface Drag {
   commandId: string | null;
 }
 
-export interface Session {
+export interface ViewState {
   doc: Document | null;
   /** UI state only, never sent as a Document property (CONTEXT.md). */
   selection: string[];
@@ -20,10 +20,14 @@ export interface Session {
 }
 
 /**
- * The Session after one server message (ADR-0009, ADR-0010), or null when a `rev` was missed and
+ * The ViewState after one server message (ADR-0009, ADR-0010), or null when a `rev` was missed and
  * the browser must reconnect for the whole Document.
  */
-export function receive(s: Session, msg: ServerMessage, docId: string): Partial<Session> | null {
+export function receive(
+  s: ViewState,
+  msg: ServerMessage,
+  docId: string,
+): Partial<ViewState> | null {
   if (msg.type === "rejected") {
     const gone = msg.error.code === "NODE_GONE";
     return {

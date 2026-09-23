@@ -1,10 +1,10 @@
 import { newId } from "@zibel/core";
 import type { ClientMessage, Command, ServerMessage } from "@zibel/sync";
 import { create } from "zustand";
-import { receive, type Session } from "./receive.ts";
+import { receive, type ViewState } from "./receive.ts";
 import type { Viewport } from "./viewport.ts";
 
-interface State extends Session {
+interface State extends ViewState {
   /** False while the socket is down; the last Document stays on screen. */
   live: boolean;
   /** Null until the first Document arrives and is fitted to the screen. */

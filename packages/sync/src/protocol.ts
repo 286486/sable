@@ -48,7 +48,7 @@ export type ServerMessage = DocumentMessage | TxMessage | RejectedMessage;
 /** One gesture, as one core edit. Parsed by the Document DO: browsers are not trusted. */
 export const ClientMessage = z.object({
   type: z.literal("command"),
-  id: z.string(),
+  id: z.string().max(64),
   command: z.discriminatedUnion("type", [
     z.object({ type: z.literal("transform"), input: TransformInput }),
     z.object({ type: z.literal("delete"), nodeIds: z.array(z.string()).min(1) }),

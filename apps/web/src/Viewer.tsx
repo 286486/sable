@@ -150,8 +150,8 @@ export function Viewer({ docId }: { docId: string }) {
         useStore.setState({ selection: e.shiftKey ? [] : objects(doc).map((n) => n.id) });
       } else if ((e.key === "Delete" || e.key === "Backspace") && selection.length > 0) {
         e.preventDefault();
+        // The answering tx prunes the Selection; a rejection keeps it for another press.
         send({ type: "delete", nodeIds: selection });
-        useStore.setState({ selection: [] });
       } else if (mod && e.key === "0") {
         e.preventDefault();
         set(fit(artboardsRect(doc), size.width, size.height));
@@ -244,7 +244,8 @@ export function Viewer({ docId }: { docId: string }) {
       useStore.setState({ selection: combine(selection, ids, g.mods) });
       setMarqueeRect(null);
     } else if (g.moved && drag && drag.commandId === null) {
-      // ponytail: TransformInput takes at most 1000 nodeIds; chunk or lift the max when Documents grow.
+      // ponytail: TransformInput takes at most 1000 nodeIds: a larger drag crashes preview() and
+      // is closed with 1007 by the DO; chunk the command or lift the max when Documents grow.
       const translate = { x: drag.dx, y: drag.dy };
       const commandId = send({ type: "transform", input: { nodeIds: drag.nodeIds, translate } });
       useStore.setState({ drag: { ...drag, commandId } });
