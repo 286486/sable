@@ -13,7 +13,7 @@ Review every changed file against:
 
 - **Spec**: does the diff do what the issue and plan asked, completely? Name any unit skipped or scope added.
 - **Correctness**: bugs, unhandled cases at trust boundaries, broken invariants of the scene graph (ADR-0002, ADR-0005), statefulness in the MCP layer (ADR-0006).
-- **Tests**: each behaviour change has a test that would fail if the behaviour broke. Run `pnpm check` and report the result verbatim.
+- **Tests**: each behaviour change has a test that would fail if the behaviour broke. Testing is Opus's job: read the verify output in the PR or handoff and judge whether it covers the change. Re-run a check yourself only to confirm a claim you doubt. If `pnpm check` or a required suite does not exist yet, report it as a finding.
 - **Domain**: glossary terms used exactly; new terms added to `CONTEXT.md`; ADR written if warranted, or an existing ADR contradicted.
 - **Simplicity**: code that can be deleted or replaced by something already in the repo, stdlib or platform.
 
