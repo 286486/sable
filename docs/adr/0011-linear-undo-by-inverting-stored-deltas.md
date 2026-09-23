@@ -29,6 +29,5 @@ In M0 only the browser undoes: `{type: "undo"}` and `{type: "redo"}` are new com
 ## Consequences
 
 - Deltas for up to 200 Transactions are stored per Document, each as large as the Nodes it touched.
-- A redo after an Agent changed the same keys overwrites the Agent's values (last writer wins); `ifRev` and `doc_changes` show it to the Agent.
 - Transactions committed before this ADR have no delta and are not on the stack.
 - With one linear stack the skip rule cannot fire yet: a delete is always above the edits it would invalidate, so undo pops it first and recreates the Node, and any commit between an undo and its redo clears the redo. It becomes reachable with per-Actor undo. Until then it guards `revert` against `NODE_GONE` and is tested at the core seam.
