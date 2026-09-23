@@ -1,3 +1,5 @@
+export * from "./protocol.ts";
+
 import type {
   Artboard,
   ArtboardInput,
@@ -34,6 +36,16 @@ export interface ChangeEntry {
   intent: string | null;
 }
 
+export interface DocInfo {
+  docId: string;
+  name: string;
+  artboards: Artboard[];
+  nodeCount: number;
+  rev: number;
+  /** Browsers subscribed over WebSocket right now (ADR-0009). */
+  browsers: number;
+}
+
 export interface CreatedDocument {
   docId: string;
   defaultLayerId: string;
@@ -51,6 +63,7 @@ export interface DocumentService {
     artboards: ArtboardInput[];
     intent?: string;
   }): Promise<CreatedDocument>;
+  info(docId: string): Promise<DocInfo>;
   createNodes(docId: string, nodes: NodeInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   updateNodes(docId: string, updates: UpdateInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   deleteNodes(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;

@@ -5,9 +5,24 @@
   // Must not be later than the workerd bundled with @cloudflare/vitest-plugin.
   "compatibility_date": "2026-09-21",
   "compatibility_flags": ["nodejs_compat"],
+  // The web app (built by `pnpm dev`); the Worker answers /mcp and /api first.
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/mcp", "/api/*"]
+  },
   "durable_objects": {
     "bindings": [{ "name": "DOCUMENT", "class_name": "DocumentObject" }]
   },
+  // Local only until M1 creates the hosted database.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "zibel",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocumentObject"] }],
   // Dev tokens for local Agent Actors, `token=actor` pairs. Replaced by OAuth in M1.
   "vars": {

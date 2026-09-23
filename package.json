@@ -7,8 +7,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "tsc --noEmit && biome check . && vitest run",
-    "dev": "wrangler dev -c apps/edge/wrangler.jsonc",
+    "check": "tsc --noEmit && tsc --noEmit -p apps/web && biome check . && vitest run",
+    "dev": "pnpm --filter @zibel/web build && wrangler d1 migrations apply zibel --local -c apps/edge/wrangler.jsonc && wrangler dev -c apps/edge/wrangler.jsonc",
     "test": "vitest run"
   },
   "devDependencies": {

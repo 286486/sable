@@ -29,6 +29,7 @@ it("lists tools with annotations and an outputSchema", async () => {
   expect(tools.map((t) => t.name).sort()).toEqual([
     "zibel_doc_changes",
     "zibel_doc_create",
+    "zibel_doc_get_info",
     "zibel_doc_outline",
     "zibel_node_create",
     "zibel_node_delete",
@@ -64,6 +65,7 @@ it("lists tools with annotations and an outputSchema", async () => {
     expect.arrayContaining(["docId", "txId", "ifRev", "intent"]),
   );
   expect(byName.zibel_doc_changes?.annotations).toMatchObject({ readOnlyHint: true });
+  expect(byName.zibel_doc_get_info?.annotations).toMatchObject({ readOnlyHint: true });
   expect(byName.zibel_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
   expect(byName.zibel_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
   expect(JSON.stringify(tools)).not.toContain("no effect yet");
@@ -206,8 +208,27 @@ it("returns INVALID_COLOR with a hint for a bad Artboard background", async () =
 });
 
 it("returns DOC_NOT_FOUND for an unknown docId", async () => {
-  const result = await call("zibel_doc_outline", { docId: "01NOPE" });
-  expect(errorOf(result)).toMatchObject({ code: "DOC_NOT_FOUND", hint: expect.any(String) });
+  for (const tool of ["zibel_doc_outline", "zibel_doc_get_info"]) {
+    const result = await call(tool, { docId: "01NOPE" });
+    expect(errorOf(result)).toMatchObject({ code: "DOC_NOT_FOUND", hint: expect.any(String) });
+  }
+});
+
+it("reports name, Artboards, node count, rev and no browsers with doc_get_info", async () => {
+  const { docId, defaultLayerId, artboards } = await newDoc();
+  await call("zibel_node_create", {
+    docId,
+    nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 }],
+  });
+  const result = await call("zibel_doc_get_info", { docId });
+  expect(result.structuredContent).toEqual({
+    docId,
+    name: "Doc",
+    artboards,
+    nodeCount: 2,
+    rev: 2,
+    browsers: 0,
+  });
 });
 
 it("renders the Document to a PNG with viewport metadata", async () => {
