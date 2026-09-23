@@ -43,6 +43,8 @@ Routing gotchas:
 
 Every change passes these gates in order. A gate is done only when its criterion holds.
 
+When a task starts through the `implement` skill, first give the user a short summary of the task in Chinese (what it builds and why), before any gate.
+
 1. **Issue.** Work starts from a GitHub issue. Done: the issue states the goal and cites requirement IDs (`F-…`), and is labelled `ready-for-agent`.
 2. **Grill.** Needed when the change touches more than one package, alters the MCP tool surface or document schema, or introduces a term. Run `/mattpocock-skills:grill-with-docs`. Done: no open question left, `CONTEXT.md` and `docs/adr/` updated per `docs/agents/domain.md`.
 3. **Plan (Fable).** Dispatch `planner` with the issue number; it posts the plan as an issue comment. When the main session is Opus, call the advisor on the plan. Done: the plan comment lists units, each with its red test and the command that turns it green.
