@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import type { z } from "zod";
 import { parseColor } from "./color.ts";
 import { ZibelError } from "./errors.ts";
+import { IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
 import {
   type Appearance,
@@ -23,7 +24,6 @@ import {
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
 export const newId = () => ulid();
 
-const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 const ARTBOARD_GAP = 20;
 
 const base = (parentId: string | null, index: string) => ({
@@ -221,11 +221,10 @@ export function childrenOf(doc: Document, parentId: string | null): Node[] {
 
 /** Geometric bounds in document coordinates (no stroke), or null for an empty container. */
 export function bounds(doc: Document, node: Node): Rect | null {
-  // ponytail: ignores `transform`, which stays identity until node_transform (#5) can set it.
   if (node.type === "layer" || node.type === "group") {
     return union(childrenOf(doc, node.id).map((c) => bounds(doc, c)));
   }
-  return pathBounds(shapeSegments(node));
+  return pathBounds(transformSegments(shapeSegments(node), worldTransform(doc, node)));
 }
 
 /** Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a container. */
@@ -234,28 +233,24 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
     return union(childrenOf(doc, node.id).map((c) => visibleBounds(doc, c)));
   }
   const b = bounds(doc, node);
-  // ponytail: half the Stroke width on every side; miter spikes and square caps can reach further.
-  const grow = Math.max(0, ...node.appearance.strokes.map((s) => s.width)) / 2;
+  // ponytail: half the Stroke width on every side, scaled by sqrt|det|; miter spikes, square caps
+  // and non-uniform scale can reach further.
+  const grow =
+    (Math.max(0, ...node.appearance.strokes.map((s) => s.width)) / 2) *
+    scaleOf(worldTransform(doc, node));
   return (
     b && { x: b.x - grow, y: b.y - grow, width: b.width + 2 * grow, height: b.height + 2 * grow }
   );
 }
 
-/** The Node's transform composed with every ancestor's, mapping its coordinates to the Document's. */
+/**
+ * The Node's transform composed with every ancestor's, mapping its coordinates to the Document's.
+ * Containers stay identity (ADR-0007), so this equals a leaf's own transform; composing keeps it
+ * correct should a container ever carry one.
+ */
 export function worldTransform(doc: Document, node: Node): Matrix {
   const parent = node.parentId ? doc.nodes.get(node.parentId) : undefined;
   return parent ? multiply(worldTransform(doc, parent), node.transform) : node.transform;
-}
-
-function multiply([a, b, c, d, e, f]: Matrix, [A, B, C, D, E, F]: Matrix): Matrix {
-  return [
-    a * A + c * B,
-    b * A + d * B,
-    a * C + c * D,
-    b * C + d * D,
-    a * E + c * F + e,
-    b * E + d * F + f,
-  ];
 }
 
 function outlineOf(node: ShapeNode): { d: string; closed: boolean } {
