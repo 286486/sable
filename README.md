@@ -6,7 +6,7 @@ Zibel is a short form of Zobel / zibeline, the sable marten whose hair makes the
 
 ## Status
 
-Milestone M0 is in progress (issue #1). A local Worker already takes MCP calls to create a Document, draw rectangles into it, read its outline and render it to PNG. There is no browser UI yet.
+Milestone M0 is in progress (issue #1). A local Worker already takes MCP calls to create a Document, draw shapes into it, read its outline and render it to PNG. A browser viewer shows each Document live as an Agent draws; it cannot edit yet.
 
 Start here. Domain vocabulary is in [CONTEXT.md](CONTEXT.md) and architecture decisions in [docs/adr/](docs/adr/).
 
@@ -25,10 +25,10 @@ Needs Node 22 or later.
 corepack enable
 pnpm install
 pnpm check   # typecheck, Biome, and Vitest inside workerd
-pnpm dev     # wrangler dev, MCP at http://localhost:8787/mcp
+pnpm dev     # builds the web app, then wrangler dev: viewer at http://localhost:8787, MCP at /mcp
 ```
 
-Every MCP request needs `Authorization: Bearer <dev token>`. The dev tokens and the Agent Actor each one maps to are in `DEV_TOKENS` in [apps/edge/wrangler.jsonc](apps/edge/wrangler.jsonc). Documents are stored under `.wrangler/state` and survive a restart of `pnpm dev`.
+Every MCP request needs `Authorization: Bearer <dev token>`. The dev tokens and the Agent Actor each one maps to are in `DEV_TOKENS` in [apps/edge/wrangler.jsonc](apps/edge/wrangler.jsonc). Documents are stored under `.wrangler/state` and survive a restart of `pnpm dev`. The viewer lists them at http://localhost:8787 and opens one at `/docs/<docId>`: Space-drag or scroll to pan, Ctrl+scroll or pinch to zoom, Z then click (Alt+click) to zoom in (out), Ctrl+0 to fit the Artboards, Ctrl+1 for 100%. The viewer has no login in M0.
 
 To connect Claude Code, copy [examples/claude-code.mcp.json](examples/claude-code.mcp.json) to `.mcp.json`, or run:
 

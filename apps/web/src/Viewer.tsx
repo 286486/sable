@@ -6,6 +6,9 @@ import { fit, type Viewport, zoomAt } from "./viewport.ts";
 
 const PASTEBOARD = "#E6E6E6";
 
+/** Pinch sends small deltas and passes through; a mouse-wheel notch (about 100) is capped to x1.65. */
+const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
+
 const artboardsRect = (doc: Document) =>
   union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 100, height: 100 };
 
@@ -80,7 +83,7 @@ export function Viewer({ docId }: { docId: string }) {
       useStore.setState({
         viewport:
           e.ctrlKey || e.metaKey
-            ? zoomAt(v, Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top)
+            ? zoomAt(v, wheelZoom(e.deltaY), e.clientX - r.left, e.clientY - r.top)
             : { ...v, x: v.x - e.deltaX, y: v.y - e.deltaY },
       });
     };
