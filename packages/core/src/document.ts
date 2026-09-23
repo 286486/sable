@@ -16,6 +16,7 @@ import {
   type Matrix,
   type Node,
   NodeInput,
+  type NodeQuery,
   type Rect,
   Shape,
   type ShapeNode,
@@ -378,6 +379,48 @@ export function outline(doc: Document, depth = 2): OutlineNode[] {
     });
   return walk(null, 1);
 }
+
+/**
+ * The Nodes matching every filter of `q`, sorted by id, one page at a time: `nextCursor` is the
+ * last id returned while more follow (ADR-0015).
+ */
+// ponytail: scans every Node per call; a spatial index when Documents grow.
+export function queryNodes(
+  doc: Document,
+  { types, nameRegex, tags, parentId, withinRect, intersectsRect, limit = 100, cursor }: NodeQuery,
+): { nodes: ConciseView[]; nextCursor: string | null } {
+  const name = nameRegex === undefined ? undefined : new RegExp(nameRegex);
+  const matches = [...doc.nodes.values()]
+    .filter(
+      (n) =>
+        (cursor === undefined || n.id > cursor) &&
+        (!types || types.includes(n.type)) &&
+        (!name || name.test(n.name)) &&
+        (!tags || tags.every((t) => n.tags.includes(t))) &&
+        (parentId === undefined || n.parentId === parentId),
+    )
+    .filter((n) => {
+      if (!withinRect && !intersectsRect) return true;
+      const b = bounds(doc, n);
+      return (
+        !!b &&
+        (!withinRect || inside(b, withinRect)) &&
+        (!intersectsRect || touches(b, intersectsRect))
+      );
+    })
+    .sort((a, b) => (a.id < b.id ? -1 : 1));
+  const page = matches.slice(0, limit);
+  return {
+    nodes: page.map((n) => nodeView(doc, n, "concise")),
+    nextCursor: matches.length > limit ? (page.at(-1)?.id ?? null) : null,
+  };
+}
+
+const inside = (a: Rect, outer: Rect) =>
+  outer.x <= a.x &&
+  outer.y <= a.y &&
+  a.x + a.width <= outer.x + outer.width &&
+  a.y + a.height <= outer.y + outer.height;
 
 /** Whether two rects overlap or touch, edges included. */
 export const touches = (a: Rect, b: Rect) =>

@@ -6,11 +6,13 @@ import {
   createNodes,
   nodeView,
   outline,
+  queryNodes,
   touches,
   visibleBounds,
 } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { compose } from "./matrix.ts";
+import { NodeQuery } from "./schema.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -595,4 +597,139 @@ it("touches two rects that share only an edge, not two apart", () => {
   const a = { x: 0, y: 0, width: 10, height: 10 };
   expect(touches(a, { x: 10, y: 0, width: 5, height: 5 })).toBe(true);
   expect(touches(a, { x: 10.5, y: 0, width: 5, height: 5 })).toBe(false);
+});
+
+describe("queryNodes", () => {
+  /** Layer L: rect "Sun" (tagged sky, warm) at 0,0 10x10; Group G with rect "Moon" (sky) at 50,50
+   * 10x10 and a hidden, locked text; an empty Group E. Layer M: nothing. */
+  const fixture = () => {
+    const { doc, defaultLayerId: L } = newDoc();
+    const r = (name: string, x: number, tags: string[]) => ({
+      type: "rect" as const,
+      name,
+      x,
+      y: x,
+      width: 10,
+      height: 10,
+      tags,
+      clientKey: name,
+    });
+    const { keyMap } = createNodes(doc, [
+      { ...r("Sun", 0, ["sky", "warm"]), parentId: L },
+      {
+        type: "group",
+        parentId: L,
+        name: "G",
+        clientKey: "G",
+        children: [
+          r("Moon", 50, ["sky"]),
+          { type: "text", x: 50, y: 100, content: "Hi", clientKey: "T" },
+        ],
+      },
+      { type: "group", parentId: L, name: "E", clientKey: "E", children: [] },
+      { type: "layer", name: "M", clientKey: "M" },
+    ]);
+    const ids = { L, ...keyMap } as Record<string, string>;
+    const t = doc.nodes.get(ids.T as string);
+    if (t) Object.assign(t, { visible: false, locked: true });
+    return { doc, ids };
+  };
+  const names = (q: NodeQuery) => {
+    const { doc } = fixture();
+    return queryNodes(doc, q)
+      .nodes.map((n) => n.name || n.type)
+      .sort();
+  };
+
+  it("returns every Node without filters, hidden and locked ones included", () => {
+    expect(names({})).toEqual(["E", "G", "Layer 1", "M", "Moon", "Sun", "text"]);
+  });
+  it("filters by types", () => {
+    expect(names({ types: ["rect", "text"] })).toEqual(["Moon", "Sun", "text"]);
+  });
+  it("filters by nameRegex against the stored name", () => {
+    expect(names({ nameRegex: "^(S|M)" })).toEqual(["M", "Moon", "Sun"]);
+  });
+  it("filters by tags, each Node carrying every listed tag", () => {
+    expect(names({ tags: ["sky"] })).toEqual(["Moon", "Sun"]);
+    expect(names({ tags: ["sky", "warm"] })).toEqual(["Sun"]);
+  });
+  it("filters by direct parent only; an unknown parent matches nothing", () => {
+    const { doc, ids } = fixture();
+    const of = (parentId: string) => queryNodes(doc, { parentId }).nodes.map((n) => n.name);
+    expect(of(ids.L as string).sort()).toEqual(["E", "G", "Sun"]);
+    expect(of("01NOPE")).toEqual([]);
+  });
+  it("filters by withinRect, edges included; an empty Group never matches", () => {
+    expect(names({ withinRect: { x: 0, y: 0, width: 10, height: 10 } })).toEqual(["Sun"]);
+    expect(names({ withinRect: { x: -1, y: -1, width: 1000, height: 1000 } })).toEqual([
+      "G",
+      "Layer 1",
+      "Moon",
+      "Sun",
+      "text",
+    ]);
+  });
+  it("filters by intersectsRect, touching counts", () => {
+    expect(names({ intersectsRect: { x: 10, y: 10, width: 5, height: 5 } })).toEqual([
+      "Layer 1",
+      "Sun",
+    ]);
+  });
+  it("ANDs the filters", () => {
+    expect(names({ types: ["rect"], tags: ["sky"], nameRegex: "o" })).toEqual(["Moon"]);
+  });
+
+  it("pages through the matches in id order with nextCursor", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const made = createNodes(
+      doc,
+      Array.from({ length: 5 }, () => rect(defaultLayerId)),
+    ).nodes;
+    const sorted = made.map((n) => n.id).sort();
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 3; page++) {
+      const res = queryNodes(doc, { types: ["rect"], limit: 2, cursor });
+      seen.push(...res.nodes.map((n) => n.id));
+      cursor = res.nextCursor ?? undefined;
+      expect(res.nextCursor === null).toBe(page === 2);
+    }
+    expect(seen).toEqual(sorted);
+  });
+  it("ends with nextCursor null when the last page is exactly full", () => {
+    const { doc, defaultLayerId } = newDoc();
+    createNodes(
+      doc,
+      Array.from({ length: 4 }, () => rect(defaultLayerId)),
+    );
+    const first = queryNodes(doc, { types: ["rect"], limit: 2 });
+    const second = queryNodes(doc, { types: ["rect"], limit: 2, cursor: first.nextCursor ?? "" });
+    expect(second.nodes).toHaveLength(2);
+    expect(second.nextCursor).toBeNull();
+  });
+  it("returns concise views, 100 by default", () => {
+    const { doc, defaultLayerId } = newDoc();
+    createNodes(
+      doc,
+      Array.from({ length: 101 }, () => rect(defaultLayerId)),
+    );
+    const res = queryNodes(doc, { types: ["rect"] });
+    expect(res.nodes).toHaveLength(100);
+    expect(Object.keys(res.nodes[0] ?? {}).sort()).toEqual([
+      "childCount",
+      "geometricBounds",
+      "id",
+      "locked",
+      "name",
+      "parentId",
+      "type",
+      "visible",
+    ]);
+  });
+  it("rejects a nameRegex that does not compile or runs past 200 characters", () => {
+    expect(NodeQuery.safeParse({ nameRegex: "(" }).success).toBe(false);
+    expect(NodeQuery.safeParse({ nameRegex: "a".repeat(201) }).success).toBe(false);
+    expect(NodeQuery.safeParse({ nameRegex: "a".repeat(200) }).success).toBe(true);
+  });
 });
