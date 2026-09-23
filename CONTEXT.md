@@ -28,6 +28,10 @@ _Avoid_: Container、Frame
 人类用户在 UI 中当前选中的 Node 集合。它是 UI 便利，不是文档状态；Agent 操作以显式 Node ID 为准。
 _Avoid_: 把 Selection 作为工具调用的隐式参数
 
+**Auto-name（自动名称）**：
+`name` 为空的 Node 在 Layers 面板中显示的名称，如 `<Rectangle>`、`<Path>`、`<Group>`；Text Node 取其内容。只用于显示，不写入 Document。
+_Avoid_: Default name、Placeholder name
+
 ## 几何
 
 **Path（路径）**：
