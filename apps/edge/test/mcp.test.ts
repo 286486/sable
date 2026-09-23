@@ -30,9 +30,29 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_doc_create",
     "zibel_doc_outline",
     "zibel_node_create",
+    "zibel_node_delete",
     "zibel_node_get",
+    "zibel_node_transform",
+    "zibel_node_update",
     "zibel_render",
   ]);
+  const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+  const inputKeys = (name: string) => {
+    const tool = byName[name];
+    return tool ? Object.keys((tool.inputSchema as { properties: object }).properties) : [];
+  };
+  for (const [name, destructive] of [
+    ["zibel_node_create", false],
+    ["zibel_node_update", true],
+    ["zibel_node_delete", true],
+    ["zibel_node_transform", false],
+  ] as const) {
+    expect(byName[name]?.annotations).toMatchObject({ destructiveHint: destructive });
+    expect(inputKeys(name)).toEqual(
+      expect.arrayContaining(["docId", "intent", "txId", "ifRev", "partial"]),
+    );
+  }
+  expect(inputKeys("zibel_doc_create")).toContain("intent");
   for (const t of tools) {
     expect(t.annotations).toHaveProperty("readOnlyHint");
     expect(t.annotations).toHaveProperty("openWorldHint", false);

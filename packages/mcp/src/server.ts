@@ -1,11 +1,43 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { ArtboardInput, NodeInput, WriteReceipt, ZibelError } from "@zibel/core";
+import {
+  ArtboardInput,
+  NodeInput,
+  TransformInput,
+  UpdateInput,
+  WriteReceipt,
+  ZibelError,
+} from "@zibel/core";
 import type { DocumentService } from "@zibel/sync";
 import { z } from "zod";
 import { CreatedDocumentOutput, NodeGetOutput, OutlineOutput, RenderOutput } from "./schemas.ts";
 
 const docId = z.string().describe("Document id returned by zibel_doc_create.");
+const intent = z
+  .string()
+  .max(500)
+  .optional()
+  .describe("One sentence on what this write is for, shown to people editing the Document.");
+/** Accepted by every Node write (§6.4). `txId` and `ifRev` take effect with Transactions (#7). */
+const writeFields = {
+  intent,
+  txId: z.string().optional().describe("Reserved for Transactions; no effect yet."),
+  ifRev: z.number().int().optional().describe("Reserved for revision checks; no effect yet."),
+  partial: z
+    .boolean()
+    .default(false)
+    .describe(
+      "false: one bad item fails the call and changes nothing. true: apply the valid items and list the others in the receipt's failed.",
+    ),
+};
+const coordinates =
+  "A Live Shape's parameters and a path's d are in the Node's own coordinates, mapped to the Document by its transform; geometricBounds says where it is.";
+const edit = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: true,
+  openWorldHint: false,
+};
 
 /** A fresh server per request: MCP is stateless (ADR-0006). */
 export function createMcpServer(service: DocumentService, actor: string): McpServer {
@@ -47,6 +79,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       inputSchema: {
         name: z.string().min(1),
         artboards: z.array(ArtboardInput).min(1).max(1000),
+        intent,
       },
       outputSchema: CreatedDocumentOutput.shape,
       annotations: {
@@ -78,8 +111,9 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Live Shapes and paths take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}, colors #RRGGBB or #RRGGBBAA; omit it for a white Fill and a 1 pt black Stroke.",
         "Give each node a clientKey to find its new id in the receipt's keyMap.",
         "At most 2000 Nodes per call, counting inline children.",
+        "Also accepts tags and meta (any JSON) on each node.",
       ].join(" "),
-      inputSchema: { docId, nodes: z.array(NodeInput).min(1) },
+      inputSchema: { docId, nodes: z.array(NodeInput).min(1), ...writeFields },
       outputSchema: WriteReceipt.shape,
       annotations: {
         readOnlyHint: false,
@@ -88,8 +122,81 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, nodes }) =>
-      run("zibel_node_create", async () => json(await service.createNodes(docId, nodes))),
+    ({ docId, nodes, intent, partial }) =>
+      run("zibel_node_create", async () =>
+        json(await service.createNodes(docId, nodes, { intent, partial })),
+      ),
+  );
+
+  server.registerTool(
+    "zibel_node_update",
+    {
+      title: "Update Nodes",
+      description: [
+        "Change Nodes with one JSON Merge Patch (RFC 7396) each: objects merge, null deletes a key, arrays and everything else replace.",
+        "Writable on every Node: name, visible, locked, opacity (0-1), blendMode (stored, not rendered yet), tags, meta. A Live Shape or path also takes its parameters (see zibel_node_create) and appearance; a path takes d.",
+        "fills and strokes replace as a whole list, so send every Fill or Stroke you want to keep.",
+        "Move, rotate or scale with zibel_node_transform; transform, type, parentId and derived bounds are read-only.",
+        coordinates,
+      ].join(" "),
+      inputSchema: {
+        docId,
+        updates: z.array(UpdateInput).min(1).max(1000),
+        ...writeFields,
+      },
+      outputSchema: WriteReceipt.shape,
+      annotations: edit,
+    },
+    ({ docId, updates, intent, partial }) =>
+      run("zibel_node_update", async () =>
+        json(await service.updateNodes(docId, updates, { intent, partial })),
+      ),
+  );
+
+  server.registerTool(
+    "zibel_node_delete",
+    {
+      title: "Delete Nodes",
+      description:
+        "Delete Nodes and everything inside them. The receipt's deletedIds lists every removed id, descendants included; bounds is where they were.",
+      inputSchema: {
+        docId,
+        nodeIds: z.array(z.string()).min(1).max(1000),
+        ...writeFields,
+      },
+      outputSchema: WriteReceipt.shape,
+      annotations: edit,
+    },
+    ({ docId, nodeIds, intent, partial }) =>
+      run("zibel_node_delete", async () =>
+        json(await service.deleteNodes(docId, nodeIds, { intent, partial })),
+      ),
+  );
+
+  server.registerTool(
+    "zibel_node_transform",
+    {
+      title: "Transform Nodes",
+      description: [
+        "Move, rotate, scale, skew or reflect Nodes about a reference point (the pivot, as in Illustrator's Transform panel), in document coordinates.",
+        "Several parts compose as: scale, then skew, then rotate, all about the pivot, then translate. matrix [a, b, c, d, e, f] replaces rotate, skew and scale; [-1, 0, 0, 1, 0, 0] reflects across the pivot.",
+        "pivot is center (default), topLeft, top, topRight, left, right, bottomLeft, bottom or bottomRight of the targets' geometricBounds, or {x, y}. With each: true every target turns about its own pivot; otherwise all share one.",
+        "Transforming a Layer or Group transforms every Node inside it; updatedIds lists those Nodes. Live Shapes keep their parameters and gain a transform.",
+        "scaleStrokes (default true) scales Stroke widths with the shape. The receipt's bounds are the new bounds.",
+      ].join(" "),
+      inputSchema: TransformInput.safeExtend({ docId, ...writeFields }),
+      outputSchema: WriteReceipt.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, intent, partial, txId: _t, ifRev: _r, ...input }) =>
+      run("zibel_node_transform", async () =>
+        json(await service.transformNodes(docId, input, { intent, partial })),
+      ),
   );
 
   server.registerTool(
@@ -100,6 +207,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Read Nodes by id, in document coordinates.",
         "concise (default): id, type, name, parentId, visible, locked, childCount and geometricBounds.",
         "full adds every stored property (Live Shape parameters, appearance, transform, opacity, blendMode, tags, meta), the outline d and closed of a Live Shape or path, visibleBounds (including Strokes) and worldTransform.",
+        coordinates,
       ].join(" "),
       inputSchema: {
         docId,
