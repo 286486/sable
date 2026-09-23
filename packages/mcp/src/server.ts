@@ -16,6 +16,7 @@ import {
 } from "@zibel/core";
 import type { DocumentService, Viewport } from "@zibel/sync";
 import { z } from "zod";
+import conventions from "./drawing-conventions.md";
 import {
   ChangesOutput,
   CreatedDocumentOutput,
@@ -90,9 +91,27 @@ const background = Color.optional().describe(
 const color = (value: unknown) =>
   value === undefined ? undefined : parseColor(value, "background");
 
+const CONVENTIONS = "skill://zibel/drawing-conventions";
+
 /** A fresh server per request: MCP is stateless (ADR-0006). */
 export function createMcpServer(service: DocumentService, actor: string): McpServer {
-  const server = new McpServer({ name: "zibel", version: "0.0.0" });
+  const server = new McpServer(
+    { name: "zibel", version: "0.0.0" },
+    { instructions: `Before your first write, read the resource ${CONVENTIONS}.` },
+  );
+
+  // The SDK advertises resources.listChanged but never sends it; no resources/subscribe (ADR-0006).
+  server.registerResource(
+    "drawing-conventions",
+    CONVENTIONS,
+    {
+      title: "Drawing conventions",
+      description:
+        "Coordinates, colours, path d, Layer-first structure, Transactions and the write-check workflow. Read before your first write.",
+      mimeType: "text/markdown",
+    },
+    (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: conventions }] }),
+  );
 
   /** Runs a tool handler, maps ZibelError to an error result and logs one line per call (§7.7). */
   const run = async (tool: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> => {

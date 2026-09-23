@@ -5,8 +5,11 @@
   // Must not be later than the workerd bundled with @cloudflare/vitest-plugin.
   "compatibility_date": "2026-09-21",
   "compatibility_flags": ["nodejs_compat"],
-  // The bundled font, imported as bytes (ADR-0013).
-  "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }],
+  // The bundled font as bytes (ADR-0013); skill:// documents as text.
+  "rules": [
+    { "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true },
+    { "type": "Text", "globs": ["**/*.md"], "fallthrough": true }
+  ],
   // The web app (built by `pnpm dev`); the Worker answers /mcp and /api first.
   "assets": {
     "directory": "../web/dist",

@@ -1187,3 +1187,26 @@ it("returns a non-empty hint with every error code a tool can return", async () 
     expect(await trigger(), code).toMatchObject({ code, hint: expect.stringMatching(/\S/) });
   }
 });
+
+it("serves skill://zibel/drawing-conventions as a resource and points at it on initialize", async () => {
+  const uri = "skill://zibel/drawing-conventions";
+  const init = await rpc("initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "test", version: "0" },
+  });
+  expect(init.body.result.instructions).toContain(uri);
+  const listed = (await rpc("resources/list")).body.result.resources;
+  expect(listed).toContainEqual(expect.objectContaining({ uri, mimeType: "text/markdown" }));
+  const [doc] = (await rpc("resources/read", { uri })).body.result.contents;
+  expect(doc).toMatchObject({ uri, mimeType: "text/markdown" });
+  for (const fact of ["#RRGGBB", "y down", "parentId", "ifRev", "zibel_doc_changes"]) {
+    expect(doc.text).toContain(fact);
+  }
+  // Drift guard: the document names only tools that exist.
+  const tools = new Set(
+    (await rpc("tools/list")).body.result.tools.map((t: { name: string }) => t.name),
+  );
+  for (const [name] of doc.text.matchAll(/zibel_[a-z_]+/g)) expect(tools).toContain(name);
+  expect((await rpc("resources/read", { uri: "skill://zibel/nope" })).body.error).toBeDefined();
+});
