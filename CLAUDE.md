@@ -48,7 +48,7 @@ Every change passes these gates in order. A gate is done only when its criterion
 3. **Plan (Fable).** Dispatch `planner` with the issue number; it posts the plan as an issue comment. When the main session is Opus, call the advisor on the plan. Done: the plan comment lists units, each with its red test and the command that turns it green.
 4. **Worktree.** Never switch branches in the main checkout. Create a worktree at `.claude/worktrees/<issue-number>-<slug>` on a new branch `<issue-number>-<slug>` from `origin/main` (`EnterWorktree`, or `git worktree add -b`), and run `pnpm install` in it. Gates 5–8 run inside it. When dispatching `implementer` or `reviewer`, pass the worktree path; do not use `isolation: "worktree"`, which creates a second one. Remove the worktree after the PR merges. Done: the worktree exists on the new branch.
 5. **Implement (Opus).** One unit at a time: test red, smallest change to green, `pnpm check`, commit. Use `/mattpocock-skills:tdd` when the unit has a cheap test target. Done: every unit green and committed.
-6. **Verify (Opus).** `pnpm check` (typecheck, Biome, Vitest including the workerd pool) plus the suites the change reaches:
+6. **Verify (Opus).** `pnpm check` (typecheck, Biome, Vitest in workerd via `@cloudflare/vitest-plugin`) plus the suites the change reaches:
     - MCP tools, schemas or `skill://` docs: agent benchmarks in `fixtures/agent-benchmarks/`.
     - `packages/io` or `packages/render`: SVG round-trip fixtures.
     - `packages/geometry`: boolean and offset regression fixtures.

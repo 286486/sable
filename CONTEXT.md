@@ -152,6 +152,10 @@ _Avoid_: Batch、Undo step、Operation group
 Document 单调递增的版本序号，每提交一个 Transaction 加一。用来判断"我读过之后文档是否被别人改过"。
 _Avoid_: Version（保留给 schema 版本）、Etag、Snapshot
 
+**WriteReceipt（写入回执）**：
+每个写工具的统一返回：`txId`、提交后的 `rev`、新增 / 修改 / 删除的 Node id、`clientKey` 到新 id 的 `keyMap`、受影响范围的 `bounds` 与 `warnings`。Agent 靠它确认改了什么，无需重读。
+_Avoid_: Result、Response、Ack
+
 **Actor（参与者）**：
 做出修改的身份：一个人类 User，或一个 Agent 凭证。每个 Transaction 记录其 Actor；同一个人授权的两个 MCP 客户端是两个不同的 Actor。
 _Avoid_: Session、Client、Connection、User（Actor 可能是 Agent）
