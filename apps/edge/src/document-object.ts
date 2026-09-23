@@ -196,14 +196,19 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * A transform or delete from a browser. The browser only names Nodes it was sent, so a missing one
+   * A transform, delete or update from a browser. The browser only names Nodes it was sent, so a missing one
    * was deleted: delete beats edit (ADR-0010).
    */
   private edit(
-    command: Extract<Command, { type: "transform" | "delete" }>,
+    command: Exclude<Command, { type: "undo" | "redo" }>,
     commandId: string,
   ): Result<WriteReceipt> {
-    const nodeIds = command.type === "transform" ? command.input.nodeIds : command.nodeIds;
+    const nodeIds =
+      command.type === "transform"
+        ? command.input.nodeIds
+        : command.type === "update"
+          ? [command.nodeId]
+          : command.nodeIds;
     // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
     const { nodes } = this.load();
     const gone = nodeIds.filter((n) => !nodes.has(n));
@@ -218,9 +223,14 @@ export class DocumentObject extends DurableObject<Env> {
         },
       };
     }
-    return command.type === "transform"
-      ? this.transformNodes(command.input, USER, { commandId })
-      : this.deleteNodes(command.nodeIds, USER, { commandId });
+    if (command.type === "transform")
+      return this.transformNodes(command.input, USER, { commandId });
+    if (command.type === "update") {
+      return this.updateNodes([{ nodeId: command.nodeId, patch: command.patch }], USER, {
+        commandId,
+      });
+    }
+    return this.deleteNodes(command.nodeIds, USER, { commandId });
   }
 
   /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */
@@ -256,11 +266,7 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  updateNodes(
-    updates: UpdateInput[],
-    actor: string,
-    opts: WriteOptions = {},
-  ): Result<WriteReceipt> {
+  updateNodes(updates: UpdateInput[], actor: string, opts: Options = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Update", (doc) => {
       const { nodes, failed } = updateNodes(doc, updates, opts);
       return { updated: nodes, failed, bounds: union(nodes.map((n) => bounds(doc, n))) };

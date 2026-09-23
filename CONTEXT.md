@@ -28,6 +28,10 @@ _Avoid_: Container、Frame
 人类用户在 UI 中当前选中的 Node 集合。它是 UI 便利，不是文档状态；Agent 操作以显式 Node ID 为准。
 _Avoid_: 把 Selection 作为工具调用的隐式参数
 
+**Auto-name（自动名称）**：
+`name` 为空的 Node 在 Layers 面板中显示的名称，如 `<Rectangle>`、`<Path>`、`<Group>`；Text Node 取其内容。只用于显示，不写入 Document。
+_Avoid_: Default name、Placeholder name
+
 ## 几何
 
 **Path（路径）**：
@@ -149,7 +153,7 @@ _Avoid_: Palette entry、Color token
 _Avoid_: Batch、Undo step、Operation group
 
 **Command（命令）**：
-浏览器把一次手势（拖动、删除）作为一个 core 编辑经 WebSocket 发给 Document。Document 要么把它提交为一个归属 User Actor 的 Transaction 并广播，要么只向发送方回复拒绝；浏览器从不在本地先行应用它。
+浏览器把一次手势（拖动、删除、显示 / 隐藏、锁定）作为一个 core 编辑经 WebSocket 发给 Document。Document 要么把它提交为一个归属 User Actor 的 Transaction 并广播，要么只向发送方回复拒绝；浏览器从不在本地先行应用它。
 _Avoid_: Operation、Action、Mutation
 
 **Revision（修订号）**：

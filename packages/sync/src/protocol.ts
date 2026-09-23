@@ -4,6 +4,7 @@ import {
   type ErrorData,
   type Node,
   TransformInput,
+  Writable,
 } from "@zibel/core";
 import { z } from "zod";
 
@@ -54,6 +55,12 @@ export const ClientMessage = z.object({
   command: z.discriminatedUnion("type", [
     z.object({ type: z.literal("transform"), input: TransformInput }),
     z.object({ type: z.literal("delete"), nodeIds: z.array(z.string()).min(1) }),
+    z.object({
+      type: z.literal("update"),
+      nodeId: z.string(),
+      // One Layers panel toggle (ADR-0012); an empty patch would commit a no-op Transaction.
+      patch: Writable.pick({ visible: true }).or(Writable.pick({ locked: true })),
+    }),
     z.object({ type: z.literal("undo") }),
     z.object({ type: z.literal("redo") }),
   ]),
