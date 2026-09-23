@@ -633,7 +633,7 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `tx_begin` | `docId`, `label`, `timeoutSec?` | `txId` | |
+| `tx_begin` | `docId`, `label?` | `txId`（5 分钟无活动回滚；`timeoutSec` 暂缓，见 ADR-0008） | |
 | `tx_commit` | `docId`, `txId` | 汇总回执（全部受影响 id） | |
 | `tx_rollback` | `docId`, `txId` | — | D |
 | `history_list` | `docId`, `limit` | 事务列表（含来源 user / agent） | R |

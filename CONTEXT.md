@@ -145,7 +145,7 @@ _Avoid_: Palette entry、Color token
 ## 编辑与协作
 
 **Transaction（事务）**：
-一组作为整体提交或回滚的编辑，也是撤销的最小单位。UI 的一次拖拽和 Agent 的一组工具调用都各成一个 Transaction。它属于 Document 而不属于任何连接，超时未提交即回滚。
+一组作为整体提交或回滚的编辑，也是撤销的最小单位。UI 的一次拖拽和 Agent 的一组工具调用都各成一个 Transaction。它属于 Document 而不属于任何连接，只有开启它的 Actor 能使用其 `txId`；5 分钟无活动未提交即回滚。
 _Avoid_: Batch、Undo step、Operation group
 
 **Revision（修订号）**：
