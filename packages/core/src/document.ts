@@ -354,30 +354,56 @@ export interface OutlineNode {
   id: string;
   type: Node["type"];
   name: string;
-  bounds: Rect | null;
+  /** Left out with `includeBounds: false`. */
+  bounds?: Rect | null;
   childCount: number;
   visible: boolean;
   locked: boolean;
   children?: OutlineNode[];
 }
 
-/** Sparse tree whose top level is always the Layer list. */
-export function outline(doc: Document, depth = 2): OutlineNode[] {
+export interface OutlineOptions {
+  /** Its children are the top level; omitted, the Layer list is. */
+  rootId?: string;
+  /** Levels from the top level, which is level 1. */
+  depth?: number;
+  /** Keep an entry of these types or above one within `depth` (ADR-0015). */
+  types?: Node["type"][];
+  includeBounds?: boolean;
+}
+
+/** Sparse tree whose top level is the Layer list, or `rootId`'s children. */
+export function outline(
+  doc: Document,
+  { rootId, depth = 2, types, includeBounds = true }: OutlineOptions = {},
+): OutlineNode[] {
+  if (rootId !== undefined && !doc.nodes.has(rootId)) {
+    throw new ZibelError({
+      code: "NODE_NOT_FOUND",
+      message: `No Node with id ${rootId}.`,
+      hint: "Use an id from doc_outline without rootId, or from a WriteReceipt.",
+      path: "rootId",
+    });
+  }
   const walk = (parentId: string | null, level: number): OutlineNode[] =>
-    childrenOf(doc, parentId).map((n) => {
+    childrenOf(doc, parentId).flatMap((n) => {
       const kids = childrenOf(doc, n.id);
+      const children = kids.length > 0 && level < depth ? walk(n.id, level + 1) : undefined;
+      const kept =
+        !types || types.includes(n.type) || (children?.length ?? 0) > 0 || (!rootId && level === 1);
+      if (!kept) return [];
       return {
         id: n.id,
         type: n.type,
         name: n.name,
-        bounds: bounds(doc, n),
+        ...(includeBounds && { bounds: bounds(doc, n) }),
         childCount: kids.length,
         visible: n.visible,
         locked: n.locked,
-        ...(kids.length > 0 && level < depth && { children: walk(n.id, level + 1) }),
+        ...(children && { children }),
       };
     });
-  return walk(null, 1);
+  return walk(rootId ?? null, 1);
 }
 
 /**

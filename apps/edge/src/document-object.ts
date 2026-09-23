@@ -380,7 +380,7 @@ export class DocumentObject extends DurableObject<Env> {
   ): Result<{ rev: number; layers: OutlineNode[] }> {
     return guard(() => {
       const doc = this.view(this.load(), actor, txId);
-      return { rev: doc.rev, layers: outline(doc, depth) };
+      return { rev: doc.rev, layers: outline(doc, { depth }) };
     });
   }
 

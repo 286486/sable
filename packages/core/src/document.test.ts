@@ -5,6 +5,7 @@ import {
   createDocument,
   createNodes,
   nodeView,
+  type OutlineNode,
   outline,
   queryNodes,
   touches,
@@ -230,7 +231,7 @@ it("creates a Group with inline children, depth first, with a keyMap for every c
     defaultLayerId,
   ]);
   expect(keyMap).toEqual({ g: g?.id, a: a?.id, inner: inner?.id, b: b?.id, c: c?.id });
-  expect(outline(doc, 3)[0]?.children?.[0]).toMatchObject({
+  expect(outline(doc, { depth: 3 })[0]?.children?.[0]).toMatchObject({
     type: "group",
     childCount: 2,
     bounds: { x: 0, y: 0, width: 100, height: 80 },
@@ -731,5 +732,80 @@ describe("queryNodes", () => {
     expect(NodeQuery.safeParse({ nameRegex: "(" }).success).toBe(false);
     expect(NodeQuery.safeParse({ nameRegex: "a".repeat(201) }).success).toBe(false);
     expect(NodeQuery.safeParse({ nameRegex: "a".repeat(200) }).success).toBe(true);
+  });
+});
+
+describe("outline options", () => {
+  /** Layer 1: rect, Group G (rect, Group H (text)); Layer 2: empty. */
+  const fixture = () => {
+    const { doc, defaultLayerId: L } = newDoc();
+    const { keyMap } = createNodes(doc, [
+      rect(L),
+      {
+        type: "group",
+        parentId: L,
+        clientKey: "G",
+        children: [
+          { type: "rect", x: 0, y: 0, width: 5, height: 5, clientKey: "R" },
+          {
+            type: "group",
+            clientKey: "H",
+            children: [{ type: "text", x: 0, y: 20, content: "Hi" }],
+          },
+        ],
+      },
+      { type: "layer", name: "Layer 2" },
+    ]);
+    return { doc, L, G: keyMap.G as string, R: keyMap.R as string };
+  };
+
+  it("returns only the Layers at depth 1, with their real childCount", () => {
+    const { doc } = fixture();
+    expect(outline(doc, { depth: 1 })).toEqual([
+      expect.objectContaining({ type: "layer", name: "Layer 1", childCount: 2 }),
+      expect.objectContaining({ type: "layer", name: "Layer 2", childCount: 0 }),
+    ]);
+    expect(outline(doc, { depth: 1 }).some((n) => "children" in n)).toBe(false);
+  });
+
+  it("starts at rootId's children, counting depth from there", () => {
+    const { doc, G, R } = fixture();
+    const nodes = outline(doc, { rootId: G, depth: 1 });
+    expect(nodes.map((n) => [n.type, n.childCount])).toEqual([
+      ["rect", 0],
+      ["group", 1],
+    ]);
+    expect(nodes[1]).not.toHaveProperty("children");
+    expect(outline(doc, { rootId: R })).toEqual([]);
+  });
+
+  it("rejects an unknown rootId with NODE_NOT_FOUND at rootId", () => {
+    const { doc } = fixture();
+    expect(codeOf(() => outline(doc, { rootId: "01NOPE" }))).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "rootId",
+    });
+  });
+
+  it("keeps the listed types and their ancestors, and every top-level Layer", () => {
+    const { doc } = fixture();
+    const [one, two] = outline(doc, { depth: 4, types: ["text"] });
+    expect(one).toMatchObject({ childCount: 2, children: [{ type: "group", childCount: 2 }] });
+    expect(one?.children?.[0]?.children).toMatchObject([
+      { type: "group", children: [{ type: "text" }] },
+    ]);
+    expect(two).toMatchObject({ name: "Layer 2", childCount: 0 });
+    // Within depth 2 no text is reached: the Layer keeps an empty list.
+    expect(outline(doc, { types: ["text"] })[0]?.children).toEqual([]);
+  });
+
+  it("leaves bounds out with includeBounds: false", () => {
+    const { doc } = fixture();
+    const all = (nodes: OutlineNode[]): OutlineNode[] =>
+      nodes.flatMap((n) => [n, ...all(n.children ?? [])]);
+    expect(all(outline(doc, { depth: 4 })).every((n) => "bounds" in n)).toBe(true);
+    const bare = all(outline(doc, { depth: 4, includeBounds: false }));
+    expect(bare).toHaveLength(7);
+    expect(bare.some((n) => "bounds" in n)).toBe(false);
   });
 });
