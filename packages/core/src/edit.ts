@@ -201,3 +201,16 @@ export function updateNodes(doc: Document, updates: UpdateInput[]): { nodes: Nod
   for (const n of nodes) doc.nodes.set(n.id, n);
   return { nodes };
 }
+
+/** Deletes the Nodes and everything beneath them; `bounds` is where they were. */
+export function deleteNodes(
+  doc: Document,
+  nodeIds: string[],
+): { deletedIds: string[]; bounds: Rect | null } {
+  const targets = nodeIds.map((id, i) => lookup(doc, id, `nodeIds[${i}]`));
+  const { kept } = outermost(doc, targets);
+  const gone = kept.flatMap((n) => subtree(doc, n));
+  const before = union(kept.map((n) => bounds(doc, n)));
+  for (const n of gone) doc.nodes.delete(n.id);
+  return { deletedIds: gone.map((n) => n.id), bounds: before };
+}

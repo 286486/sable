@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bounds, createDocument, createNodes } from "./document.ts";
-import { transformNodes, updateNodes } from "./edit.ts";
+import { bounds, createDocument, createNodes, outline } from "./document.ts";
+import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
 import type { Node, ShapeNode } from "./schema.ts";
 
@@ -285,5 +285,45 @@ describe("updateNodes", () => {
       ),
     ).toMatchObject({ code: "NODE_NOT_FOUND", path: "updates[1].nodeId" });
     expect(doc.nodes.get(r.id)?.name).toBe("");
+  });
+});
+
+describe("deleteNodes", () => {
+  it("deletes a Group with its descendants, each id once", () => {
+    const { doc, defaultLayerId, rect } = newDoc();
+    const [g, a, inner, b] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        children: [
+          { type: "rect", x: 0, y: 0, width: 10, height: 10 },
+          { type: "group", children: [{ type: "line", x1: 0, y1: 0, x2: 50, y2: 5 }] },
+        ],
+      },
+      rect(100, 0),
+    ]).nodes;
+    if (!g || !a || !inner || !b) throw new Error("setup");
+    const { deletedIds, bounds } = deleteNodes(doc, [g.id, b.id]);
+    expect(deletedIds).toEqual([g.id, a.id, inner.id, b.id]);
+    expect(bounds).toEqual({ x: 0, y: 0, width: 50, height: 10 });
+    expect(outline(doc)).toMatchObject([{ id: defaultLayerId, childCount: 1 }]);
+    expect([...doc.nodes.keys()]).not.toContain(b.id);
+  });
+
+  it("allows deleting the last Layer; a new top-level Layer can follow", () => {
+    const { doc, defaultLayerId } = newDoc();
+    deleteNodes(doc, [defaultLayerId]);
+    expect(outline(doc)).toEqual([]);
+    createNodes(doc, [{ type: "layer" }]);
+    expect(outline(doc)).toHaveLength(1);
+  });
+
+  it("returns NODE_NOT_FOUND for an unknown id and deletes nothing", () => {
+    const { doc, defaultLayerId } = newDoc();
+    expect(errorOf(() => deleteNodes(doc, [defaultLayerId, "nope"]))).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "nodeIds[1]",
+    });
+    expect(doc.nodes.has(defaultLayerId)).toBe(true);
   });
 });
