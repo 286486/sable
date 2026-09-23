@@ -1,6 +1,6 @@
 # Zibel
 
-Browser-based vector drawing tool with an MCP-native document model: AI agents and people edit the same Illustrator-style canvas. Requirements stage; no product code yet. Read `docs/REQUIREMENTS.md` before proposing scope or architecture changes, and `docs/research/` for the evidence behind it.
+Browser-based vector drawing tool with an MCP-native document model: AI agents and people edit the same Illustrator-style canvas. Read `docs/REQUIREMENTS.md` before proposing scope or architecture changes, and `docs/research/` for the evidence behind it. Milestones are in its §9.
 
 ## Agent skills
 
@@ -22,3 +22,37 @@ Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/`. See `docs/ag
 - `docs/REQUIREMENTS.md` and `CONTEXT.md` are in Chinese for now; translate to English before the M1 public announcement and keep the Chinese copies under `docs/zh/`.
 - Canonical terms come from `CONTEXT.md` and follow Adobe Illustrator's names. Use `compound_shape`, not `boolean`; `Actor`, not `session`.
 - MCP is stateless Streamable HTTP only (ADR-0006). Never add stdio, `Mcp-Session-Id`, subscriptions, or elicitation.
+
+## Roles
+
+Roles are bound to models, whichever model runs the main session:
+
+- **Fable plans and reviews.** Plans come from the `planner` agent; finished work is judged by the `reviewer` agent. The advisor (also Fable) checks the plan and the final result from inside the session.
+- **Opus implements and tests.** When the main session is Opus it implements directly; when it is Fable it dispatches the `implementer` agent.
+
+If the model a role needs is unavailable, stop and tell the user. Run each role on its own model only.
+
+Routing gotchas:
+
+- `subagent_type: "fork"` always inherits the parent model and ignores `model`. Dispatch planning and review as `planner` / `reviewer`, never as a fork.
+- Skills that spawn their own subagents (such as `code-review`) use the default model. For result review use `reviewer`; if a skill must be used, pass `model: "fable"` to its dispatch.
+- `.claude/agents/*.md` load at session start. After editing them, restart the session before relying on them.
+- A `/advisor` change takes effect only after `/clear` or `/compact`.
+
+## Workflow
+
+Every change passes these gates in order. A gate is done only when its criterion holds.
+
+1. **Issue.** Work starts from a GitHub issue. Done: the issue states the goal and cites requirement IDs (`F-…`), and is labelled `ready-for-agent`.
+2. **Grill.** Needed when the change touches more than one package, alters the MCP tool surface or document schema, or introduces a term. Run `/mattpocock-skills:grill-with-docs`. Done: no open question left, `CONTEXT.md` and `docs/adr/` updated per `docs/agents/domain.md`.
+3. **Plan (Fable).** Dispatch `planner` with the issue number; it posts the plan as an issue comment. When the main session is Opus, call the advisor on the plan. Done: the plan comment lists units, each with its red test and the command that turns it green.
+4. **Branch.** `<issue-number>-<slug>` from `main`.
+5. **Implement (Opus).** One unit at a time: test red, smallest change to green, `pnpm check`, commit. Use `/mattpocock-skills:tdd` when the unit has a cheap test target. Done: every unit green and committed.
+6. **Verify (Opus).** `pnpm check` (typecheck, Biome, Vitest including the workerd pool) plus the suites the change reaches:
+    - MCP tools, schemas or `skill://` docs: agent benchmarks in `fixtures/agent-benchmarks/`.
+    - `packages/io` or `packages/render`: SVG round-trip fixtures.
+    - `packages/geometry`: boolean and offset regression fixtures.
+
+    Done: all green, with the output kept for the PR. Until M0 creates these scripts and fixtures, say which checks did not exist.
+7. **Review (Fable).** Dispatch `reviewer` with the issue number and base `origin/main`. Opus fixes every blocking finding; `reviewer` runs again. Then call the advisor as the pre-done check. Done: verdict **approve**.
+8. **PR.** `gh pr create` with `Closes #<n>`, the reviewer verdict and the verify output. Add a Changeset when a published package changes. Done: PR open. The user merges.

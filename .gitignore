@@ -34,3 +34,6 @@ coverage/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# claude code local overrides
+.claude/settings.local.json
