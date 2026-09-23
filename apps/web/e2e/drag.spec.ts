@@ -1,0 +1,61 @@
+import { type APIRequestContext, expect, test } from "@playwright/test";
+
+/** One stateless MCP `tools/call` as Agent `agent-a`; returns the CallToolResult. */
+async function call(request: APIRequestContext, name: string, args: object) {
+  const res = await request.post("/mcp", {
+    headers: {
+      accept: "application/json, text/event-stream",
+      authorization: "Bearer dev-token-a",
+    },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
+  });
+  return (await res.json()).result;
+}
+
+// Seam 3 of #1: an Agent draws, a person drags it in the browser, the Agent reads the move back.
+test("a rectangle an Agent drew can be dragged, then deleted, in the browser", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId } = (
+    await call(request, "zibel_doc_create", {
+      name: "E2E",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  // Centred on the Artboard, which the viewer fits to the centre of the page.
+  const created = await call(request, "zibel_node_create", {
+    docId,
+    nodes: [{ type: "rect", parentId: defaultLayerId, x: 75, y: 25, width: 50, height: 50 }],
+  });
+  const [id] = created.structuredContent.createdIds;
+  const { rev } = created.structuredContent;
+
+  await page.goto(`/docs/${docId}`);
+  // The zoom shows once the Document has arrived and been fitted; pointer input waits for it.
+  await expect(page.locator("body")).toContainText(/\d+%/);
+  const size = page.viewportSize() ?? { width: 0, height: 0 };
+  const [cx, cy] = [size.width / 2, size.height / 2];
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 50, cy, { steps: 5 });
+  await page.mouse.move(cx + 100, cy, { steps: 5 });
+  await page.mouse.up();
+
+  const bounds = async () =>
+    (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent.nodes[0]
+      .geometricBounds;
+  await expect.poll(async () => (await bounds()).x).toBeGreaterThan(75);
+  expect((await bounds()).y).toBe(25);
+  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+    .structuredContent;
+  expect(changes).toMatchObject([{ actor: "user", updatedIds: [id] }]);
+
+  await page.keyboard.press("Delete");
+  await expect
+    .poll(async () => {
+      const result = await call(request, "zibel_node_get", { docId, nodeIds: [id] });
+      return result.isError && JSON.parse(result.content[0].text).code;
+    })
+    .toBe("NODE_NOT_FOUND");
+});
