@@ -8,8 +8,35 @@ import { CreatedDocumentOutput, OutlineOutput, RenderOutput } from "./schemas.ts
 const docId = z.string().describe("Document id returned by zibel_doc_create.");
 
 /** A fresh server per request: MCP is stateless (ADR-0006). */
-export function createMcpServer(service: DocumentService): McpServer {
+export function createMcpServer(service: DocumentService, actor: string): McpServer {
   const server = new McpServer({ name: "zibel", version: "0.0.0" });
+
+  /** Runs a tool handler, maps ZibelError to an error result and logs one line per call (§7.7). */
+  const run = async (tool: string, fn: () => Promise<CallToolResult>): Promise<CallToolResult> => {
+    const start = Date.now();
+    let result: CallToolResult;
+    let code: string | null = null;
+    try {
+      result = await fn();
+    } catch (e) {
+      if (!(e instanceof ZibelError)) throw e;
+      code = e.data.code;
+      result = { isError: true, content: [{ type: "text", text: JSON.stringify(e.data) }] };
+    }
+    const out = result.structuredContent ?? {};
+    const ids = (k: string) => (Array.isArray(out[k]) ? out[k].length : 0);
+    console.log(
+      JSON.stringify({
+        actor,
+        tool,
+        ms: Date.now() - start,
+        nodes: ids("createdIds") + ids("updatedIds") + ids("deletedIds"),
+        code,
+        rev: typeof out.rev === "number" ? out.rev : null,
+      }),
+    );
+    return result;
+  };
 
   server.registerTool(
     "zibel_doc_create",
@@ -29,7 +56,7 @@ export function createMcpServer(service: DocumentService): McpServer {
         openWorldHint: false,
       },
     },
-    (args) => run(async () => json(await service.create(args))),
+    (args) => run("zibel_doc_create", async () => json(await service.create(args))),
   );
 
   server.registerTool(
@@ -47,7 +74,8 @@ export function createMcpServer(service: DocumentService): McpServer {
         openWorldHint: false,
       },
     },
-    ({ docId, nodes }) => run(async () => json(await service.createNodes(docId, nodes))),
+    ({ docId, nodes }) =>
+      run("zibel_node_create", async () => json(await service.createNodes(docId, nodes))),
   );
 
   server.registerTool(
@@ -65,7 +93,8 @@ export function createMcpServer(service: DocumentService): McpServer {
         openWorldHint: false,
       },
     },
-    ({ docId, depth }) => run(async () => json(await service.outline(docId, depth))),
+    ({ docId, depth }) =>
+      run("zibel_doc_outline", async () => json(await service.outline(docId, depth))),
   );
 
   server.registerTool(
@@ -87,7 +116,7 @@ export function createMcpServer(service: DocumentService): McpServer {
       },
     },
     ({ docId, scale }) =>
-      run(async () => {
+      run("zibel_render", async () => {
         const { png, viewport } = await service.render(docId, scale);
         return {
           structuredContent: { viewport },
@@ -112,13 +141,3 @@ const json = (result: object): CallToolResult => ({
   structuredContent: result as Record<string, unknown>,
   content: [{ type: "text", text: JSON.stringify(result) }],
 });
-
-/** Turns a ZibelError into an error result the Agent can act on. */
-async function run(fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
-  try {
-    return await fn();
-  } catch (e) {
-    if (!(e instanceof ZibelError)) throw e;
-    return { isError: true, content: [{ type: "text", text: JSON.stringify(e.data) }] };
-  }
-}

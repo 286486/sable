@@ -12,7 +12,7 @@ export default {
     const actor = actorFor(request, env.DEV_TOKENS);
     if (!actor) return permissionDenied();
     // Stateless (ADR-0006): no session id, a new server and transport per request.
-    const server = createMcpServer(documentService(env, actor));
+    const server = createMcpServer(documentService(env, actor), actor);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

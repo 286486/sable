@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "zibel": {
+      "type": "http",
+      "url": "http://localhost:8787/mcp",
+      "headers": {
+        "Authorization": "Bearer dev-token-a"
+      }
+    }
+  }
+}
