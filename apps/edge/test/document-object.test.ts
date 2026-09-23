@@ -79,3 +79,58 @@ it("reports DOC_NOT_FOUND for a Document that was never created", async () => {
   expect(await stub("missing").info()).toMatchObject({ error: { code: "DOC_NOT_FOUND" } });
   expect(await stub("missing").outline(2)).toMatchObject({ error: { code: "DOC_NOT_FOUND" } });
 });
+
+it("logs update, transform and delete with their ids and intent, across a restart", async () => {
+  const created = ok(
+    await stub("d3").create({
+      docId: "d3",
+      name: "Doc",
+      artboards,
+      actor: "agent-a",
+      intent: "start a poster",
+    }),
+  );
+  const rect = { type: "rect" as const, x: 0, y: 0, width: 10, height: 10 };
+  const made = ok(
+    await stub("d3").createNodes([{ ...rect, parentId: created.defaultLayerId }], "agent-a", {
+      intent: "draw a box",
+    }),
+  );
+  const [id = ""] = made.createdIds;
+  const updated = ok(
+    await stub("d3").updateNodes([{ nodeId: id, patch: { name: "Box" } }], "agent-b", {
+      intent: "make it red",
+    }),
+  );
+  expect(updated).toMatchObject({ rev: 3, updatedIds: [id], createdIds: [], deletedIds: [] });
+  expect(updated).not.toHaveProperty("failed");
+  ok(await stub("d3").transformNodes({ nodeIds: [id], translate: { x: 5 } }, "agent-b"));
+  // A failing write leaves rev alone; a partial one bumps it once and logs only what applied.
+  expect(
+    await stub("d3").updateNodes([{ nodeId: "nope", patch: { name: "x" } }], "agent-b"),
+  ).toMatchObject({ error: { code: "NODE_NOT_FOUND" } });
+  const partial = ok(
+    await stub("d3").updateNodes(
+      [
+        { nodeId: id, patch: { opacity: 0.5 } },
+        { nodeId: "nope", patch: {} },
+      ],
+      "agent-b",
+      { partial: true },
+    ),
+  );
+  expect(partial).toMatchObject({ rev: 5, updatedIds: [id], failed: [{ index: 1 }] });
+  ok(await stub("d3").deleteNodes([id], "agent-b"));
+
+  await evictDurableObject(stub("d3"));
+
+  expect(await stub("d3").outline(2)).toMatchObject({ rev: 6, layers: [{ childCount: 0 }] });
+  expect(await stub("d3").changes(0)).toEqual([
+    expect.objectContaining({ rev: 1, intent: "start a poster" }),
+    expect.objectContaining({ rev: 2, createdIds: [id], intent: "draw a box" }),
+    expect.objectContaining({ rev: 3, actor: "agent-b", updatedIds: [id], intent: "make it red" }),
+    expect.objectContaining({ rev: 4, updatedIds: [id], intent: null }),
+    expect.objectContaining({ rev: 5, updatedIds: [id] }),
+    expect.objectContaining({ rev: 6, deletedIds: [id], createdIds: [], updatedIds: [] }),
+  ]);
+});

@@ -1,7 +1,7 @@
 import { evictAllDurableObjects } from "cloudflare:test";
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { COLOR_PATTERN } from "@zibel/core";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
@@ -30,9 +30,29 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_doc_create",
     "zibel_doc_outline",
     "zibel_node_create",
+    "zibel_node_delete",
     "zibel_node_get",
+    "zibel_node_transform",
+    "zibel_node_update",
     "zibel_render",
   ]);
+  const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+  const inputKeys = (name: string) => {
+    const tool = byName[name];
+    return tool ? Object.keys((tool.inputSchema as { properties: object }).properties) : [];
+  };
+  for (const [name, destructive] of [
+    ["zibel_node_create", false],
+    ["zibel_node_update", true],
+    ["zibel_node_delete", true],
+    ["zibel_node_transform", false],
+  ] as const) {
+    expect(byName[name]?.annotations).toMatchObject({ destructiveHint: destructive });
+    expect(inputKeys(name)).toEqual(
+      expect.arrayContaining(["docId", "intent", "txId", "ifRev", "partial"]),
+    );
+  }
+  expect(inputKeys("zibel_doc_create")).toContain("intent");
   for (const t of tools) {
     expect(t.annotations).toHaveProperty("readOnlyHint");
     expect(t.annotations).toHaveProperty("openWorldHint", false);
@@ -241,8 +261,11 @@ it("rejects more than 1000 Artboards or 2000 nodes in one call", async () => {
     docId: doc.docId,
     nodes: Array(2001).fill(rect),
   });
-  expect(tooManyNodes.isError).toBe(true);
-  expect(tooManyNodes.content[0].text).toMatch(/nodes/);
+  expect(errorOf(tooManyNodes)).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    hint: expect.stringContaining("Split"),
+    path: "nodes",
+  });
 });
 
 it("creates every M0 type with an Appearance and reads each back in full", async () => {
@@ -429,5 +452,246 @@ it("returns INVALID_PARENT for a Layer inside a Group", async () => {
     code: "INVALID_PARENT",
     hint: expect.any(String),
     path: "nodes[0].children[0].type",
+  });
+});
+
+describe("edit tools", () => {
+  const setup = async () => {
+    const doc = await newDoc();
+    const make = async (nodes: object[]) =>
+      (await call("zibel_node_create", { docId: doc.docId, nodes })).structuredContent;
+    const full = async (id: string) =>
+      (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+        .structuredContent.nodes[0];
+    const rect = {
+      type: "rect",
+      parentId: doc.defaultLayerId,
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 30,
+    };
+    return { doc, make, full, rect };
+  };
+
+  it("updates, transforms and deletes a rect, with every receipt field", async () => {
+    const { doc, make, full, rect } = await setup();
+    const [id] = (await make([rect])).createdIds;
+
+    const updated = await call("zibel_node_update", {
+      docId: doc.docId,
+      updates: [
+        { nodeId: id, patch: { name: "Box", appearance: { fills: [{ color: "#FF0000" }] } } },
+      ],
+    });
+    expect(updated.structuredContent).toEqual({
+      txId: expect.any(String),
+      rev: 3,
+      createdIds: [],
+      updatedIds: [id],
+      deletedIds: [],
+      keyMap: {},
+      bounds: { x: 10, y: 10, width: 50, height: 30 },
+      warnings: [],
+    });
+    expect(await full(id)).toMatchObject({
+      name: "Box",
+      appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#000000", width: 1 }] },
+    });
+
+    const turned = await call("zibel_node_transform", {
+      docId: doc.docId,
+      nodeIds: [id],
+      rotate: 90,
+    });
+    expect(turned.structuredContent).toEqual({
+      txId: expect.any(String),
+      rev: 4,
+      createdIds: [],
+      updatedIds: [id],
+      deletedIds: [],
+      keyMap: {},
+      bounds: { x: 20, y: 0, width: 30, height: 50 },
+      warnings: [],
+    });
+    expect(await full(id)).toMatchObject({
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 30,
+      transform: [0, 1, -1, 0, 60, -10],
+      worldTransform: [0, 1, -1, 0, 60, -10],
+      geometricBounds: { x: 20, y: 0, width: 30, height: 50 },
+    });
+    const rendered = await call("zibel_render", { docId: doc.docId });
+    expect(rendered.content.find((c: { type: string }) => c.type === "image")?.mimeType).toBe(
+      "image/png",
+    );
+
+    const deleted = await call("zibel_node_delete", { docId: doc.docId, nodeIds: [id] });
+    expect(deleted.structuredContent).toEqual({
+      txId: expect.any(String),
+      rev: 5,
+      createdIds: [],
+      updatedIds: [],
+      deletedIds: [id],
+      keyMap: {},
+      bounds: { x: 20, y: 0, width: 30, height: 50 },
+      warnings: [],
+    });
+  });
+
+  it("never lets schema defaults into a patch", async () => {
+    const { doc, make, full, rect } = await setup();
+    const [id] = (await make([{ ...rect, radius: 8 }])).createdIds;
+    await call("zibel_node_update", {
+      docId: doc.docId,
+      updates: [{ nodeId: id, patch: { width: 60 } }],
+    });
+    expect(await full(id)).toMatchObject({ width: 60, radius: 8 });
+    await call("zibel_node_update", {
+      docId: doc.docId,
+      updates: [{ nodeId: id, patch: { appearance: { fills: [{ color: "#FF0000" }] } } }],
+    });
+    expect((await full(id)).appearance.strokes).toEqual([
+      { color: "#000000", width: 1, cap: "butt", join: "miter", miterLimit: 10, dash: [] },
+    ]);
+  });
+
+  it("changes nothing on one bad item, and applies the rest with partial", async () => {
+    const { doc, make, rect } = await setup();
+    const [id] = (await make([rect])).createdIds;
+    const updates = [
+      { nodeId: id, patch: { name: "ok" } },
+      { nodeId: "nope", patch: { name: "x" } },
+    ];
+    const atomic = await call("zibel_node_update", { docId: doc.docId, updates });
+    expect(errorOf(atomic)).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      hint: expect.any(String),
+      path: "updates[1].nodeId",
+    });
+    const outline = async () =>
+      (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
+    expect(await outline()).toMatchObject({ rev: 2, layers: [{ children: [{ name: "" }] }] });
+
+    const partial = await call("zibel_node_update", { docId: doc.docId, updates, partial: true });
+    expect(partial.structuredContent).toMatchObject({
+      rev: 3,
+      updatedIds: [id],
+      failed: [
+        { index: 1, code: "NODE_NOT_FOUND", hint: expect.any(String), path: "updates[1].nodeId" },
+      ],
+    });
+    expect(await outline()).toMatchObject({ rev: 3, layers: [{ children: [{ name: "ok" }] }] });
+  });
+
+  it("deletes a Group with its descendants, gone from doc_outline", async () => {
+    const { doc, make } = await setup();
+    const { createdIds, keyMap } = await make([
+      {
+        type: "group",
+        parentId: doc.defaultLayerId,
+        clientKey: "g",
+        children: [
+          { type: "rect", x: 0, y: 0, width: 5, height: 5 },
+          { type: "group", children: [{ type: "line", x1: 0, y1: 0, x2: 5, y2: 5 }] },
+        ],
+      },
+    ]);
+    const deleted = await call("zibel_node_delete", { docId: doc.docId, nodeIds: [keyMap.g] });
+    expect([...deleted.structuredContent.deletedIds].sort()).toEqual([...createdIds].sort());
+    expect(
+      (await call("zibel_doc_outline", { docId: doc.docId, depth: 3 })).structuredContent,
+    ).toMatchObject({ layers: [{ childCount: 0 }] });
+    expect(
+      errorOf(await call("zibel_node_get", { docId: doc.docId, nodeIds: [createdIds[3]] })),
+    ).toMatchObject({ code: "NODE_NOT_FOUND" });
+  });
+
+  it("moves a Group by its leaves, so later children still use document coordinates", async () => {
+    const { doc, make, full } = await setup();
+    const { createdIds } = await make([
+      {
+        type: "group",
+        parentId: doc.defaultLayerId,
+        children: [{ type: "rect", x: 0, y: 0, width: 5, height: 5 }],
+      },
+    ]);
+    const [groupId, leafId] = createdIds;
+    const moved = await call("zibel_node_transform", {
+      docId: doc.docId,
+      nodeIds: [groupId],
+      translate: { x: 100 },
+    });
+    expect(moved.structuredContent).toMatchObject({
+      updatedIds: [leafId],
+      bounds: { x: 100, y: 0, width: 5, height: 5 },
+    });
+    expect(await full(groupId)).toMatchObject({ transform: [1, 0, 0, 1, 0, 0] });
+    const [later] = (
+      await make([{ type: "rect", parentId: groupId, x: 10, y: 10, width: 5, height: 5 }])
+    ).createdIds;
+    expect(await full(later)).toMatchObject({ geometricBounds: { x: 10, y: 10 } });
+  });
+
+  it("returns LIMIT_EXCEEDED for 2000 inline children plus their Group, and NODE_NOT_FOUND with hints", async () => {
+    const { doc } = await setup();
+    const big = await call("zibel_node_create", {
+      docId: doc.docId,
+      nodes: [
+        {
+          type: "group",
+          parentId: doc.defaultLayerId,
+          children: Array(2000).fill({ type: "line", x1: 0, y1: 0, x2: 1, y2: 1 }),
+        },
+      ],
+    });
+    expect(errorOf(big)).toMatchObject({
+      code: "LIMIT_EXCEEDED",
+      hint: expect.stringContaining("Split"),
+      path: "nodes",
+    });
+    // The published schema keeps TransformInput's refinements through safeExtend.
+    for (const parts of [
+      {},
+      { matrix: [1, 0, 0, 1, 0, 0], rotate: 1 },
+      { matrix: [0, 0, 0, 0, 0, 0] },
+    ]) {
+      const bad = await call("zibel_node_transform", {
+        docId: doc.docId,
+        nodeIds: [doc.defaultLayerId],
+        ...parts,
+      });
+      expect(bad.isError).toBe(true);
+    }
+    for (const [tool, args, path] of [
+      ["zibel_node_delete", { nodeIds: ["nope"] }, "nodeIds[0]"],
+      ["zibel_node_transform", { nodeIds: ["nope"], rotate: 1 }, "nodeIds[0]"],
+    ] as const) {
+      expect(errorOf(await call(tool, { docId: doc.docId, ...args }))).toMatchObject({
+        code: "NODE_NOT_FOUND",
+        hint: expect.any(String),
+        path,
+      });
+    }
+  });
+
+  it("stores intent with the Transaction and the Actor who wrote it", async () => {
+    const { doc, make, rect } = await setup();
+    const [id] = (await make([rect])).createdIds;
+    await call("zibel_node_update", {
+      docId: doc.docId,
+      updates: [{ nodeId: id, patch: { name: "red" } }],
+      intent: "make it red",
+      txId: "ignored-for-now",
+      ifRev: 99,
+    });
+    const log = await env.DOCUMENT.get(env.DOCUMENT.idFromName(doc.docId)).changes(0);
+    expect(Array.isArray(log) && log.at(-1)).toMatchObject({
+      actor: "agent-a",
+      intent: "make it red",
+      updatedIds: [id],
+    });
   });
 });

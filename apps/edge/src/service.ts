@@ -12,7 +12,14 @@ export function documentService(env: Env, actor: string): DocumentService {
       const docId = newId();
       return unwrap(await doc(docId).create({ ...input, docId, actor }));
     },
-    createNodes: async (docId, nodes) => unwrap(await doc(docId).createNodes(nodes, actor)),
+    createNodes: async (docId, nodes, opts) =>
+      unwrap(await doc(docId).createNodes(nodes, actor, opts)),
+    updateNodes: async (docId, updates, opts) =>
+      unwrap(await doc(docId).updateNodes(updates, actor, opts)),
+    deleteNodes: async (docId, nodeIds, opts) =>
+      unwrap(await doc(docId).deleteNodes(nodeIds, actor, opts)),
+    transformNodes: async (docId, input, opts) =>
+      unwrap(await doc(docId).transformNodes(input, actor, opts)),
     get: async (docId, nodeIds, detail) => unwrap(await doc(docId).get(nodeIds, detail)),
     outline: async (docId, depth) => unwrap(await doc(docId).outline(depth)),
     render: async (docId, scale) => {

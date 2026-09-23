@@ -1,7 +1,9 @@
 import {
   childrenOf,
   type Document,
+  formatNumber,
   formatPath,
+  IDENTITY,
   type Node,
   type Rect,
   shapeSegments,
@@ -37,12 +39,17 @@ export function toSvg(doc: Document, rect: Rect = docRect(doc)): string {
 
 function node(doc: Document, n: Node): string {
   if (!n.visible) return "";
-  const opacity = n.opacity === 1 ? undefined : n.opacity;
+  const group = {
+    opacity: n.opacity === 1 ? undefined : n.opacity,
+    transform: n.transform.every((v, i) => v === IDENTITY[i])
+      ? undefined
+      : `matrix(${n.transform.map(formatNumber).join(" ")})`,
+  };
   if (n.type === "layer" || n.type === "group") {
     const kids = childrenOf(doc, n.id)
       .map((c) => node(doc, c))
       .join("");
-    return `<g${attrs({ opacity })}>${kids}</g>`;
+    return `<g${attrs(group)}>${kids}</g>`;
   }
   // Every leaf is a <path> of the same outline node_get reports as d, painted once per Fill, then
   // once per Stroke: Illustrator's default stacking, Fills below Strokes.
@@ -64,5 +71,6 @@ function node(doc: Document, n: Node): string {
         })}/>`,
     ),
   ].join("");
-  return opacity === undefined || !paints ? paints : `<g${attrs({ opacity })}>${paints}</g>`;
+  const wrap = attrs(group);
+  return wrap && paints ? `<g${wrap}>${paints}</g>` : paints;
 }

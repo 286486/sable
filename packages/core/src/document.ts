@@ -2,7 +2,8 @@ import { generateKeyBetween } from "fractional-indexing";
 import { ulid } from "ulid";
 import type { z } from "zod";
 import { parseColor } from "./color.ts";
-import { ZibelError } from "./errors.ts";
+import { collect, type Failed, ZibelError } from "./errors.ts";
+import { IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
 import {
   type Appearance,
@@ -23,7 +24,6 @@ import {
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
 export const newId = () => ulid();
 
-const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 const ARTBOARD_GAP = 20;
 
 const base = (parentId: string | null, index: string) => ({
@@ -33,10 +33,10 @@ const base = (parentId: string | null, index: string) => ({
   visible: true,
   locked: false,
   opacity: 1,
-  blendMode: "normal",
+  blendMode: "normal" as const,
   transform: [...IDENTITY] as Matrix,
-  tags: [],
-  meta: {},
+  tags: [] as string[],
+  meta: {} as Record<string, unknown>,
 });
 
 /** A new Document with its Artboards and one default Layer to draw into. */
@@ -73,6 +73,15 @@ export function createDocument(input: { id: string; name: string; artboards: Art
   return { doc, defaultLayerId: layer.id };
 }
 
+/** Most Nodes one `node_create` may add, counting inline Group children (REQUIREMENTS §6.5). */
+export const MAX_NODES_PER_CREATE = 2000;
+
+const countNodes = (items: { children?: unknown[] }[]): number =>
+  items.reduce(
+    (n, item) => n + 1 + countNodes((item.children ?? []) as { children?: unknown[] }[]),
+    0,
+  );
+
 /**
  * Validates every input first, then adds all Nodes, so a bad item leaves the Document unchanged.
  * Returns the new Nodes depth first in input order (a Group before its inline children), and the
@@ -81,9 +90,8 @@ export function createDocument(input: { id: string; name: string; artboards: Art
 export function createNodes(
   doc: Document,
   inputs: NodeInput[],
-): { nodes: Node[]; keyMap: Record<string, string> } {
-  const nodes: Node[] = [];
-  const keyMap: Record<string, string> = {};
+  { partial = false } = {},
+): { nodes: Node[]; keyMap: Record<string, string>; failed: Failed[] } {
   const lastIndex = new Map<string | null, string | null>();
   const nextIndex = (parentId: string | null) => {
     const prev = lastIndex.has(parentId)
@@ -97,8 +105,13 @@ export function createNodes(
     input: z.output<typeof NodeInput> | ChildInput,
     parentId: string | null,
     path: string,
+    out: { nodes: Node[]; keyMap: Record<string, string> },
   ) => {
-    const at = base(parentId, nextIndex(parentId));
+    const at = {
+      ...base(parentId, nextIndex(parentId)),
+      ...(input.tags && { tags: input.tags }),
+      ...(input.meta && { meta: input.meta }),
+    };
     const name = input.name ?? "";
     let node: Node;
     if (input.type === "layer" || input.type === "group") {
@@ -110,8 +123,8 @@ export function createNodes(
       const appearance = paint(input.appearance ?? defaultAppearance(), `${path}.appearance`);
       node = { ...at, ...shape, name, appearance };
     }
-    nodes.push(node);
-    if (input.clientKey !== undefined) keyMap[input.clientKey] = node.id;
+    out.nodes.push(node);
+    if (input.clientKey !== undefined) out.keyMap[input.clientKey] = node.id;
     if (input.type === "group") {
       input.children.forEach((child, k) => {
         if (child.type === "layer") {
@@ -122,17 +135,33 @@ export function createNodes(
             path: `${path}.children[${k}].type`,
           });
         }
-        add(child, node.id, `${path}.children[${k}]`);
+        add(child, node.id, `${path}.children[${k}]`, out);
       });
     }
   };
-  inputs.forEach((raw, i) => {
+  const count = countNodes(inputs as { children?: unknown[] }[]);
+  if (count > MAX_NODES_PER_CREATE) {
+    throw new ZibelError({
+      code: "LIMIT_EXCEEDED",
+      message: `${count} Nodes counting inline children; one node_create adds at most ${MAX_NODES_PER_CREATE}.`,
+      hint: `Split into several node_create calls of at most ${MAX_NODES_PER_CREATE} Nodes each, e.g. one per Layer or Group: create the Group first, then its children with its id as parentId.`,
+      path: "nodes",
+    });
+  }
+  const { ok, failed } = collect(inputs, partial, (raw, i) => {
+    // Each item collects into its own lists, so a failure halfway through a Group leaves no trace.
+    const out = { nodes: [] as Node[], keyMap: {} as Record<string, string> };
     const input = NodeInput.parse(raw);
     assertParent(doc, input, input.parentId, `nodes[${i}].parentId`);
-    add(input, input.parentId, `nodes[${i}]`);
+    add(input, input.parentId, `nodes[${i}]`, out);
+    return out;
   });
-  for (const node of nodes) doc.nodes.set(node.id, node);
-  return { nodes, keyMap };
+  for (const item of ok) for (const node of item.nodes) doc.nodes.set(node.id, node);
+  return {
+    nodes: ok.flatMap((item) => item.nodes),
+    keyMap: Object.assign({}, ...ok.map((item) => item.keyMap)),
+    failed,
+  };
 }
 
 /**
@@ -199,7 +228,7 @@ export function assertParent(
 const defaultAppearance = () =>
   AppearanceInput.parse({ fills: [{ color: "#FFFFFF" }], strokes: [{ color: "#000000" }] });
 
-function paint(a: AppearanceInput, path: string): Appearance {
+export function paint(a: AppearanceInput, path: string): Appearance {
   return {
     fills: a.fills.map((f, i) => ({
       ...f,
@@ -221,11 +250,10 @@ export function childrenOf(doc: Document, parentId: string | null): Node[] {
 
 /** Geometric bounds in document coordinates (no stroke), or null for an empty container. */
 export function bounds(doc: Document, node: Node): Rect | null {
-  // ponytail: ignores `transform`, which stays identity until node_transform (#5) can set it.
   if (node.type === "layer" || node.type === "group") {
     return union(childrenOf(doc, node.id).map((c) => bounds(doc, c)));
   }
-  return pathBounds(shapeSegments(node));
+  return pathBounds(transformSegments(shapeSegments(node), worldTransform(doc, node)));
 }
 
 /** Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a container. */
@@ -234,28 +262,24 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
     return union(childrenOf(doc, node.id).map((c) => visibleBounds(doc, c)));
   }
   const b = bounds(doc, node);
-  // ponytail: half the Stroke width on every side; miter spikes and square caps can reach further.
-  const grow = Math.max(0, ...node.appearance.strokes.map((s) => s.width)) / 2;
+  // ponytail: half the Stroke width on every side, scaled by sqrt|det|; miter spikes, square caps
+  // and non-uniform scale can reach further.
+  const grow =
+    (Math.max(0, ...node.appearance.strokes.map((s) => s.width)) / 2) *
+    scaleOf(worldTransform(doc, node));
   return (
     b && { x: b.x - grow, y: b.y - grow, width: b.width + 2 * grow, height: b.height + 2 * grow }
   );
 }
 
-/** The Node's transform composed with every ancestor's, mapping its coordinates to the Document's. */
+/**
+ * The Node's transform composed with every ancestor's, mapping its coordinates to the Document's.
+ * Containers stay identity (ADR-0007), so this equals a leaf's own transform; composing keeps it
+ * correct should a container ever carry one.
+ */
 export function worldTransform(doc: Document, node: Node): Matrix {
   const parent = node.parentId ? doc.nodes.get(node.parentId) : undefined;
   return parent ? multiply(worldTransform(doc, parent), node.transform) : node.transform;
-}
-
-function multiply([a, b, c, d, e, f]: Matrix, [A, B, C, D, E, F]: Matrix): Matrix {
-  return [
-    a * A + c * B,
-    b * A + d * B,
-    a * C + c * D,
-    b * C + d * D,
-    a * E + c * F + e,
-    b * E + d * F + f,
-  ];
 }
 
 function outlineOf(node: ShapeNode): { d: string; closed: boolean } {

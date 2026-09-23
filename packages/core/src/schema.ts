@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COLOR_PATTERN } from "./color.ts";
+import { compose, scaleOf } from "./matrix.ts";
 
 /**
  * `#RRGGBB` or `#RRGGBBAA`, case-insensitive (REQUIREMENTS §6.5). The published schema carries the
@@ -110,23 +111,29 @@ export const PathShape = z.object({
   type: z.literal("path"),
   d: z.string().describe("SVG path data, absolute M, L, C, Q and Z only, e.g. M 0 0 L 10 0 Z."),
 });
-export const Shape = z.discriminatedUnion("type", [
-  RectShape,
-  EllipseShape,
-  LineShape,
-  PolygonShape,
-  StarShape,
-  PathShape,
-]);
+export const SHAPES = {
+  rect: RectShape,
+  ellipse: EllipseShape,
+  line: LineShape,
+  polygon: PolygonShape,
+  star: StarShape,
+  path: PathShape,
+};
+const { rect, ...others } = SHAPES;
+export const Shape = z.discriminatedUnion("type", [rect, ...Object.values(others)]);
 export type Shape = z.output<typeof Shape>;
 
 const clientKey = z
   .string()
   .optional()
   .describe("Your own key for this item; the receipt's keyMap maps it to the new id.");
+const tags = z.array(z.string());
+const meta = z.record(z.string(), z.unknown()).describe("Any JSON: your notes or data bindings.");
 const item = {
   clientKey,
   name: z.string().optional(),
+  tags: tags.optional(),
+  meta: meta.optional(),
 };
 const leaf = {
   ...item,
@@ -146,6 +153,8 @@ interface GroupChild {
   type: "group";
   clientKey?: string;
   name?: string;
+  tags?: string[];
+  meta?: Record<string, unknown>;
   children: ChildInput[];
 }
 interface GroupChildIn extends Omit<GroupChild, "children"> {
@@ -184,8 +193,131 @@ export const NodeInput = z.discriminatedUnion("type", [
 ]);
 export type NodeInput = z.input<typeof NodeInput>;
 
+/** Illustrator's 16 blend modes, by their CSS names. */
+export const BlendMode = z.enum([
+  "normal",
+  "darken",
+  "multiply",
+  "color-burn",
+  "lighten",
+  "screen",
+  "color-dodge",
+  "overlay",
+  "soft-light",
+  "hard-light",
+  "difference",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+]);
+
+/** What `node_update` may write on every Node; a leaf adds its parameters and `appearance`. */
+export const Writable = z.object({
+  name: z.string(),
+  visible: z.boolean(),
+  locked: z.boolean(),
+  opacity: z.number().min(0).max(1),
+  blendMode: BlendMode,
+  tags,
+  meta,
+});
+
+const unwrapDefault = (t: z.ZodType) => (t instanceof z.ZodDefault ? t.unwrap() : t);
+const parameters = Object.fromEntries(
+  Object.values(SHAPES)
+    .flatMap((o) => Object.entries(o.shape))
+    .filter(([k]) => k !== "type")
+    .map(([k, t]) => [k, unwrapDefault(t as z.ZodType)]),
+);
+
+/**
+ * The published `node_update` patch. Nothing here has a default, or the MCP SDK would insert it into
+ * the patch and overwrite the stored value. Loose, so read-only keys reach core and get a hint; every
+ * key is nullable because null deletes in a merge patch.
+ */
+export const NodePatch = z
+  .looseObject(
+    Object.fromEntries(
+      Object.entries({
+        ...Writable.shape,
+        appearance: z.object({ fills: z.array(Fill), strokes: z.array(Stroke) }).partial(),
+        ...parameters,
+      }).map(([k, t]) => [k, (t as z.ZodType).nullable().optional()]),
+    ),
+  )
+  .describe(
+    "JSON Merge Patch (RFC 7396) of the Node's writable properties: objects merge, null deletes, arrays and everything else replace.",
+  );
+
+export const UpdateInput = z.object({ nodeId: z.string(), patch: NodePatch });
+export type UpdateInput = z.input<typeof UpdateInput>;
+
 /** `[a, b, c, d, e, f]` with SVG semantics. */
 export type Matrix = [number, number, number, number, number, number];
+
+const nodeIds = z.array(z.string()).min(1).max(1000);
+
+/** Illustrator's 9-point reference point, as fractions of the bounds' width and height. */
+export const PIVOTS = {
+  topLeft: [0, 0],
+  top: [0.5, 0],
+  topRight: [1, 0],
+  left: [0, 0.5],
+  center: [0.5, 0.5],
+  right: [1, 0.5],
+  bottomLeft: [0, 1],
+  bottom: [0.5, 1],
+  bottomRight: [1, 1],
+} as const;
+const nonZero = z.number().refine((n) => n !== 0, "Scale by a non-zero factor.");
+const xy = z.object({ x: z.number().default(0), y: z.number().default(0) });
+
+export const TransformInput = z
+  .object({
+    nodeIds,
+    translate: xy.optional().describe("Move by x, y in pt, after everything else."),
+    rotate: z.number().optional().describe("Degrees, clockwise on screen."),
+    scale: z
+      .union([nonZero, z.object({ x: nonZero, y: nonZero })])
+      .optional()
+      .describe("A factor, or one per axis; negative mirrors."),
+    skew: xy.optional().describe("Degrees, as SVG skewX (x) and skewY (y)."),
+    matrix: z
+      .tuple([z.number(), z.number(), z.number(), z.number(), z.number(), z.number()])
+      .optional()
+      .describe("[a, b, c, d, e, f] applied about the pivot, instead of rotate, skew and scale."),
+    pivot: z
+      .union([
+        z.enum(Object.keys(PIVOTS) as [keyof typeof PIVOTS]),
+        z.object({ x: z.number(), y: z.number() }),
+      ])
+      .default("center")
+      .describe("Reference point on the targets' geometricBounds, or document coordinates."),
+    each: z
+      .boolean()
+      .default(false)
+      .describe("true: each target about its own pivot; false: all about one pivot."),
+    scaleStrokes: z
+      .boolean()
+      .default(true)
+      .describe("false keeps the rendered Stroke width by dividing the stored width."),
+  })
+  .refine(
+    (t) => [t.translate, t.rotate, t.scale, t.skew, t.matrix].some((v) => v !== undefined),
+    "Give at least one of translate, rotate, scale, skew or matrix.",
+  )
+  .refine(
+    (t) => t.matrix === undefined || [t.rotate, t.scale, t.skew].every((v) => v === undefined),
+    "matrix replaces rotate, scale and skew; send it alone (translate may accompany it).",
+  )
+  .refine(
+    // A singular matrix collapses the Nodes for good: nothing composed onto it can undo it.
+    (t) => scaleOf(compose(t, { x: 0, y: 0 })) > 1e-6,
+    "The transform collapses the Nodes to a line or point; use a non-singular matrix and skews whose sum stays away from 90°.",
+  );
+export type TransformInput = z.input<typeof TransformInput>;
 
 /** Common properties (F-DOC-02). */
 interface NodeBase {
@@ -197,7 +329,7 @@ interface NodeBase {
   visible: boolean;
   locked: boolean;
   opacity: number;
-  blendMode: string;
+  blendMode: z.infer<typeof BlendMode>;
   transform: Matrix;
   tags: string[];
   meta: Record<string, unknown>;
@@ -238,5 +370,17 @@ export const WriteReceipt = z.object({
   warnings: z.array(
     z.object({ code: z.string(), nodeId: z.string().optional(), message: z.string() }),
   ),
+  failed: z
+    .array(
+      z.object({
+        index: z.number().int(),
+        code: z.string(),
+        message: z.string(),
+        hint: z.string(),
+        path: z.string().optional(),
+      }),
+    )
+    .optional()
+    .describe("Only with partial: true. The items that did not apply, by input index."),
 });
 export type WriteReceipt = z.infer<typeof WriteReceipt>;

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { assertParent, createDocument, createNodes, nodeView, outline } from "./document.ts";
+import {
+  assertParent,
+  bounds,
+  createDocument,
+  createNodes,
+  nodeView,
+  outline,
+  visibleBounds,
+} from "./document.ts";
 import { ZibelError } from "./errors.ts";
+import { compose } from "./matrix.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -408,4 +417,105 @@ it("gives each default Appearance its own arrays", () => {
   const [a, b] = createNodes(doc, [rect(defaultLayerId), rect(defaultLayerId)]).nodes;
   if (!a || !b || !("appearance" in a) || !("appearance" in b)) throw new Error("setup");
   expect(a.appearance.strokes[0]?.dash).not.toBe(b.appearance.strokes[0]?.dash);
+});
+
+describe("bounds honour transform", () => {
+  it("rotates a rect's bounds about its center", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [node] = createNodes(doc, [rect(defaultLayerId)]).nodes;
+    if (!node) throw new Error("setup");
+    node.transform = compose({ rotate: 90 }, { x: 35, y: 25 });
+    const b = bounds(doc, node);
+    expect(b?.x).toBeCloseTo(20, 9);
+    expect(b?.y).toBeCloseTo(0, 9);
+    expect(b?.width).toBeCloseTo(30, 9);
+    expect(b?.height).toBeCloseTo(50, 9);
+  });
+
+  it("finds the true extent of a rotated ellipse, not its control points", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [e] = createNodes(doc, [
+      { type: "ellipse", parentId: defaultLayerId, x: 0, y: 0, width: 100, height: 50 },
+    ]).nodes;
+    if (!e) throw new Error("setup");
+    e.transform = compose({ rotate: 45 }, { x: 50, y: 25 });
+    const c = Math.SQRT1_2;
+    expect(bounds(doc, e)?.width).toBeCloseTo(
+      2 * Math.sqrt(50 ** 2 * c ** 2 + 25 ** 2 * c ** 2),
+      1,
+    );
+  });
+
+  it("applies the ancestors' transforms and scales the Stroke growth", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [g, r] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        children: [
+          { ...rect(defaultLayerId), appearance: { strokes: [{ color: "#000000", width: 2 }] } },
+        ],
+      },
+    ]).nodes;
+    if (!g || !r) throw new Error("setup");
+    g.transform = [2, 0, 0, 2, 10, 20];
+    expect(bounds(doc, r)).toEqual({ x: 30, y: 40, width: 100, height: 60 });
+    expect(visibleBounds(doc, r)).toEqual({ x: 28, y: 38, width: 104, height: 64 });
+    expect(outline(doc)[0]?.bounds).toEqual({ x: 30, y: 40, width: 100, height: 60 });
+  });
+});
+
+it("stores tags and meta given at creation", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const [r] = createNodes(doc, [{ ...rect(defaultLayerId), tags: ["bar"], meta: { q: 3 } }]).nodes;
+  expect(r).toMatchObject({ tags: ["bar"], meta: { q: 3 } });
+});
+
+describe("the 2000-Node cap per node_create", () => {
+  it("counts inline children and hints how to split", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const flat = Array.from({ length: 2001 }, () => rect(defaultLayerId));
+    const nested = [
+      {
+        type: "group" as const,
+        parentId: defaultLayerId,
+        children: Array.from({ length: 2000 }, () => ({
+          ...rect(defaultLayerId),
+          parentId: undefined,
+        })),
+      },
+    ];
+    for (const inputs of [flat, nested]) {
+      expect(codeOf(() => createNodes(doc, inputs))).toMatchObject({
+        code: "LIMIT_EXCEEDED",
+        path: "nodes",
+        hint: expect.stringMatching(/2000.*[Ss]plit|[Ss]plit.*2000/),
+      });
+    }
+    expect(doc.nodes.size).toBe(1);
+    expect(createNodes(doc, flat.slice(1)).nodes).toHaveLength(2000);
+  });
+});
+
+it("creates the valid items with partial and reports the invalid one", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const { nodes, failed, keyMap } = createNodes(
+    doc,
+    [
+      { ...rect(defaultLayerId), clientKey: "a" },
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        clientKey: "g",
+        children: [rect(defaultLayerId), { type: "layer" }],
+      },
+    ],
+    { partial: true },
+  );
+  expect(nodes).toHaveLength(1);
+  expect(Object.keys(keyMap)).toEqual(["a"]);
+  expect(failed).toMatchObject([
+    { index: 1, code: "INVALID_PARENT", path: "nodes[1].children[1].type" },
+  ]);
+  expect(outline(doc)[0]?.childCount).toBe(1);
 });
