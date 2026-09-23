@@ -65,6 +65,8 @@ const NodeView = z.looseObject({
 
 export const NodeGetOutput = z.object({ rev: z.number().int(), nodes: z.array(NodeView) });
 
+export const NodeQueryOutput = NodeGetOutput.extend({ nextCursor: z.string().nullable() });
+
 export const TxOutput = z.object({ txId: z.string(), rev: z.number().int() });
 
 export const ChangesOutput = z.object({

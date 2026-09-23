@@ -36,6 +36,7 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_node_create",
     "zibel_node_delete",
     "zibel_node_get",
+    "zibel_node_query",
     "zibel_node_transform",
     "zibel_node_update",
     "zibel_render",
@@ -60,7 +61,13 @@ it("lists tools with annotations and an outputSchema", async () => {
     );
   }
   expect(inputKeys("zibel_doc_create")).toContain("intent");
-  for (const name of ["zibel_node_get", "zibel_doc_outline", "zibel_render", "zibel_export"]) {
+  for (const name of [
+    "zibel_node_get",
+    "zibel_node_query",
+    "zibel_doc_outline",
+    "zibel_render",
+    "zibel_export",
+  ]) {
     expect(inputKeys(name)).toContain("txId");
   }
   expect(inputKeys("zibel_tx_commit")).toEqual(
@@ -258,7 +265,7 @@ it("returns INVALID_COLOR with a hint for a bad Artboard background", async () =
 });
 
 it("returns DOC_NOT_FOUND for an unknown docId", async () => {
-  for (const tool of ["zibel_doc_outline", "zibel_doc_get_info"]) {
+  for (const tool of ["zibel_doc_outline", "zibel_doc_get_info", "zibel_node_query"]) {
     const result = await call(tool, { docId: "01NOPE" });
     expect(errorOf(result)).toMatchObject({ code: "DOC_NOT_FOUND", hint: expect.any(String) });
   }
@@ -945,5 +952,185 @@ describe("transactions", () => {
       code: "TX_NOT_FOUND",
     });
     expect(await ok("node_create", { nodes: [rect], txId })).toMatchObject({ txId });
+  });
+});
+
+describe("node_query", () => {
+  /** Layer 1: "Sun" rect (sky, warm) at 0,0 and Group "G" holding "Moon" rect (sky) at 100,50 and a text. */
+  const scene = async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const r = (name: string, x: number, y: number, tags: string[]) => ({
+      type: "rect",
+      name,
+      x,
+      y,
+      width: 10,
+      height: 10,
+      tags,
+      clientKey: name,
+    });
+    const { keyMap } = (
+      await call("zibel_node_create", {
+        docId,
+        nodes: [
+          { ...r("Sun", 0, 0, ["sky", "warm"]), parentId: defaultLayerId },
+          {
+            type: "group",
+            name: "G",
+            clientKey: "G",
+            parentId: defaultLayerId,
+            children: [
+              r("Moon", 100, 50, ["sky"]),
+              { type: "text", x: 100, y: 90, content: "Hi", clientKey: "T" },
+            ],
+          },
+        ],
+      })
+    ).structuredContent;
+    const query = async (filter: object) => {
+      const result = await call("zibel_node_query", { docId, ...filter });
+      expect(result.isError).toBeFalsy();
+      return result.structuredContent;
+    };
+    const names = async (filter: object) =>
+      ((await query(filter)).nodes as { name: string; type: string }[])
+        .map((n) => n.name || n.type)
+        .sort();
+    return { docId, defaultLayerId, keyMap, query, names };
+  };
+
+  it("filters by each of types, nameRegex, tags, parentId, withinRect and intersectsRect", async () => {
+    const { defaultLayerId, keyMap, names, query } = await scene();
+    expect(await names({})).toEqual(["G", "Layer 1", "Moon", "Sun", "text"]);
+    expect(await names({ types: ["rect"] })).toEqual(["Moon", "Sun"]);
+    expect(await names({ nameRegex: "^[SM]" })).toEqual(["Moon", "Sun"]);
+    expect(await names({ tags: ["sky", "warm"] })).toEqual(["Sun"]);
+    expect(await names({ parentId: defaultLayerId })).toEqual(["G", "Sun"]);
+    expect(await names({ parentId: keyMap.G })).toEqual(["Moon", "text"]);
+    expect(await names({ withinRect: { x: 90, y: 40, width: 50, height: 60 } })).toEqual([
+      "G",
+      "Moon",
+      "text",
+    ]);
+    expect(await names({ intersectsRect: { x: 10, y: 10, width: 1, height: 1 } })).toEqual([
+      "Layer 1",
+      "Sun",
+    ]);
+    const { nodes, rev, nextCursor } = await query({ nameRegex: "^Sun$" });
+    expect({ rev, nextCursor }).toEqual({ rev: 2, nextCursor: null });
+    expect(nodes).toEqual([
+      {
+        id: keyMap.Sun,
+        type: "rect",
+        name: "Sun",
+        parentId: defaultLayerId,
+        visible: true,
+        locked: false,
+        childCount: 0,
+        geometricBounds: { x: 0, y: 0, width: 10, height: 10 },
+      },
+    ]);
+  });
+
+  it("ANDs filters together", async () => {
+    const { keyMap, names } = await scene();
+    expect(await names({ tags: ["sky"], parentId: keyMap.G })).toEqual(["Moon"]);
+    expect(
+      await names({
+        types: ["rect", "text"],
+        intersectsRect: { x: 0, y: 0, width: 200, height: 60 },
+      }),
+    ).toEqual(["Moon", "Sun"]);
+  });
+
+  it("pages through more than one page with cursor, in id order", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 };
+    const created = (
+      await call("zibel_node_create", { docId, nodes: Array.from({ length: 5 }, () => rect) })
+    ).structuredContent.createdIds as string[];
+    const pages: string[][] = [];
+    let cursor: string | undefined;
+    do {
+      const page = (await call("zibel_node_query", { docId, types: ["rect"], limit: 2, cursor }))
+        .structuredContent;
+      pages.push(page.nodes.map((n: { id: string }) => n.id));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    expect(pages.map((p) => p.length)).toEqual([2, 2, 1]);
+    expect(pages.flat()).toEqual([...created].sort());
+  });
+
+  it("rejects a nameRegex that does not compile, naming the field", async () => {
+    const { docId } = await newDoc();
+    const result = await call("zibel_node_query", { docId, nameRegex: "(" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/regular expression.*nameRegex/);
+  });
+});
+
+describe("doc_outline options", () => {
+  const scene = async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const { keyMap } = (
+      await call("zibel_node_create", {
+        docId,
+        nodes: [
+          { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 5, height: 5 },
+          {
+            type: "group",
+            parentId: defaultLayerId,
+            clientKey: "G",
+            children: [
+              { type: "rect", x: 0, y: 0, width: 5, height: 5 },
+              { type: "text", x: 0, y: 20, content: "Hi" },
+            ],
+          },
+          { type: "layer", name: "Layer 2" },
+        ],
+      })
+    ).structuredContent;
+    const outline = async (opts: object) =>
+      (await call("zibel_doc_outline", { docId, ...opts })).structuredContent;
+    return { keyMap, outline };
+  };
+
+  it("returns only the Layers at depth 1, with their childCount", async () => {
+    const { outline } = await scene();
+    const { nodes } = await outline({ depth: 1 });
+    expect(nodes).toEqual([
+      expect.objectContaining({ type: "layer", name: "Layer 1", childCount: 2 }),
+      expect.objectContaining({ type: "layer", name: "Layer 2", childCount: 0 }),
+    ]);
+    expect(nodes.some((n: object) => "children" in n)).toBe(false);
+  });
+
+  it("starts at rootId's children; an unknown rootId is NODE_NOT_FOUND", async () => {
+    const { keyMap, outline } = await scene();
+    const { nodes } = await outline({ rootId: keyMap.G });
+    expect(nodes.map((n: { type: string }) => n.type)).toEqual(["rect", "text"]);
+    const docId = (await newDoc()).docId;
+    const result = await call("zibel_doc_outline", { docId, rootId: "01NOPE" });
+    expect(errorOf(result)).toMatchObject({ code: "NODE_NOT_FOUND", path: "rootId" });
+  });
+
+  it("keeps the listed types with their ancestors, and drops bounds on request", async () => {
+    const { outline } = await scene();
+    const { nodes } = await outline({ depth: 3, types: ["text"], includeBounds: false });
+    expect(nodes).toEqual([
+      expect.objectContaining({
+        name: "Layer 1",
+        childCount: 2,
+        children: [
+          expect.objectContaining({
+            type: "group",
+            childCount: 2,
+            children: [expect.objectContaining({ type: "text" })],
+          }),
+        ],
+      }),
+      expect.objectContaining({ name: "Layer 2" }),
+    ]);
+    expect(JSON.stringify(nodes)).not.toContain("bounds");
   });
 });

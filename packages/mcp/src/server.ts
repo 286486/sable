@@ -4,6 +4,8 @@ import {
   ArtboardInput,
   Color,
   NodeInput,
+  NodeQuery,
+  NodeType,
   parseColor,
   RenderOverlay,
   RenderScope,
@@ -21,6 +23,7 @@ import {
   DocListOutput,
   ExportOutput,
   NodeGetOutput,
+  NodeQueryOutput,
   OutlineOutput,
   RenderOutput,
   TxOutput,
@@ -267,17 +270,44 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
   );
 
   server.registerTool(
+    "zibel_node_query",
+    {
+      title: "Query Nodes",
+      description: [
+        "Find Nodes by filter without reading the whole Document. Every filter given must hold; with none, every Node matches, hidden and locked ones included.",
+        'types: any of these. nameRegex: tested against the stored name (unnamed is ""). tags: carries every one. parentId: direct children only. withinRect: geometricBounds entirely inside; intersectsRect: touching. Rects are {x, y, width, height} in document coordinates; a Layer or Group with nothing in it has no bounds and never matches them.',
+        "Returns the concise view of zibel_node_get, sorted by id, limit per page (default 100, max 1000). While more follow, nextCursor is set: pass it back as cursor with the same filters for the next page; null means the last page.",
+      ].join(" "),
+      inputSchema: { docId, ...NodeQuery.shape, txId: readTxId },
+      outputSchema: NodeQueryOutput.shape,
+      annotations: read,
+    },
+    ({ docId, txId, ...q }) =>
+      run("zibel_node_query", async () => json(await service.query(docId, q, txId))),
+  );
+
+  server.registerTool(
     "zibel_doc_outline",
     {
       title: "Document outline",
-      description:
-        "Sparse tree of the Document: the top level is always the Layer list. Each entry has id, type, name, bounds, childCount, visible and locked; children appear down to `depth` levels.",
-      inputSchema: { docId, depth: z.number().int().min(1).default(2), txId: readTxId },
+      description: [
+        "Sparse tree of the Document in nodes: the top level is the Layer list, or with rootId that Node's children. Each entry has id, type, name, bounds, childCount, visible and locked; children appear down to depth levels, counting the top level as 1.",
+        "types keeps entries of those types and the containers above them, plus every top-level Layer; childCount stays the real count, and children: [] means none of those types within depth.",
+        "includeBounds: false leaves bounds out, which is cheaper for a large Document.",
+      ].join(" "),
+      inputSchema: {
+        docId,
+        rootId: z.string().optional(),
+        depth: z.number().int().min(1).default(2),
+        types: z.array(NodeType).min(1).optional(),
+        includeBounds: z.boolean().default(true),
+        txId: readTxId,
+      },
       outputSchema: OutlineOutput.shape,
       annotations: read,
     },
-    ({ docId, depth, txId }) =>
-      run("zibel_doc_outline", async () => json(await service.outline(docId, { depth }, txId))),
+    ({ docId, txId, ...opts }) =>
+      run("zibel_doc_outline", async () => json(await service.outline(docId, opts, txId))),
   );
 
   server.registerTool(
@@ -404,7 +434,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Begin Transaction",
       description: [
         "Start a Transaction to make several writes one step that people see, and undo, at once.",
-        "Pass the returned txId to each write, and to node_get, doc_outline, render and export to see your uncommitted work; nobody else sees it until zibel_tx_commit.",
+        "Pass the returned txId to each write, and to node_get, node_query, doc_outline, render and export to see your uncommitted work; nobody else sees it until zibel_tx_commit.",
         "It rolls back after 5 minutes without a call carrying its txId. label becomes the summary in zibel_doc_changes. rev is the committed rev, for ifRev.",
       ].join(" "),
       inputSchema: { docId, label: z.string().min(1).max(200).optional() },
