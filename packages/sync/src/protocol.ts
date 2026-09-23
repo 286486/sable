@@ -54,6 +54,8 @@ export const ClientMessage = z.object({
   command: z.discriminatedUnion("type", [
     z.object({ type: z.literal("transform"), input: TransformInput }),
     z.object({ type: z.literal("delete"), nodeIds: z.array(z.string()).min(1) }),
+    z.object({ type: z.literal("undo") }),
+    z.object({ type: z.literal("redo") }),
   ]),
 });
 export type ClientMessage = z.input<typeof ClientMessage>;

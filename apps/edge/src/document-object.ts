@@ -33,6 +33,7 @@ import { docRect, toSvg } from "@zibel/render";
 import {
   type ChangeEntry,
   ClientMessage,
+  type Command,
   type CreatedDocument,
   type DocInfo,
   type DocumentMessage,
@@ -184,29 +185,42 @@ export class DocumentObject extends DurableObject<Env> {
     // A malformed message is a client bug; the browser reconnects and gets the Document again.
     if (!parsed.success) return ws.close(1007, "Expected a command message.");
     const { id, command } = parsed.data;
-    const nodeIds = command.type === "transform" ? command.input.nodeIds : command.nodeIds;
-    // The browser only names Nodes it was sent, so a missing one was deleted: delete beats edit.
-    // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
-    const { nodes } = this.load();
-    const gone = nodeIds.filter((n) => !nodes.has(n));
-    const result: Result<WriteReceipt> =
-      gone.length > 0
-        ? {
-            error: {
-              code: "NODE_GONE",
-              message: `Someone deleted ${gone.join(", ")} before this ${command.type} arrived.`,
-              hint: "Deleted Nodes do not come back; nothing was changed.",
-              path: "nodeIds",
-              nodeIds: gone,
-            },
-          }
-        : command.type === "transform"
-          ? this.transformNodes(command.input, USER, { commandId: id })
-          : this.deleteNodes(command.nodeIds, USER, { commandId: id });
+    const result =
+      command.type === "undo" || command.type === "redo"
+        ? this[command.type](USER, { commandId: id })
+        : this.edit(command, id);
     if ("error" in result) {
       const msg: RejectedMessage = { type: "rejected", id, error: result.error };
       ws.send(JSON.stringify(msg));
     }
+  }
+
+  /**
+   * A transform or delete from a browser. The browser only names Nodes it was sent, so a missing one
+   * was deleted: delete beats edit (ADR-0010).
+   */
+  private edit(
+    command: Extract<Command, { type: "transform" | "delete" }>,
+    commandId: string,
+  ): Result<WriteReceipt> {
+    const nodeIds = command.type === "transform" ? command.input.nodeIds : command.nodeIds;
+    // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
+    const { nodes } = this.load();
+    const gone = nodeIds.filter((n) => !nodes.has(n));
+    if (gone.length > 0) {
+      return {
+        error: {
+          code: "NODE_GONE",
+          message: `Someone deleted ${gone.join(", ")} before this ${command.type} arrived.`,
+          hint: "Deleted Nodes do not come back; nothing was changed.",
+          path: "nodeIds",
+          nodeIds: gone,
+        },
+      };
+    }
+    return command.type === "transform"
+      ? this.transformNodes(command.input, USER, { commandId })
+      : this.deleteNodes(command.nodeIds, USER, { commandId });
   }
 
   /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */

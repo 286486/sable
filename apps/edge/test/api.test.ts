@@ -1,7 +1,7 @@
 import { exports } from "cloudflare:workers";
 import type { ServerMessage } from "@zibel/sync";
 import { afterEach, expect, it, vi } from "vitest";
-import { call } from "./rpc.ts";
+import { call, errorOf } from "./rpc.ts";
 
 const open: WebSocket[] = [];
 
@@ -206,4 +206,95 @@ it("closes the socket with 1007 on a message that is not a command", async () =>
     ws.send(data);
     expect((await closed).code).toBe(1007);
   }
+});
+
+it("undoes an Agent's three-call Transaction with one undo command, and redoes it", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
+  const [id] = (await call("zibel_node_create", { docId, txId, nodes: [rect(defaultLayerId)] }))
+    .structuredContent.createdIds;
+  await call("zibel_node_update", {
+    docId,
+    txId,
+    updates: [{ nodeId: id, patch: { name: "Box" } }],
+  });
+  await call("zibel_node_transform", { docId, txId, nodeIds: [id], translate: { x: 20 } });
+  const { rev } = (await call("zibel_tx_commit", { docId, txId })).structuredContent;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+
+  ws.send(command("u1", { type: "undo" }));
+  const [, undo] = await received(2);
+  expect(undo).toMatchObject({
+    type: "tx",
+    rev: rev + 1,
+    actor: "user",
+    commandId: "u1",
+    deletedIds: [id],
+  });
+  expect(undo).not.toHaveProperty("skippedIds");
+  expect(errorOf(await call("zibel_node_get", { docId, nodeIds: [id] }))).toMatchObject({
+    code: "NODE_NOT_FOUND",
+  });
+
+  ws.send(command("r1", { type: "redo" }));
+  const [, , redo] = await received(3);
+  expect(redo).toMatchObject({
+    type: "tx",
+    actor: "user",
+    commandId: "r1",
+    created: [{ id, name: "Box" }],
+  });
+  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id] })).structuredContent;
+  expect(nodes[0].geometricBounds).toMatchObject({ x: 30, y: 10 });
+
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: rev })).structuredContent;
+  expect(changes.map((c: { actor: string; summary: string }) => [c.actor, c.summary])).toEqual([
+    ["user", 'Undo "Commit 1 Node"'],
+    ["user", 'Redo "Commit 1 Node"'],
+  ]);
+});
+
+it("undoes a later delete first: the Node comes back with its id, then its update is undone", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id] = (await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] }))
+    .structuredContent.createdIds;
+  await call("zibel_node_update", { docId, updates: [{ nodeId: id, patch: { name: "Box" } }] });
+  await call("zibel_node_delete", { docId, nodeIds: [id] });
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+
+  ws.send(command("u1", { type: "undo" }));
+  const [, first] = await received(2);
+  expect(first).toMatchObject({ created: [{ id, name: "Box" }] });
+  ws.send(command("u2", { type: "undo" }));
+  const [, , second] = await received(3);
+  expect(second).toMatchObject({ updated: [{ id, name: "" }] });
+  expect(second).not.toHaveProperty("skippedIds");
+});
+
+it("rejects undo and redo with nothing on the stack, changing nothing", async () => {
+  const { docId } = await newDoc();
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  ws.send(command("u1", { type: "undo" }));
+  ws.send(command("r1", { type: "redo" }));
+  const [, undo, redo] = await received(3);
+  expect(undo).toMatchObject({ type: "rejected", id: "u1", error: { code: "NOTHING_TO_UNDO" } });
+  expect(redo).toMatchObject({ type: "rejected", id: "r1", error: { code: "NOTHING_TO_REDO" } });
+  expect((await call("zibel_doc_get_info", { docId })).structuredContent.rev).toBe(1);
+});
+
+it("clears the redo stack when a new Transaction commits", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] });
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  ws.send(command("u1", { type: "undo" }));
+  await received(2);
+  await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] });
+  await received(3);
+  ws.send(command("r1", { type: "redo" }));
+  const [, , , redo] = await received(4);
+  expect(redo).toMatchObject({ type: "rejected", error: { code: "NOTHING_TO_REDO" } });
 });
