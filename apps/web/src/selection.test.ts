@@ -1,6 +1,6 @@
 import { createDocument, createNodes, type Node } from "@zibel/core";
 import { describe, expect, it } from "vitest";
-import { combine, inverse, marquee, objectOf, objects } from "./selection.ts";
+import { combine, editable, inverse, marquee, objectOf, objects } from "./selection.ts";
 
 /**
  * Layer 1: Group g (rects a, b), rect c, hidden rect h, locked Group lg (rect m), Layer 3 (rect e).
@@ -23,6 +23,7 @@ function fixture() {
     { type: "layer", clientKey: "l3", parentId: l1 },
     { type: "layer", clientKey: "l2" },
   ]);
+  keyMap.l1 = l1;
   const id = (key: string) => keyMap[key] as string;
   Object.assign(keyMap, createNodes(doc, [at(id("l3"))("e", 100), at(id("l2"))("d", 120)]).keyMap);
   const set = (key: string, patch: Partial<Node>) =>
@@ -55,6 +56,23 @@ describe("objects", () => {
     doc.nodes.set(id("l2"), { ...node("l2"), visible: false });
     expect(objects(doc).map((n) => n.id)).not.toContain(id("d"));
   });
+});
+
+describe("editable", () => {
+  it("is false for a Node hidden or locked itself or through an ancestor", () => {
+    const { doc, id, node } = fixture();
+    expect(["m", "h", "lg"].map((k) => editable(doc, node(k)))).toEqual([false, false, false]);
+    expect(["c", "a", "e"].map((k) => editable(doc, node(k)))).toEqual([true, true, true]);
+    doc.nodes.set(id("l1"), { ...node("l1"), visible: false });
+    expect(editable(doc, node("c"))).toBe(false);
+  });
+});
+
+it("lists the selectable objects in one Layer, its sublayers included", () => {
+  const { doc, id } = fixture();
+  const ids = objects(doc, id("l1")).map((n) => n.id);
+  expect(ids).toEqual(expect.arrayContaining(["g", "c", "e"].map(id)));
+  expect(ids).toHaveLength(3);
 });
 
 describe("combine", () => {
