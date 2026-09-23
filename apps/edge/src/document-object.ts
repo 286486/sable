@@ -19,6 +19,7 @@ import {
   outline,
   overlay,
   type Rect,
+  revert,
   type TransformInput,
   type TxRow,
   transformNodes,
@@ -32,6 +33,7 @@ import { docRect, toSvg } from "@zibel/render";
 import {
   type ChangeEntry,
   ClientMessage,
+  type Command,
   type CreatedDocument,
   type DocInfo,
   type DocumentMessage,
@@ -48,6 +50,16 @@ const TX_IDLE_MS = 5 * 60_000;
 
 /** Every browser acts as this one Actor until OAuth (ADR-0010). */
 const USER = "user";
+
+/** Transactions the undo stack keeps (F-HIST-01). */
+const UNDO_DEPTH = 200;
+
+/**
+ * How a commit moves the undo and redo stacks (ADR-0011): an edit pushes onto the undo stack and
+ * clears redo; an undo or redo pops `popped` and pushes onto `stack`. `label` names the edit in
+ * both directions.
+ */
+type Step = { label: string; stack: "undo" | "redo"; popped?: number };
 
 /** A browser command's write also names the command its broadcast answers. */
 type Options = WriteOptions & { commandId?: string };
@@ -89,6 +101,12 @@ export class DocumentObject extends DurableObject<Env> {
         tx_id TEXT NOT NULL, node_id TEXT NOT NULL, base TEXT, working TEXT,
         PRIMARY KEY (tx_id, node_id)
       );
+      -- ADR-0011: each committed Transaction's Node copies before and after, while it is undoable.
+      CREATE TABLE IF NOT EXISTS tx_delta (
+        rev INTEGER NOT NULL, node_id TEXT NOT NULL, before TEXT, after TEXT,
+        PRIMARY KEY (rev, node_id)
+      );
+      CREATE TABLE IF NOT EXISTS history (rev INTEGER PRIMARY KEY, stack TEXT NOT NULL, label TEXT NOT NULL);
     `);
   }
 
@@ -112,9 +130,15 @@ export class DocumentObject extends DurableObject<Env> {
           doc.name,
           JSON.stringify(doc.artboards),
         );
-        return this.commit(input.actor, `Create Document "${doc.name}"`, input.intent, {
-          created: [...doc.nodes.values()],
-        });
+        const change = { created: [...doc.nodes.values()] };
+        // Not undoable: undo stops at the Document's creation (ADR-0011).
+        return this.commit(
+          input.actor,
+          `Create Document "${doc.name}"`,
+          input.intent,
+          change,
+          null,
+        );
       });
       return { docId: doc.id, defaultLayerId, artboards: doc.artboards, rev };
     });
@@ -161,29 +185,42 @@ export class DocumentObject extends DurableObject<Env> {
     // A malformed message is a client bug; the browser reconnects and gets the Document again.
     if (!parsed.success) return ws.close(1007, "Expected a command message.");
     const { id, command } = parsed.data;
-    const nodeIds = command.type === "transform" ? command.input.nodeIds : command.nodeIds;
-    // The browser only names Nodes it was sent, so a missing one was deleted: delete beats edit.
-    // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
-    const { nodes } = this.load();
-    const gone = nodeIds.filter((n) => !nodes.has(n));
-    const result: Result<WriteReceipt> =
-      gone.length > 0
-        ? {
-            error: {
-              code: "NODE_GONE",
-              message: `Someone deleted ${gone.join(", ")} before this ${command.type} arrived.`,
-              hint: "Deleted Nodes do not come back; nothing was changed.",
-              path: "nodeIds",
-              nodeIds: gone,
-            },
-          }
-        : command.type === "transform"
-          ? this.transformNodes(command.input, USER, { commandId: id })
-          : this.deleteNodes(command.nodeIds, USER, { commandId: id });
+    const result =
+      command.type === "undo" || command.type === "redo"
+        ? this[command.type](USER, { commandId: id })
+        : this.edit(command, id);
     if ("error" in result) {
       const msg: RejectedMessage = { type: "rejected", id, error: result.error };
       ws.send(JSON.stringify(msg));
     }
+  }
+
+  /**
+   * A transform or delete from a browser. The browser only names Nodes it was sent, so a missing one
+   * was deleted: delete beats edit (ADR-0010).
+   */
+  private edit(
+    command: Extract<Command, { type: "transform" | "delete" }>,
+    commandId: string,
+  ): Result<WriteReceipt> {
+    const nodeIds = command.type === "transform" ? command.input.nodeIds : command.nodeIds;
+    // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
+    const { nodes } = this.load();
+    const gone = nodeIds.filter((n) => !nodes.has(n));
+    if (gone.length > 0) {
+      return {
+        error: {
+          code: "NODE_GONE",
+          message: `Someone deleted ${gone.join(", ")} before this ${command.type} arrived.`,
+          hint: "Deleted Nodes do not come back; nothing was changed.",
+          path: "nodeIds",
+          nodeIds: gone,
+        },
+      };
+    }
+    return command.type === "transform"
+      ? this.transformNodes(command.input, USER, { commandId })
+      : this.deleteNodes(command.nodeIds, USER, { commandId });
   }
 
   /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */
@@ -255,7 +292,11 @@ export class DocumentObject extends DurableObject<Env> {
       bounds: Rect | null;
       warnings?: WriteReceipt["warnings"];
       failed: Failed[];
+      /** Replaces the summary made from `verb`. */
+      summary?: string;
+      skipped?: string[];
     },
+    step?: Step,
   ): Result<WriteReceipt> {
     return guard(() => {
       const committed = this.load();
@@ -269,16 +310,20 @@ export class DocumentObject extends DurableObject<Env> {
         created = [],
         updated = [],
         deletedIds = [],
+        skipped = [],
+        ...rest
       } = edit(doc);
       const change = { created, updated, deletedIds };
+      const label = rest.summary ?? summary(verb, change);
       const { txId, rev } = this.ctx.storage.transactionSync(() =>
         opts.txId
           ? this.stage(opts.txId, committed.rev, change)
-          : this.commit(actor, summary(verb, change), opts.intent, change),
+          : this.commit(actor, label, opts.intent, change, step),
       );
       if (!opts.txId) {
         const { intent = null, commandId } = opts;
-        this.broadcast({ type: "tx", rev, txId, actor, intent, ...change, commandId });
+        const skippedIds = skipped.length > 0 ? skipped : undefined;
+        this.broadcast({ type: "tx", rev, txId, actor, intent, ...change, commandId, skippedIds });
       }
       return {
         txId,
@@ -371,7 +416,8 @@ export class DocumentObject extends DurableObject<Env> {
       const { created, updated, deletedIds } = change;
       const { rev } = this.ctx.storage.transactionSync(() => {
         this.end(txId, "committed");
-        return this.commit(actor, label ?? summary("Commit", change), opts.intent, change, txId);
+        const text = label ?? summary("Commit", change);
+        return this.commit(actor, text, opts.intent, change, undefined, txId);
       });
       this.broadcast({ type: "tx", rev, txId, actor, intent: opts.intent ?? null, ...change });
       return {
@@ -388,6 +434,65 @@ export class DocumentObject extends DurableObject<Env> {
         warnings: [],
       };
     });
+  }
+
+  /** Commits the inverse of the latest undoable Transaction (ADR-0011). */
+  undo(actor: string, opts: Options = {}): Result<WriteReceipt> {
+    return this.step("undo", actor, opts);
+  }
+
+  /** Commits the inverse of the latest undo, when no edit came after it. */
+  redo(actor: string, opts: Options = {}): Result<WriteReceipt> {
+    return this.step("redo", actor, opts);
+  }
+
+  private step(kind: "undo" | "redo", actor: string, opts: Options): Result<WriteReceipt> {
+    const top = this.sql
+      .exec<{ rev: number; label: string }>(
+        "SELECT rev, label FROM history WHERE stack = ? ORDER BY rev DESC LIMIT 1",
+        kind,
+      )
+      .toArray()[0];
+    if (!top) {
+      return {
+        error: {
+          code: kind === "undo" ? "NOTHING_TO_UNDO" : "NOTHING_TO_REDO",
+          message: `Nothing to ${kind}.`,
+          hint:
+            kind === "undo"
+              ? `Everything since the Document was created, or the latest ${UNDO_DEPTH} Transactions, is undone.`
+              : "Redo follows an undo; a Transaction committed since then clears it.",
+        },
+      };
+    }
+    const parse = (json: string | null) => (json === null ? null : (JSON.parse(json) as Node));
+    const delta = this.sql
+      .exec<{ node_id: string; before: string | null; after: string | null }>(
+        "SELECT node_id, before, after FROM tx_delta WHERE rev = ?",
+        top.rev,
+      )
+      .toArray()
+      .map((r) => ({ id: r.node_id, before: parse(r.before), after: parse(r.after) }));
+    const verb = kind === "undo" ? "Undo" : "Redo";
+    const stack = kind === "undo" ? "redo" : "undo";
+    return this.write(
+      actor,
+      opts,
+      verb,
+      (doc) => {
+        const { skipped, ...change } = revert(doc, delta);
+        const gone = skipped.length > 0 ? `; skipped, deleted since: ${skipped.join(", ")}` : "";
+        const nodes = [...change.created, ...change.updated];
+        return {
+          ...change,
+          skipped,
+          failed: [],
+          bounds: union(nodes.map((n) => bounds(doc, n))),
+          summary: `${verb} "${top.label}"${gone}`,
+        };
+      },
+      { label: top.label, stack, popped: top.rev },
+    );
   }
 
   rollback(txId: string, actor: string): Result<{ txId: string; rev: number }> {
@@ -570,15 +675,37 @@ export class DocumentObject extends DurableObject<Env> {
     };
   }
 
-  /** Writes the changed Nodes, bumps `rev` once and logs the Transaction. Call inside transactionSync. */
+  /**
+   * Writes the changed Nodes, bumps `rev` once, logs the Transaction and, unless `step` is null,
+   * records its delta and moves the undo stacks (default: an edit). Call inside transactionSync.
+   */
   private commit(
     actor: string,
     summary: string,
     intent: string | undefined,
     change: Change,
+    step: Step | null = { label: summary, stack: "undo" },
     txId = newId(),
   ) {
     const { created = [], updated = [], deletedIds = [] } = change;
+    const rev = this.sql
+      .exec<{ rev: number }>("UPDATE doc SET rev = rev + 1 RETURNING rev")
+      .one().rev;
+    if (step) {
+      // Before the nodes are written, so `before` is the committed copy. A Node both updated and
+      // deleted (an overlay that edits a child and deletes its Group) is one row, deleted.
+      const gone = new Set(deletedIds);
+      const after = new Map([...created, ...updated].map((n) => [n.id, n]));
+      for (const id of new Set([...after.keys(), ...deletedIds])) {
+        this.sql.exec(
+          "INSERT INTO tx_delta VALUES (?, ?, (SELECT json FROM nodes WHERE id = ?), ?)",
+          rev,
+          id,
+          id,
+          gone.has(id) ? null : JSON.stringify(after.get(id)),
+        );
+      }
+    }
     for (const node of [...created, ...updated]) {
       this.sql.exec(
         "INSERT OR REPLACE INTO nodes (id, json) VALUES (?, ?)",
@@ -587,9 +714,6 @@ export class DocumentObject extends DurableObject<Env> {
       );
     }
     for (const id of deletedIds) this.sql.exec("DELETE FROM nodes WHERE id = ?", id);
-    const rev = this.sql
-      .exec<{ rev: number }>("UPDATE doc SET rev = rev + 1 RETURNING rev")
-      .one().rev;
     const ids = (nodes: Node[]) => JSON.stringify(nodes.map((n) => n.id));
     this.sql.exec(
       "INSERT INTO tx_log VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -602,7 +726,21 @@ export class DocumentObject extends DurableObject<Env> {
       JSON.stringify(deletedIds),
       intent ?? null,
     );
+    if (step) this.push(rev, step);
     return { txId, rev };
+  }
+
+  /** Moves the stacks for the Transaction just committed at `rev`, and drops unreachable deltas. */
+  private push(rev: number, { label, stack, popped }: Step) {
+    if (popped === undefined) this.sql.exec("DELETE FROM history WHERE stack = 'redo'");
+    else this.sql.exec("DELETE FROM history WHERE rev = ?", popped);
+    this.sql.exec("INSERT INTO history VALUES (?, ?, ?)", rev, stack, label);
+    this.sql.exec(
+      `DELETE FROM history WHERE stack = 'undo' AND rev NOT IN
+         (SELECT rev FROM history WHERE stack = 'undo' ORDER BY rev DESC LIMIT ?)`,
+      UNDO_DEPTH,
+    );
+    this.sql.exec("DELETE FROM tx_delta WHERE rev NOT IN (SELECT rev FROM history)");
   }
 }
 

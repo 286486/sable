@@ -34,6 +34,8 @@ export interface TxMessage {
   deletedIds: string[];
   /** The `id` of the browser command this Transaction answers. */
   commandId?: string;
+  /** An undo or redo: Nodes it skipped because they were deleted since (ADR-0011). */
+  skippedIds?: string[];
 }
 
 /** Sent only to the browser whose command changed nothing. */
@@ -52,6 +54,8 @@ export const ClientMessage = z.object({
   command: z.discriminatedUnion("type", [
     z.object({ type: z.literal("transform"), input: TransformInput }),
     z.object({ type: z.literal("delete"), nodeIds: z.array(z.string()).min(1) }),
+    z.object({ type: z.literal("undo") }),
+    z.object({ type: z.literal("redo") }),
   ]),
 });
 export type ClientMessage = z.input<typeof ClientMessage>;

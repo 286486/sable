@@ -10,7 +10,9 @@ export type ErrorCode =
   | "REV_CONFLICT"
   | "NODE_GONE"
   | "TX_NOT_FOUND"
-  | "TX_EXPIRED";
+  | "TX_EXPIRED"
+  | "NOTHING_TO_UNDO"
+  | "NOTHING_TO_REDO";
 
 /** What an Agent sees for a failed call: enough to fix the call without a stack trace. */
 export interface ErrorData {

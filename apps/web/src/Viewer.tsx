@@ -145,7 +145,10 @@ export function Viewer({ docId }: { docId: string }) {
       if (!doc || !v) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      if (mod && key === "a") {
+      if (mod && key === "z") {
+        e.preventDefault();
+        send({ type: e.shiftKey ? "redo" : "undo" });
+      } else if (mod && key === "a") {
         e.preventDefault();
         useStore.setState({ selection: e.shiftKey ? [] : objects(doc).map((n) => n.id) });
       } else if ((e.key === "Delete" || e.key === "Backspace") && selection.length > 0) {
