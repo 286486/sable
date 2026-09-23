@@ -29,7 +29,14 @@ import {
   ZibelError,
 } from "@zibel/core";
 import { docRect, toSvg } from "@zibel/render";
-import type { ChangeEntry, CreatedDocument, DocInfo, WriteOptions } from "@zibel/sync";
+import type {
+  ChangeEntry,
+  CreatedDocument,
+  DocInfo,
+  DocumentMessage,
+  TxMessage,
+  WriteOptions,
+} from "@zibel/sync";
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
@@ -103,6 +110,41 @@ export class DocumentObject extends DurableObject<Env> {
       });
       return { docId: doc.id, defaultLayerId, artboards: doc.artboards, rev };
     });
+  }
+
+  /**
+   * A browser subscribes by upgrading to a WebSocket (ADR-0009). Nothing awaits between load and
+   * accept, so no commit can slip in before the Document message.
+   */
+  override fetch(request: Request): Response {
+    if (request.headers.get("upgrade") !== "websocket") {
+      return new Response("Expected a WebSocket upgrade.", { status: 426 });
+    }
+    const doc = guard(() => this.load());
+    if ("error" in doc) return Response.json(doc.error, { status: 404 });
+    const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
+    this.ctx.acceptWebSocket(server);
+    const msg: DocumentMessage = {
+      type: "document",
+      rev: doc.rev,
+      name: doc.name,
+      artboards: doc.artboards,
+      nodes: [...doc.nodes.values()],
+    };
+    server.send(JSON.stringify(msg));
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */
+  private broadcast(msg: TxMessage) {
+    const data = JSON.stringify(msg);
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(data);
+      } catch {
+        // A socket that is closing; the runtime drops it from getWebSockets.
+      }
+    }
   }
 
   info(): Result<DocInfo> {
@@ -187,6 +229,9 @@ export class DocumentObject extends DurableObject<Env> {
           ? this.stage(opts.txId, committed.rev, change)
           : this.commit(actor, summary(verb, change), opts.intent, change),
       );
+      if (!opts.txId) {
+        this.broadcast({ type: "tx", rev, txId, actor, intent: opts.intent ?? null, ...change });
+      }
       return {
         txId,
         rev,
@@ -280,6 +325,7 @@ export class DocumentObject extends DurableObject<Env> {
         this.end(txId, "committed");
         return this.commit(actor, label ?? summary("Commit", change), opts.intent, change, txId);
       });
+      this.broadcast({ type: "tx", rev, txId, actor, intent: opts.intent ?? null, ...change });
       return {
         txId,
         rev,

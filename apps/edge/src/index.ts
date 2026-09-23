@@ -8,6 +8,9 @@ export { DocumentObject } from "./document-object.ts";
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
+    // Browsers are not authenticated in M0: the viewer is read-only and local (ADR-0009).
+    const ws = url.pathname.match(/^\/api\/docs\/([^/]+)\/ws$/)?.[1];
+    if (ws) return env.DOCUMENT.get(env.DOCUMENT.idFromName(ws)).fetch(request);
     if (url.pathname !== "/mcp") return new Response("not found", { status: 404 });
     const actor = actorFor(request, env.DEV_TOKENS);
     if (!actor) return permissionDenied();
