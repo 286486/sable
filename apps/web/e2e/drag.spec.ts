@@ -13,7 +13,7 @@ async function call(request: APIRequestContext, name: string, args: object) {
 }
 
 // Seam 3 of #1: an Agent draws, a person drags it in the browser, the Agent reads the move back.
-test("a rectangle an Agent drew can be dragged, then deleted, in the browser", async ({
+test("a rectangle an Agent drew can be dragged, undone, redone and deleted in the browser", async ({
   page,
   request,
 }) => {
@@ -51,11 +51,20 @@ test("a rectangle an Agent drew can be dragged, then deleted, in the browser", a
     .structuredContent;
   expect(changes).toMatchObject([{ actor: "user", updatedIds: [id] }]);
 
+  const gone = async () => {
+    const result = await call(request, "zibel_node_get", { docId, nodeIds: [id] });
+    return result.isError && JSON.parse(result.content[0].text).code;
+  };
+  // Undo the drag, then the Agent's create; redo brings the rectangle back (#11).
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await bounds()).x).toBe(75);
+  await page.keyboard.press("Control+z");
+  await expect.poll(gone).toBe("NODE_NOT_FOUND");
+  await page.keyboard.press("Control+Shift+z");
+  await expect.poll(async () => (await bounds()).x).toBe(75);
+
+  // The redone rectangle is not selected: the undo that deleted it pruned the Selection.
+  await page.mouse.click(cx, cy);
   await page.keyboard.press("Delete");
-  await expect
-    .poll(async () => {
-      const result = await call(request, "zibel_node_get", { docId, nodeIds: [id] });
-      return result.isError && JSON.parse(result.content[0].text).code;
-    })
-    .toBe("NODE_NOT_FOUND");
+  await expect.poll(gone).toBe("NODE_NOT_FOUND");
 });
