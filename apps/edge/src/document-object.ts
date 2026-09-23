@@ -153,11 +153,33 @@ export class DocumentObject extends DurableObject<Env> {
    * alone with `rejected` (ADR-0010).
    */
   override webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
-    const { id, command } = ClientMessage.parse(JSON.parse(data as string));
-    const result =
-      command.type === "transform"
-        ? this.transformNodes(command.input, USER, { commandId: id })
-        : this.deleteNodes(command.nodeIds, USER, { commandId: id });
+    let json: unknown;
+    try {
+      json = JSON.parse(data as string);
+    } catch {}
+    const parsed = ClientMessage.safeParse(json);
+    // A malformed message is a client bug; the browser reconnects and gets the Document again.
+    if (!parsed.success) return ws.close(1007, "Expected a command message.");
+    const { id, command } = parsed.data;
+    const nodeIds = command.type === "transform" ? command.input.nodeIds : command.nodeIds;
+    // The browser only names Nodes it was sent, so a missing one was deleted: delete beats edit.
+    // The socket was accepted for an existing Document, so load() cannot throw DOC_NOT_FOUND.
+    const { nodes } = this.load();
+    const gone = nodeIds.filter((n) => !nodes.has(n));
+    const result: Result<WriteReceipt> =
+      gone.length > 0
+        ? {
+            error: {
+              code: "NODE_GONE",
+              message: `Someone deleted ${gone.join(", ")} before this ${command.type} arrived.`,
+              hint: "Deleted Nodes do not come back; nothing was changed.",
+              path: "nodeIds",
+              nodeIds: gone,
+            },
+          }
+        : command.type === "transform"
+          ? this.transformNodes(command.input, USER, { commandId: id })
+          : this.deleteNodes(command.nodeIds, USER, { commandId: id });
     if ("error" in result) {
       const msg: RejectedMessage = { type: "rejected", id, error: result.error };
       ws.send(JSON.stringify(msg));

@@ -174,3 +174,36 @@ it("commits a delete command and broadcasts the deleted ids", async () => {
   const [, tx] = await received(2);
   expect(tx).toMatchObject({ type: "tx", actor: "user", commandId: "c2", deletedIds: [id] });
 });
+
+it("rejects a move of a Node deleted meanwhile with NODE_GONE, and commits nothing", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id, kept] = (
+    await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId), rect(defaultLayerId)] })
+  ).structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+  const { rev } = (await call("zibel_node_delete", { docId, nodeIds: [id] })).structuredContent;
+  await received(2);
+
+  ws.send(
+    command("c3", { type: "transform", input: { nodeIds: [kept, id], translate: { x: 1 } } }),
+  );
+  const [, , rejected] = await received(3);
+  expect(rejected).toMatchObject({
+    type: "rejected",
+    id: "c3",
+    error: { code: "NODE_GONE", nodeIds: [id] },
+  });
+  expect((await call("zibel_doc_get_info", { docId })).structuredContent.rev).toBe(rev);
+});
+
+it("closes the socket with 1007 on a message that is not a command", async () => {
+  const { docId } = await newDoc();
+  for (const data of ["nope", JSON.stringify({ type: "command" })]) {
+    const { ws, received } = await subscribe(docId);
+    await received(1);
+    const closed = new Promise<CloseEvent>((r) => ws.addEventListener("close", r));
+    ws.send(data);
+    expect((await closed).code).toBe(1007);
+  }
+});
