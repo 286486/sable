@@ -134,8 +134,9 @@ export const TextShape = z.object({
     .min(1)
     .max(10_000)
     .refine(
-      (s) => !/[\r\n]/.test(s),
-      "One line only: a hard return is not laid out yet; create one text per line.",
+      // Control characters (tab, return) and line separators draw as spaces but measure as .notdef.
+      (s) => !/[\p{Cc}\u2028\u2029]/u.test(s),
+      "One line of printable characters: a hard return or tab is not laid out yet; create one text per line.",
     ),
   fontFamily: z
     .literal("Source Sans 3")

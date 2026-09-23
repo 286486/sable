@@ -53,12 +53,14 @@ export function Viewer({ docId }: { docId: string }) {
   const last = useRef({ x: 0, y: 0 });
   const gesture = useRef<Gesture | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
-  /** Settled once the font has loaded, or failed to and text falls back to another font. */
+  /** True once the font has loaded; until then text draws in a fallback font. */
   const [fontReady, setFontReady] = useState(false);
 
   useEffect(() => {
-    const ready = () => setFontReady(true);
-    fontLoaded.then(ready, ready);
+    fontLoaded.then(
+      () => setFontReady(true),
+      (e) => console.warn("Source Sans 3 did not load; text draws in a fallback font.", e),
+    );
   }, []);
 
   useEffect(() => connect(docId), [docId]);
@@ -86,10 +88,11 @@ export function Viewer({ docId }: { docId: string }) {
   }, [doc, viewport, size]);
 
   // ponytail: redraws everything on every change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady redraws text once the font is in
   useEffect(() => {
     const el = canvas.current;
     const ctx = el?.getContext("2d");
-    if (!el || !ctx || !doc || !viewport || !fontReady) return;
+    if (!el || !ctx || !doc || !viewport) return;
     const dpr = devicePixelRatio;
     el.width = Math.round(size.width * dpr);
     el.height = Math.round(size.height * dpr);

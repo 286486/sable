@@ -118,6 +118,12 @@ it("creates text whose bounds grow with its content by the font's advance widths
     updates: [{ nodeId: ids[0], patch: { content: "H" } }],
   });
   expect((await bounds())[0]?.width).toBeCloseTo((652 * 12) / 1000);
+  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: ids, detail: "full" }))
+    .structuredContent.nodes;
+  expect(full).toMatchObject({ type: "text", kind: "point", content: "H", fontSize: 12 });
+  expect(full).not.toHaveProperty("d");
+  const { layers } = (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
+  expect(layers[0].children.map((c: { type: string }) => c.type)).toEqual(["text", "text"]);
   const rendered = await call("zibel_render", { docId: doc.docId });
   expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
 });

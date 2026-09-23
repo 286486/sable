@@ -583,7 +583,7 @@ describe("text", () => {
     expect(inner).toMatchObject({ type: "text", parentId: group?.id });
   });
 
-  it.each(["", "a\nb", "a\rb"])("rejects content %j", (content) => {
+  it.each(["", "a\nb", "a\rb", "a\tb", "a\u2028b"])("rejects content %j", (content) => {
     const { doc, defaultLayerId } = newDoc();
     expect(() => createNodes(doc, [text(defaultLayerId, content)])).toThrow();
     expect(doc.nodes.size).toBe(1);

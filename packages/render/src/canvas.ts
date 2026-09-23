@@ -55,6 +55,7 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
     for (const c of childrenOf(doc, n.id)) draw(ctx, doc, c);
   } else {
     const text = n.type === "text" ? n : null;
+    // Tested on n, not text, so the else branch narrows n to a Live Shape or Path.
     if (n.type === "text") {
       ctx.font = `${n.fontSize}px "${n.fontFamily}"`;
       // Unkerned, like the SVG, so the drawn width is the advance sum (ADR-0013).
