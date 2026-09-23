@@ -161,7 +161,7 @@ export class DocumentObject extends DurableObject<Env> {
         created = [],
         updated = [],
         deletedIds = [],
-      } = edit(this.load());
+      } = edit(this.checkRev(this.load(), opts.ifRev));
       const count = created.length + updated.length + deletedIds.length;
       const summary = `${verb} ${count} ${count === 1 ? "Node" : "Nodes"}`;
       const { txId, rev } = this.ctx.storage.transactionSync(() =>
@@ -219,26 +219,48 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  changes(sinceRev: number): Result<ChangeEntry[]> {
-    return guard(() => {
-      this.load();
-      return this.sql
-        .exec<Record<string, string | number | null>>(
-          "SELECT * FROM tx_log WHERE rev > ? ORDER BY rev",
-          sinceRev,
-        )
-        .toArray()
-        .map((r) => ({
-          rev: r.rev as number,
-          txId: r.tx_id as string,
-          actor: r.actor as string,
-          summary: r.summary as string,
-          createdIds: JSON.parse(r.created_ids as string),
-          updatedIds: JSON.parse(r.updated_ids as string),
-          deletedIds: JSON.parse(r.deleted_ids as string),
-          intent: (r.intent as string | null) ?? null,
-        }));
+  /** Committed Transactions after `sinceRev`, oldest first, and the current `rev`. */
+  changes(sinceRev: number, limit = 100): Result<{ rev: number; changes: ChangeEntry[] }> {
+    return guard(() => ({ rev: this.load().rev, changes: this.log(sinceRev, limit) }));
+  }
+
+  /** Throws REV_CONFLICT unless `ifRev` is absent or equals the committed `rev`. */
+  private checkRev(doc: Document, ifRev: number | undefined): Document {
+    if (ifRev === undefined || ifRev === doc.rev) return doc;
+    const nodeIds = [
+      ...new Set(
+        this.log(ifRev, -1).flatMap((c) => [...c.createdIds, ...c.updatedIds, ...c.deletedIds]),
+      ),
+    ];
+    throw new ZibelError({
+      code: "REV_CONFLICT",
+      message: `The Document is at rev ${doc.rev}, not ${ifRev}.`,
+      hint: `Call zibel_doc_changes with sinceRev: ${ifRev} to see what changed, then retry with ifRev: ${doc.rev}.`,
+      path: "ifRev",
+      rev: doc.rev,
+      nodeIds,
     });
+  }
+
+  /** `limit` -1 means all. */
+  private log(sinceRev: number, limit: number): ChangeEntry[] {
+    return this.sql
+      .exec<Record<string, string | number | null>>(
+        "SELECT * FROM tx_log WHERE rev > ? ORDER BY rev LIMIT ?",
+        sinceRev,
+        limit,
+      )
+      .toArray()
+      .map((r) => ({
+        rev: r.rev as number,
+        txId: r.tx_id as string,
+        actor: r.actor as string,
+        summary: r.summary as string,
+        createdIds: JSON.parse(r.created_ids as string),
+        updatedIds: JSON.parse(r.updated_ids as string),
+        deletedIds: JSON.parse(r.deleted_ids as string),
+        intent: (r.intent as string | null) ?? null,
+      }));
   }
 
   private load(): Document {

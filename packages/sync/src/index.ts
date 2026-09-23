@@ -16,6 +16,8 @@ export interface WriteOptions {
   intent?: string;
   /** Apply the valid items and report the rest in the receipt's `failed` (F-MCP-16). */
   partial?: boolean;
+  /** Fail with REV_CONFLICT unless the committed `rev` equals this. */
+  ifRev?: number;
 }
 
 export interface CreatedDocument {

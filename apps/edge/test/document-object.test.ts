@@ -51,10 +51,13 @@ it("keeps Nodes and the Transaction log across a DO restart, with each write's A
       { id: created.defaultLayerId, children: [{ id: receipt.createdIds[0], type: "rect" }] },
     ],
   });
-  expect(await stub("d1").changes(0)).toMatchObject([
-    { rev: 1, actor: "agent-a" },
-    { rev: 2, actor: "agent-b", createdIds: receipt.createdIds },
-  ]);
+  expect(await stub("d1").changes(0)).toMatchObject({
+    rev: 2,
+    changes: [
+      { rev: 1, actor: "agent-a" },
+      { rev: 2, actor: "agent-b", createdIds: receipt.createdIds },
+    ],
+  });
 });
 
 it("leaves rev unchanged when a write fails", async () => {
@@ -125,7 +128,7 @@ it("logs update, transform and delete with their ids and intent, across a restar
   await evictDurableObject(stub("d3"));
 
   expect(await stub("d3").outline(2)).toMatchObject({ rev: 6, layers: [{ childCount: 0 }] });
-  expect(await stub("d3").changes(0)).toEqual([
+  expect(ok(await stub("d3").changes(0)).changes).toEqual([
     expect.objectContaining({ rev: 1, intent: "start a poster" }),
     expect.objectContaining({ rev: 2, createdIds: [id], intent: "draw a box" }),
     expect.objectContaining({ rev: 3, actor: "agent-b", updatedIds: [id], intent: "make it red" }),
@@ -133,4 +136,29 @@ it("logs update, transform and delete with their ids and intent, across a restar
     expect.objectContaining({ rev: 5, updatedIds: [id] }),
     expect.objectContaining({ rev: 6, deletedIds: [id], createdIds: [], updatedIds: [] }),
   ]);
+});
+
+it("rejects a write whose ifRev is stale with REV_CONFLICT, changing nothing", async () => {
+  const created = ok(
+    await stub("d4").create({ docId: "d4", name: "Doc", artboards, actor: "agent-a" }),
+  );
+  const rect = { type: "rect" as const, x: 0, y: 0, width: 10, height: 10 };
+  const [id = ""] = ok(
+    await stub("d4").createNodes([{ ...rect, parentId: created.defaultLayerId }], "agent-a"),
+  ).createdIds;
+  expect(
+    await stub("d4").updateNodes([{ nodeId: id, patch: { name: "x" } }], "agent-b", { ifRev: 1 }),
+  ).toMatchObject({
+    error: { code: "REV_CONFLICT", rev: 2, nodeIds: [id], path: "ifRev", hint: expect.any(String) },
+  });
+  expect(await stub("d4").info()).toMatchObject({ rev: 2 });
+  expect(await stub("d4").get([id], "full")).toMatchObject({ nodes: [{ name: "" }] });
+  expect(
+    await stub("d4").updateNodes([{ nodeId: id, patch: { name: "x" } }], "agent-b", { ifRev: 2 }),
+  ).toMatchObject({ rev: 3 });
+  expect(await stub("d4").changes(0, 1)).toMatchObject({ rev: 3, changes: [{ rev: 1 }] });
+  expect(await stub("d4").changes(1)).toMatchObject({
+    rev: 3,
+    changes: [{ rev: 2 }, { rev: 3, actor: "agent-b" }],
+  });
 });

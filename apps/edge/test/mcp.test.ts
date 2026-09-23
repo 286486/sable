@@ -688,7 +688,7 @@ describe("edit tools", () => {
       ifRev: 99,
     });
     const log = await env.DOCUMENT.get(env.DOCUMENT.idFromName(doc.docId)).changes(0);
-    expect(Array.isArray(log) && log.at(-1)).toMatchObject({
+    expect("changes" in log && log.changes.at(-1)).toMatchObject({
       actor: "agent-a",
       intent: "make it red",
       updatedIds: [id],
