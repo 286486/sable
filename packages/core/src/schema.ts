@@ -187,6 +187,63 @@ export type NodeInput = z.input<typeof NodeInput>;
 /** `[a, b, c, d, e, f]` with SVG semantics. */
 export type Matrix = [number, number, number, number, number, number];
 
+const nodeIds = z.array(z.string()).min(1).max(1000);
+
+/** Illustrator's 9-point reference point, as fractions of the bounds' width and height. */
+export const PIVOTS = {
+  topLeft: [0, 0],
+  top: [0.5, 0],
+  topRight: [1, 0],
+  left: [0, 0.5],
+  center: [0.5, 0.5],
+  right: [1, 0.5],
+  bottomLeft: [0, 1],
+  bottom: [0.5, 1],
+  bottomRight: [1, 1],
+} as const;
+const nonZero = z.number().refine((n) => n !== 0, "Scale by a non-zero factor.");
+const xy = z.object({ x: z.number().default(0), y: z.number().default(0) });
+
+export const TransformInput = z
+  .object({
+    nodeIds,
+    translate: xy.optional().describe("Move by x, y in pt, after everything else."),
+    rotate: z.number().optional().describe("Degrees, clockwise on screen."),
+    scale: z
+      .union([nonZero, z.object({ x: nonZero, y: nonZero })])
+      .optional()
+      .describe("A factor, or one per axis; negative mirrors."),
+    skew: xy.optional().describe("Degrees, as SVG skewX (x) and skewY (y)."),
+    matrix: z
+      .tuple([z.number(), z.number(), z.number(), z.number(), z.number(), z.number()])
+      .optional()
+      .describe("[a, b, c, d, e, f] applied about the pivot, instead of rotate, skew and scale."),
+    pivot: z
+      .union([
+        z.enum(Object.keys(PIVOTS) as [keyof typeof PIVOTS]),
+        z.object({ x: z.number(), y: z.number() }),
+      ])
+      .default("center")
+      .describe("Reference point on the targets' geometricBounds, or document coordinates."),
+    each: z
+      .boolean()
+      .default(false)
+      .describe("true: each target about its own pivot; false: all about one pivot."),
+    scaleStrokes: z
+      .boolean()
+      .default(true)
+      .describe("false keeps the rendered Stroke width by dividing the stored width."),
+  })
+  .refine(
+    (t) => [t.translate, t.rotate, t.scale, t.skew, t.matrix].some((v) => v !== undefined),
+    "Give at least one of translate, rotate, scale, skew or matrix.",
+  )
+  .refine(
+    (t) => t.matrix === undefined || [t.rotate, t.scale, t.skew].every((v) => v === undefined),
+    "matrix replaces rotate, scale and skew; send it alone (translate may accompany it).",
+  );
+export type TransformInput = z.input<typeof TransformInput>;
+
 /** Common properties (F-DOC-02). */
 interface NodeBase {
   id: string;

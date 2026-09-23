@@ -1,0 +1,101 @@
+import type { z } from "zod";
+import { bounds, childrenOf, union } from "./document.ts";
+import { ZibelError } from "./errors.ts";
+import { compose, multiply, round, scaleOf } from "./matrix.ts";
+import {
+  type Document,
+  type Node,
+  PIVOTS,
+  type Rect,
+  type ShapeNode,
+  TransformInput,
+  type WriteReceipt,
+} from "./schema.ts";
+
+type Warning = WriteReceipt["warnings"][number];
+
+const isContainer = (n: Node) => n.type === "layer" || n.type === "group";
+
+/** The Node and everything beneath it, depth first. */
+export function subtree(doc: Document, node: Node): Node[] {
+  return [node, ...childrenOf(doc, node.id).flatMap((c) => subtree(doc, c))];
+}
+
+function lookup(doc: Document, id: string, path: string): Node {
+  const node = doc.nodes.get(id);
+  if (node) return node;
+  throw new ZibelError({
+    code: "NODE_NOT_FOUND",
+    message: `No Node with id ${id}.`,
+    hint: "Use doc_outline or the ids from a WriteReceipt; deleted Nodes do not come back.",
+    path,
+  });
+}
+
+/** Drops targets that sit inside another target, so nothing is edited twice. */
+function outermost(doc: Document, targets: Node[]): { kept: Node[]; nested: Node[] } {
+  const ids = new Set(targets.map((n) => n.id));
+  const inside = (n: Node) => {
+    for (let p = n.parentId; p; p = doc.nodes.get(p)?.parentId ?? null) {
+      if (ids.has(p)) return true;
+    }
+    return false;
+  };
+  const kept: Node[] = [];
+  const nested: Node[] = [];
+  for (const n of new Set(targets)) (inside(n) ? nested : kept).push(n);
+  return { kept, nested };
+}
+
+function pivotOf(pivot: z.output<typeof TransformInput>["pivot"], b: Rect | null) {
+  if (typeof pivot === "object") return pivot;
+  if (!b) return null;
+  const [fx, fy] = PIVOTS[pivot];
+  return { x: b.x + b.width * fx, y: b.y + b.height * fy };
+}
+
+/**
+ * Composes the transform into every leaf beneath the targets; Layers and Groups stay identity
+ * (ADR-0007). Returns the changed leaves, depth first in target order.
+ */
+export function transformNodes(
+  doc: Document,
+  raw: TransformInput,
+): { nodes: Node[]; warnings: Warning[] } {
+  const input = TransformInput.parse(raw);
+  const targets = input.nodeIds.map((id, i) => lookup(doc, id, `nodeIds[${i}]`));
+  const { kept, nested } = outermost(doc, targets);
+  const warnings = nested.map((n) => ({
+    code: "NESTED_TARGET",
+    nodeId: n.id,
+    message: "Also inside another target, so it moved once with that target.",
+  }));
+  const groups = input.each ? kept.map((n) => [n]) : [kept];
+  const nodes: Node[] = [];
+  for (const group of groups) {
+    const pivot = pivotOf(input.pivot, union(group.map((n) => bounds(doc, n))));
+    if (!pivot) continue;
+    const m = compose(input, pivot);
+    const s = input.scaleStrokes ? 1 : scaleOf(m);
+    for (const leaf of group.flatMap((n) => subtree(doc, n)).filter((n) => !isContainer(n))) {
+      const { appearance } = leaf as ShapeNode;
+      const next = {
+        ...leaf,
+        transform: round(multiply(m, leaf.transform)),
+        ...(s !== 1 && {
+          appearance: {
+            ...appearance,
+            strokes: appearance.strokes.map((k) => ({
+              ...k,
+              width: k.width / s,
+              dash: k.dash.map((v) => v / s),
+            })),
+          },
+        }),
+      } as Node;
+      doc.nodes.set(leaf.id, next);
+      nodes.push(next);
+    }
+  }
+  return { nodes, warnings };
+}
