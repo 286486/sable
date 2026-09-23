@@ -98,3 +98,18 @@ it("emits nothing for an empty Appearance or a hidden Node, and wraps a transluc
   faded.opacity = 0.5;
   expect(toSvg(doc)).toMatch(/<g><g opacity="0.5"><path[^>]*\/><path[^>]*\/><\/g><\/g><\/svg>$/);
 });
+
+it("wraps a transformed leaf in one <g> carrying its matrix and opacity", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const [turned, both] = createNodes(doc, [
+    { type: "rect", parentId, x: 10, y: 10, width: 50, height: 30 },
+    { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 },
+  ]).nodes;
+  if (!turned || !both) throw new Error("setup");
+  turned.transform = [0, 1, -1, 0, 60, -10];
+  both.transform = [0.1234567, 0, 0, 1, 0, 0];
+  both.opacity = 0.5;
+  const svg = toSvg(doc);
+  expect(svg).toMatch(/<g transform="matrix\(0 1 -1 0 60 -10\)"><path[^>]*\/><path[^>]*\/><\/g>/);
+  expect(svg).toContain('<g opacity="0.5" transform="matrix(0.123 0 0 1 0 0)"><path');
+});

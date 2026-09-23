@@ -63,10 +63,12 @@ export function parsePath(d: string, path: string): Segment[] {
   return segments;
 }
 
+/** At most 3 decimals and no -0 (REQUIREMENTS §6.5). */
+export const formatNumber = (n: number) => String(Math.round(n * 1000) / 1000 || 0);
+
 /** `d` with at most 3 decimals (REQUIREMENTS §6.5). */
 export function formatPath(segments: Segment[]): string {
-  const num = (n: number) => String(Math.round(n * 1000) / 1000 || 0);
-  return segments.map((s) => [s.cmd, ...s.args.map(num)].join(" ")).join(" ");
+  return segments.map((s) => [s.cmd, ...s.args.map(formatNumber)].join(" ")).join(" ");
 }
 
 /** Exact bounds of the curves (extrema, not control points), or null for no segments. */
