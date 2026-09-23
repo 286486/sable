@@ -1,6 +1,7 @@
 import { bounds, type Document, type Node, type Rect, union } from "@zibel/core";
 import { drawDocument } from "@zibel/render/canvas";
 import { useEffect, useRef, useState } from "react";
+import { Layers } from "./Layers.tsx";
 import { preview } from "./receive.ts";
 import { combine, editable, hitTest, inverse, marquee, objects } from "./selection.ts";
 import { connect, send, useStore } from "./store.ts";
@@ -297,6 +298,7 @@ export function Viewer({ docId }: { docId: string }) {
         </button>
         {notice && <div style={{ color: "#B00020" }}>{notice}</div>}
       </div>
+      <Layers />
     </div>
   );
 }

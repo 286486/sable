@@ -69,3 +69,69 @@ test("a rectangle an Agent drew can be dragged, undone, redone and deleted in th
   await page.keyboard.press("Delete");
   await expect.poll(gone).toBe("NODE_NOT_FOUND");
 });
+
+// #10: the Layers panel names an Agent's Nodes live, toggles them, and selects a locked one.
+test("the Layers panel shows, hides, locks and selects an Agent's rectangle", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId } = (
+    await call(request, "zibel_doc_create", {
+      name: "Layers",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  const [id] = (
+    await call(request, "zibel_node_create", {
+      docId,
+      nodes: [{ type: "rect", parentId: defaultLayerId, x: 75, y: 25, width: 50, height: 50 }],
+    })
+  ).structuredContent.createdIds;
+  const node = async () =>
+    (await call(request, "zibel_node_get", { docId, nodeIds: [id] })).structuredContent?.nodes[0];
+  const button = (name: string) => page.getByRole("button", { name, exact: true });
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.locator("body")).toContainText(/\d+%/);
+  await expect(button("<Rectangle>")).toBeVisible();
+  await expect(button("Layer 1")).toBeVisible();
+
+  // An Agent's rename reaches the panel live.
+  const { rev } = (
+    await call(request, "zibel_node_update", {
+      docId,
+      updates: [{ nodeId: id, patch: { name: "Box" } }],
+    })
+  ).structuredContent;
+  await expect(button("Box")).toBeVisible();
+
+  await button("Hide Box").click();
+  await expect.poll(async () => (await node())?.visible).toBe(false);
+  const { changes } = (await call(request, "zibel_doc_changes", { docId, sinceRev: rev }))
+    .structuredContent;
+  expect(changes).toMatchObject([{ actor: "user", updatedIds: [id] }]);
+  expect(changes).toHaveLength(1);
+  await button("Show Box").click();
+  await expect(button("Hide Box")).toBeVisible();
+
+  // Locked: a canvas drag misses it, but its row still selects it; Delete leaves it alone.
+  await button("Lock Box").click();
+  await expect(button("Unlock Box")).toBeVisible();
+  const size = page.viewportSize() ?? { width: 0, height: 0 };
+  const [cx, cy] = [size.width / 2, size.height / 2];
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 100, cy, { steps: 5 });
+  await page.mouse.up();
+  await button("Box").click();
+  await expect(button("Box")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Delete");
+  await button("Unlock Box").click();
+  await expect(button("Lock Box")).toBeVisible();
+  // The socket is ordered: a move or delete sent before the unlock would have committed first.
+  await expect.poll(async () => (await node())?.locked).toBe(false);
+  expect((await node())?.geometricBounds.x).toBe(75);
+
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await node()) ?? null).toBeNull();
+});
