@@ -13,6 +13,7 @@ export function documentService(env: Env, actor: string): DocumentService {
       return unwrap(await doc(docId).create({ ...input, docId, actor }));
     },
     createNodes: async (docId, nodes) => unwrap(await doc(docId).createNodes(nodes, actor)),
+    get: async (docId, nodeIds, detail) => unwrap(await doc(docId).get(nodeIds, detail)),
     outline: async (docId, depth) => unwrap(await doc(docId).outline(depth)),
     render: async (docId, scale) => {
       const { svg, docRect } = unwrap(await doc(docId).svg());

@@ -32,3 +32,17 @@ export const RenderOutput = z.object({
     scale: z.number(),
   }),
 });
+
+/** A `node_get` entry: the concise fields typed; `full` adds the stored and derived properties. */
+const NodeView = z.looseObject({
+  id: z.string(),
+  type: z.string(),
+  name: z.string(),
+  parentId: z.string().nullable(),
+  visible: z.boolean(),
+  locked: z.boolean(),
+  childCount: z.number().int(),
+  geometricBounds: Rect.nullable(),
+});
+
+export const NodeGetOutput = z.object({ rev: z.number().int(), nodes: z.array(NodeView) });

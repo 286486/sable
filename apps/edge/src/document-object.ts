@@ -3,13 +3,16 @@ import {
   type Artboard,
   type ArtboardInput,
   bounds,
+  type ConciseView,
   createDocument,
   createNodes,
   type Document,
   type ErrorData,
+  type FullView,
   type Node,
   type NodeInput,
   newId,
+  nodeView,
   type OutlineNode,
   outline,
   type Rect,
@@ -102,6 +105,28 @@ export class DocumentObject extends DurableObject<Env> {
         bounds: union(created.map((n) => bounds(doc, n))),
         warnings: [],
       };
+    });
+  }
+
+  get(
+    nodeIds: string[],
+    detail: "concise" | "full",
+  ): Result<{ rev: number; nodes: (ConciseView | FullView)[] }> {
+    return guard(() => {
+      const doc = this.load();
+      const nodes = nodeIds.map((id, i) => {
+        const node = doc.nodes.get(id);
+        if (!node) {
+          throw new ZibelError({
+            code: "NODE_NOT_FOUND",
+            message: `No Node with id ${id}.`,
+            hint: "Use doc_outline or the ids from a WriteReceipt.",
+            path: `nodeIds[${i}]`,
+          });
+        }
+        return nodeView(doc, node, detail);
+      });
+      return { rev: doc.rev, nodes };
     });
   }
 

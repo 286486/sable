@@ -30,6 +30,7 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_doc_create",
     "zibel_doc_outline",
     "zibel_node_create",
+    "zibel_node_get",
     "zibel_render",
   ]);
   for (const t of tools) {
@@ -78,6 +79,69 @@ it("creates a rect in the default Layer and reads it back from doc_outline", asy
 
   await evictAllDurableObjects();
   expect(await read()).toMatchObject(expected);
+});
+
+it("reads Nodes back with node_get in concise or full detail", async () => {
+  const doc = await newDoc();
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "rect",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 30,
+        appearance: { strokes: [{ color: "#000000", width: 4 }] },
+      },
+    ],
+  });
+  const [id] = created.structuredContent.createdIds;
+  const get = async (detail?: string) =>
+    (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail })).structuredContent;
+
+  expect(await get("full")).toEqual({
+    rev: 2,
+    nodes: [
+      expect.objectContaining({
+        id,
+        type: "rect",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 30,
+        radius: 0,
+        d: "M 10 10 L 60 10 L 60 40 L 10 40 Z",
+        appearance: {
+          fills: [],
+          strokes: [
+            { color: "#000000", width: 4, cap: "butt", join: "miter", miterLimit: 10, dash: [] },
+          ],
+        },
+        geometricBounds: { x: 10, y: 10, width: 50, height: 30 },
+        visibleBounds: { x: 8, y: 8, width: 54, height: 34 },
+        worldTransform: [1, 0, 0, 1, 0, 0],
+      }),
+    ],
+  });
+  const concise = await get();
+  expect(concise.nodes[0]).toMatchObject({ id, geometricBounds: { x: 10 } });
+  expect(concise.nodes[0]).not.toHaveProperty("d");
+});
+
+it("returns NODE_NOT_FOUND from node_get with the index of the unknown id", async () => {
+  const doc = await newDoc();
+  const result = await call("zibel_node_get", {
+    docId: doc.docId,
+    nodeIds: [doc.defaultLayerId, "nope"],
+  });
+  expect(errorOf(result)).toMatchObject({
+    code: "NODE_NOT_FOUND",
+    hint: expect.any(String),
+    path: "nodeIds[1]",
+  });
 });
 
 it("returns INVALID_PARENT with a path when the parent is a rect", async () => {

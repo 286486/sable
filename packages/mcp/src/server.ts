@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ArtboardInput, NodeInput, WriteReceipt, ZibelError } from "@zibel/core";
 import type { DocumentService } from "@zibel/sync";
 import { z } from "zod";
-import { CreatedDocumentOutput, OutlineOutput, RenderOutput } from "./schemas.ts";
+import { CreatedDocumentOutput, NodeGetOutput, OutlineOutput, RenderOutput } from "./schemas.ts";
 
 const docId = z.string().describe("Document id returned by zibel_doc_create.");
 
@@ -89,6 +89,32 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     },
     ({ docId, nodes }) =>
       run("zibel_node_create", async () => json(await service.createNodes(docId, nodes))),
+  );
+
+  server.registerTool(
+    "zibel_node_get",
+    {
+      title: "Get Nodes",
+      description: [
+        "Read Nodes by id, in document coordinates.",
+        "concise (default): id, type, name, parentId, visible, locked, childCount and geometricBounds.",
+        "full adds every stored property (Live Shape parameters, appearance, transform, opacity, blendMode, tags, meta), the derived outline d of a shape or path, visibleBounds (including Strokes) and worldTransform.",
+      ].join(" "),
+      inputSchema: {
+        docId,
+        nodeIds: z.array(z.string()).min(1).max(1000),
+        detail: z.enum(["concise", "full"]).default("concise"),
+      },
+      outputSchema: NodeGetOutput.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, nodeIds, detail }) =>
+      run("zibel_node_get", async () => json(await service.get(docId, nodeIds, detail))),
   );
 
   server.registerTool(
