@@ -221,6 +221,81 @@ export function bounds(doc: Document, node: Node): Rect | null {
   return pathBounds(shapeSegments(node));
 }
 
+/** Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a container. */
+export function visibleBounds(doc: Document, node: Node): Rect | null {
+  if (node.type === "layer" || node.type === "group") {
+    return union(childrenOf(doc, node.id).map((c) => visibleBounds(doc, c)));
+  }
+  const b = bounds(doc, node);
+  // ponytail: half the Stroke width on every side; miter spikes and square caps can reach further.
+  const grow = Math.max(0, ...node.appearance.strokes.map((s) => s.width)) / 2;
+  return (
+    b && { x: b.x - grow, y: b.y - grow, width: b.width + 2 * grow, height: b.height + 2 * grow }
+  );
+}
+
+/** The Node's transform composed with every ancestor's, mapping its coordinates to the Document's. */
+export function worldTransform(doc: Document, node: Node): Matrix {
+  const parent = node.parentId ? doc.nodes.get(node.parentId) : undefined;
+  return parent ? multiply(worldTransform(doc, parent), node.transform) : node.transform;
+}
+
+function multiply([a, b, c, d, e, f]: Matrix, [A, B, C, D, E, F]: Matrix): Matrix {
+  return [
+    a * A + c * B,
+    b * A + d * B,
+    a * C + c * D,
+    b * C + d * D,
+    a * E + c * F + e,
+    b * E + d * F + f,
+  ];
+}
+
+export interface ConciseView {
+  id: string;
+  type: Node["type"];
+  name: string;
+  parentId: string | null;
+  visible: boolean;
+  locked: boolean;
+  childCount: number;
+  geometricBounds: Rect | null;
+}
+
+/** Every stored property, the derived `d` of a Live Shape or Path, and the derived bounds (F-DOC-03a). */
+export type FullView = Node &
+  ConciseView & { d?: string; visibleBounds: Rect | null; worldTransform: Matrix };
+
+/** A Node as `node_get` returns it. */
+export function nodeView(doc: Document, node: Node, detail: "concise"): ConciseView;
+export function nodeView(doc: Document, node: Node, detail: "full"): FullView;
+export function nodeView(
+  doc: Document,
+  node: Node,
+  detail: "concise" | "full",
+): ConciseView | FullView;
+export function nodeView(doc: Document, node: Node, detail: "concise" | "full") {
+  const { id, type, name, parentId, visible, locked } = node;
+  const concise: ConciseView = {
+    id,
+    type,
+    name,
+    parentId,
+    visible,
+    locked,
+    childCount: childrenOf(doc, id).length,
+    geometricBounds: bounds(doc, node),
+  };
+  if (detail === "concise") return concise;
+  return {
+    ...node,
+    ...concise,
+    ...(node.type !== "layer" && node.type !== "group" && { d: formatPath(shapeSegments(node)) }),
+    visibleBounds: visibleBounds(doc, node),
+    worldTransform: worldTransform(doc, node),
+  };
+}
+
 export interface OutlineNode {
   id: string;
   type: Node["type"];

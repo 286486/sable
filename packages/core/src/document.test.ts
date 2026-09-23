@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertParent, createDocument, createNodes, outline } from "./document.ts";
+import { assertParent, createDocument, createNodes, nodeView, outline } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 
 const newDoc = () =>
@@ -290,5 +290,93 @@ describe("tree rules (ADR-0005)", () => {
       codeOf(() => createNodes(t.doc, [rect(t.layer), { type: "layer", parentId: t.group }])),
     ).toMatchObject({ code: "INVALID_PARENT", path: "nodes[1].parentId" });
     expect(t.doc.nodes.size).toBe(before);
+  });
+});
+
+describe("nodeView", () => {
+  const setup = () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [group, round, path] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        name: "G",
+        children: [
+          {
+            type: "rect",
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 20,
+            radius: 5,
+            appearance: {
+              strokes: [
+                { color: "#000000", width: 2 },
+                { color: "#FF0000", width: 6 },
+              ],
+            },
+          },
+          { type: "path", d: "M 0 0 L 10 0 L 10 10" },
+        ],
+      },
+    ]).nodes;
+    if (!group || !round || !path) throw new Error("setup");
+    return { doc, group, round, path };
+  };
+
+  it("full: parameters, derived d, Appearance, bounds and worldTransform", () => {
+    const { doc, round } = setup();
+    const view = nodeView(doc, round, "full");
+    expect(view).toMatchObject({
+      id: round.id,
+      type: "rect",
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 20,
+      radius: 5,
+      appearance: { fills: [], strokes: [{ width: 2 }, { width: 6 }] },
+      geometricBounds: { x: 0, y: 0, width: 40, height: 20 },
+      visibleBounds: { x: -3, y: -3, width: 46, height: 26 },
+      worldTransform: [1, 0, 0, 1, 0, 0],
+      childCount: 0,
+    });
+    expect(view.d).toMatch(/^M 5 0 L 35 0 C/);
+  });
+
+  it("full: a Path returns its stored d", () => {
+    const { doc, path } = setup();
+    expect(nodeView(doc, path, "full")).toMatchObject({ d: "M 0 0 L 10 0 L 10 10" });
+  });
+
+  it("concise: identity, structure and geometric bounds only", () => {
+    const { doc, group, round } = setup();
+    const view = nodeView(doc, round, "concise");
+    expect(view).toEqual({
+      id: round.id,
+      type: "rect",
+      name: "",
+      parentId: group.id,
+      visible: true,
+      locked: false,
+      childCount: 0,
+      geometricBounds: { x: 0, y: 0, width: 40, height: 20 },
+    });
+    expect(nodeView(doc, group, "concise")).toMatchObject({ childCount: 2 });
+  });
+
+  it("worldTransform composes the ancestors' transforms", () => {
+    const { doc, group, round } = setup();
+    group.transform = [2, 0, 0, 2, 10, 20];
+    round.transform = [1, 0, 0, 1, 5, 5];
+    expect(nodeView(doc, round, "full").worldTransform).toEqual([2, 0, 0, 2, 20, 30]);
+  });
+
+  it("a container's visibleBounds covers its children's Strokes", () => {
+    const { doc, group } = setup();
+    expect(nodeView(doc, group, "full")).toMatchObject({
+      geometricBounds: { x: 0, y: 0, width: 40, height: 20 },
+      visibleBounds: { x: -3, y: -3, width: 46, height: 26 },
+    });
   });
 });
