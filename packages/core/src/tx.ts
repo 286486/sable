@@ -67,6 +67,42 @@ export function commitTransaction(
   return { created, updated, deletedIds: [...deleted] };
 }
 
+/**
+ * One Node a committed Transaction changed (ADR-0011): its copy before (null: the Transaction created
+ * it) and after (null: the Transaction deleted it).
+ */
+export interface DeltaRow {
+  id: string;
+  before: Node | null;
+  after: Node | null;
+}
+
+/**
+ * Applies the inverse of a committed Transaction's delta to the Document as committed now, per
+ * top-level key (ADR-0011). An update of a Node deleted since, or a recreate under a parent that is
+ * gone (and not recreated here), is skipped and reported instead of failing the undo.
+ */
+export function revert(
+  doc: Document,
+  delta: DeltaRow[],
+): { created: Node[]; updated: Node[]; deletedIds: string[]; skipped: string[] } {
+  const recreates = new Map(delta.flatMap((r) => (r.before && !r.after ? [[r.id, r.before]] : [])));
+  const placeable = (node: Node): boolean => {
+    const parent = node.parentId;
+    if (parent === null || doc.nodes.has(parent)) return true;
+    const p = recreates.get(parent);
+    return !!p && placeable(p);
+  };
+  const skipped: string[] = [];
+  const rows: TxRow[] = [];
+  for (const { id, before, after } of delta) {
+    const gone = before && (after ? !doc.nodes.has(id) : !placeable(before));
+    if (gone) skipped.push(id);
+    else rows.push({ id, base: after, working: before });
+  }
+  return { ...commitTransaction(doc, rows), skipped };
+}
+
 /** `current` with every top-level key where `working` differs from `base` taken from `working`. */
 function merge(current: Node, base: Node, working: Node): Node {
   const b = base as unknown as Record<string, unknown>;

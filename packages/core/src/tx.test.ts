@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createDocument, createNodes } from "./document.ts";
+import { deleteNodes, transformNodes, updateNodes } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
 import type { Document, Node, ShapeNode } from "./schema.ts";
-import { commitTransaction, overlay, type TxRow } from "./tx.ts";
+import { commitTransaction, type DeltaRow, overlay, revert, type TxRow } from "./tx.ts";
 
 const setup = () => {
   const { doc, defaultLayerId } = createDocument({
@@ -154,5 +155,96 @@ describe("commitTransaction", () => {
       { id: "c", base: null, working: c },
     ]);
     expect(created.map((n) => n.id)).toEqual(["g", "c"]);
+  });
+});
+
+/** What a commit changed, one row per Node, as the Document DO records it. */
+const diff = (before: Document, after: Document): DeltaRow[] =>
+  [...new Set([...before.nodes.keys(), ...after.nodes.keys()])]
+    .map((id) => ({ id, before: before.nodes.get(id) ?? null, after: after.nodes.get(id) ?? null }))
+    .filter((r) => r.before !== r.after);
+
+describe("revert", () => {
+  const edits: [string, (doc: Document, s: ReturnType<typeof setup>) => void][] = [
+    [
+      "a create with an inline child",
+      (doc, { defaultLayerId }) =>
+        createNodes(doc, [
+          {
+            type: "group",
+            parentId: defaultLayerId,
+            children: [{ type: "rect", x: 1, y: 1, width: 2, height: 2 }],
+          },
+        ]),
+    ],
+    ["an update", (doc, { rect }) => updateNodes(doc, [{ nodeId: rect.id, patch: { name: "b" } }])],
+    [
+      "a transform",
+      (doc, { rect, group }) => transformNodes(doc, { nodeIds: [rect.id, group.id], rotate: 30 }),
+    ],
+    ["a delete of a Group", (doc, { group }) => deleteNodes(doc, [group.id])],
+    [
+      "a committed overlay that updates a child and deletes its Group",
+      (doc, { rect, group, child }) =>
+        commitTransaction(doc, [
+          { id: rect.id, base: rect, working: { ...rect, visible: false } },
+          { id: child.id, base: child, working: { ...child, name: "c" } },
+          { id: group.id, base: group, working: null },
+        ]),
+    ],
+  ];
+  for (const [name, edit] of edits) {
+    it(`restores the Document exactly after ${name}`, () => {
+      const s = setup();
+      const after = copy(s.doc);
+      edit(after, s);
+      const delta = diff(s.doc, after);
+      expect(delta.length).toBeGreaterThan(0);
+      const { skipped } = revert(after, delta);
+      expect(skipped).toEqual([]);
+      expect(after.nodes).toEqual(s.doc.nodes);
+    });
+  }
+
+  it("recreates a child whose row comes before its Group's", () => {
+    const { doc, group, child } = setup();
+    const after = copy(doc);
+    deleteNodes(after, [group.id]);
+    const delta = diff(doc, after).sort((a) => (a.id === child.id ? -1 : 1));
+    revert(after, delta);
+    expect(after.nodes).toEqual(doc.nodes);
+  });
+
+  it("skips an update of a Node deleted since, and reverts the rest", () => {
+    const { doc, rect, child } = setup();
+    const after = copy(doc);
+    updateNodes(after, [
+      { nodeId: rect.id, patch: { name: "b" } },
+      { nodeId: child.id, patch: { name: "c" } },
+    ]);
+    const delta = diff(doc, after);
+    deleteNodes(after, [child.id]);
+    const { skipped, updated } = revert(after, delta);
+    expect(skipped).toEqual([child.id]);
+    expect(updated.map((n) => n.id)).toEqual([rect.id]);
+    expect(after.nodes.get(rect.id)).toEqual(rect);
+    expect(after.nodes.has(child.id)).toBe(false);
+  });
+
+  it("skips recreating Nodes whose parent was deleted since, and their children", () => {
+    const { doc, defaultLayerId, group, child } = setup();
+    const [inner] = createNodes(doc, [{ type: "group", parentId: group.id }]).nodes as [Node];
+    const [leaf] = createNodes(doc, [
+      { type: "rect", parentId: inner.id, x: 0, y: 0, width: 1, height: 1 },
+    ]).nodes as [Node];
+    const after = copy(doc);
+    deleteNodes(after, [inner.id]);
+    const delta = diff(doc, after);
+    deleteNodes(after, [group.id]);
+    const before = copy(after);
+    const { skipped } = revert(after, delta);
+    expect(skipped.sort()).toEqual([inner.id, leaf.id].sort());
+    expect(after.nodes).toEqual(before.nodes);
+    expect([defaultLayerId, child.id].map((id) => after.nodes.has(id))).toEqual([true, false]);
   });
 });
