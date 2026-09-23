@@ -7,8 +7,8 @@ import {
   IDENTITY,
   lookup,
   type Node,
-  type Overlay,
   type Rect,
+  type RenderOverlay,
   type RenderScope,
   shapeSegments,
   union,
@@ -103,7 +103,7 @@ export interface SvgOptions {
   /** A colour filling the whole rect beneath everything. */
   background?: string;
   /** Render Overlays drawn over the artwork, sized in pixels at `scale` (ADR-0014). */
-  overlays?: Overlay[];
+  overlays?: RenderOverlay[];
   scale?: number;
 }
 
@@ -141,7 +141,7 @@ const BOX = "#FF00FF";
 const EDGE = "#00AEEF";
 
 /** Artboard edges, then boxes, then id labels on top, each a fixed pixel size at `scale`. */
-function overlays(doc: Document, drawn: Node[], on: Set<Overlay>, scale: number): string {
+function overlays(doc: Document, drawn: Node[], on: Set<RenderOverlay>, scale: number): string {
   const px = (v: number) => formatNumber(v / scale);
   const outline = (r: Rect, stroke: string) =>
     `<rect${attrs({
@@ -172,7 +172,7 @@ function overlays(doc: Document, drawn: Node[], on: Set<Overlay>, scale: number)
             "font-family": "Source Sans 3",
             "font-size": px(11),
             ...paint,
-          })}>${n.id}</text>`,
+          })}>${esc(n.id)}</text>`,
       )
       .join("");
   return [

@@ -4,8 +4,8 @@ import {
   ArtboardInput,
   Color,
   NodeInput,
-  Overlay,
   parseColor,
+  RenderOverlay,
   RenderScope,
   TransformInput,
   UpdateInput,
@@ -259,12 +259,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         txId: readTxId,
       },
       outputSchema: NodeGetOutput.shape,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: read,
     },
     ({ docId, nodeIds, detail, txId }) =>
       run("zibel_node_get", async () => json(await service.get(docId, nodeIds, detail, txId))),
@@ -278,12 +273,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Sparse tree of the Document: the top level is always the Layer list. Each entry has id, type, name, bounds, childCount, visible and locked; children appear down to `depth` levels.",
       inputSchema: { docId, depth: z.number().int().min(1).default(2), txId: readTxId },
       outputSchema: OutlineOutput.shape,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: read,
     },
     ({ docId, depth, txId }) =>
       run("zibel_doc_outline", async () => json(await service.outline(docId, depth, txId))),
@@ -309,9 +299,11 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
           .int()
           .positive()
           .default(1600)
-          .describe("Longest side in pixels; the scale is lowered to fit. At most 4096 is drawn."),
+          .describe(
+            "Longest side in pixels; the scale is lowered to fit. An image over 4096 px fails with LIMIT_EXCEEDED.",
+          ),
         background,
-        overlays: z.array(Overlay).default([]),
+        overlays: z.array(RenderOverlay).default([]),
         txId: readTxId,
       },
       outputSchema: RenderOutput.shape,
@@ -367,12 +359,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "A Document's name, Artboards, Node count, current committed rev and how many browsers have it open right now. Call it before writing to learn the rev to pass as ifRev and whether a person is watching.",
       inputSchema: { docId },
       outputSchema: DocInfoOutput.shape,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: read,
     },
     ({ docId }) => run("zibel_doc_get_info", async () => json(await service.info(docId))),
   );
@@ -391,12 +378,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         limit: z.number().int().min(1).max(1000).default(100),
       },
       outputSchema: ChangesOutput.shape,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
+      annotations: read,
     },
     ({ docId, sinceRev, limit }) =>
       run("zibel_doc_changes", async () => json(await service.changes(docId, sinceRev, limit))),

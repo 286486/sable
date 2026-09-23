@@ -7,8 +7,8 @@ import type {
   FullView,
   NodeInput,
   OutlineNode,
-  Overlay,
   Rect,
+  RenderOverlay,
   RenderScope,
   TransformInput,
   UpdateInput,
@@ -115,7 +115,7 @@ export interface RasterRequest extends RenderRequest {
   scale: number;
   /** Lower `scale` until the longer side is at most this many pixels. */
   maxSize?: number;
-  overlays?: Overlay[];
+  overlays?: RenderOverlay[];
 }
 
 /** Maps rendered pixels back to document coordinates (F-MCP-11). */

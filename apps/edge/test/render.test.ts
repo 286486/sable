@@ -134,7 +134,7 @@ it("answers a scope that names nothing with an error and its path", async () => 
   });
 });
 
-it("draws overlays over the artwork, at the same size", async () => {
+it("draws overlays and a background into the image, at the same size", async () => {
   const doc = await newDoc();
   await call("zibel_node_create", { docId: doc.docId, nodes: [redRect(doc.defaultLayerId)] });
   const png = async (args: object) => {
@@ -146,6 +146,7 @@ it("draws overlays over the artwork, at the same size", async () => {
   for (const overlay of ["bounds", "ids", "artboards"]) {
     expect(await png({ overlays: [overlay] })).not.toBe(plain);
   }
+  expect(await png({ background: "#112233" })).not.toBe(plain);
 });
 
 it("exports a known scene as SVG text that matches the stored file", async () => {

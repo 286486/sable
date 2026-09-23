@@ -31,8 +31,8 @@ export const RenderScope = z.union([
 ]);
 export type RenderScope = z.infer<typeof RenderScope>;
 
-export const Overlay = z.enum(["bounds", "ids", "artboards"]);
-export type Overlay = z.infer<typeof Overlay>;
+export const RenderOverlay = z.enum(["bounds", "ids", "artboards"]);
+export type RenderOverlay = z.infer<typeof RenderOverlay>;
 
 export const Fill = z.object({ type: z.literal("solid").default("solid"), color: Color });
 export const Stroke = z.object({
