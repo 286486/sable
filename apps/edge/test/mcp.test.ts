@@ -244,3 +244,181 @@ it("rejects more than 1000 Artboards or 2000 nodes in one call", async () => {
   expect(tooManyNodes.isError).toBe(true);
   expect(tooManyNodes.content[0].text).toMatch(/nodes/);
 });
+
+it("creates every M0 type with an Appearance and reads each back in full", async () => {
+  const doc = await newDoc();
+  const paint = (color: string) => ({
+    fills: [{ color }],
+    strokes: [{ color: "#000000", width: 2, join: "round" }],
+  });
+  const parentId = doc.defaultLayerId;
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      { type: "layer", clientKey: "layer", name: "Top" },
+      {
+        type: "group",
+        parentId,
+        clientKey: "group",
+        children: [
+          {
+            type: "rect",
+            clientKey: "rect",
+            x: 10,
+            y: 10,
+            width: 40,
+            height: 20,
+            radius: 4,
+            appearance: paint("#FF0000"),
+          },
+          {
+            type: "line",
+            clientKey: "line",
+            x1: 10,
+            y1: 40,
+            x2: 50,
+            y2: 60,
+            appearance: paint("#00FF00"),
+          },
+        ],
+      },
+      {
+        type: "ellipse",
+        parentId,
+        clientKey: "ellipse",
+        x: 60,
+        y: 10,
+        width: 30,
+        height: 20,
+        appearance: paint("#0000FF"),
+      },
+      {
+        type: "polygon",
+        parentId,
+        clientKey: "polygon",
+        cx: 120,
+        cy: 25,
+        radius: 15,
+        sides: 6,
+        appearance: paint("#FFFF00"),
+      },
+      {
+        type: "star",
+        parentId,
+        clientKey: "star",
+        cx: 160,
+        cy: 25,
+        outerRadius: 15,
+        innerRadius: 6,
+        points: 5,
+        appearance: paint("#FF00FF"),
+      },
+      {
+        type: "path",
+        parentId,
+        clientKey: "path",
+        d: "M 60 50 C 70 30 90 30 100 50 Q 80 90 60 50 Z",
+        appearance: paint("#00FFFF80"),
+      },
+    ],
+  });
+  const receipt = created.structuredContent;
+  const order = ["layer", "group", "rect", "line", "ellipse", "polygon", "star", "path"];
+  expect(receipt.createdIds).toEqual(order.map((k) => receipt.keyMap[k]));
+  expect(Object.keys(receipt.keyMap).sort()).toEqual([...order].sort());
+
+  const { nodes } = (
+    await call("zibel_node_get", { docId: doc.docId, nodeIds: receipt.createdIds, detail: "full" })
+  ).structuredContent;
+  const byKey = Object.fromEntries(order.map((k, i) => [k, nodes[i]]));
+  expect(byKey.layer).toMatchObject({ type: "layer", name: "Top", parentId: null, childCount: 0 });
+  expect(byKey.group).toMatchObject({
+    type: "group",
+    parentId,
+    childCount: 2,
+    geometricBounds: { x: 10, y: 10, width: 40, height: 50 },
+    visibleBounds: { x: 9, y: 9, width: 42, height: 52 },
+  });
+  expect(byKey.rect).toMatchObject({
+    parentId: receipt.keyMap.group,
+    radius: 4,
+    d: expect.stringMatching(/^M 14 10 L 46 10 C/),
+    appearance: { fills: [{ type: "solid", color: "#FF0000" }], strokes: [{ join: "round" }] },
+    geometricBounds: { x: 10, y: 10, width: 40, height: 20 },
+  });
+  expect(byKey.line).toMatchObject({
+    d: "M 10 40 L 50 60",
+    geometricBounds: { x: 10, y: 40, width: 40, height: 20 },
+  });
+  expect(byKey.ellipse).toMatchObject({
+    d: expect.stringMatching(/^M 75 10 C/),
+    geometricBounds: { x: 60, y: 10, width: 30, height: 20 },
+  });
+  expect(byKey.polygon).toMatchObject({ sides: 6, d: expect.stringMatching(/^M 120 10 L/) });
+  expect(byKey.polygon.geometricBounds.height).toBeCloseTo(30, 9);
+  expect(byKey.star).toMatchObject({ points: 5, d: expect.stringMatching(/^M 160 10 L/) });
+  expect(byKey.star.d.match(/L/g)).toHaveLength(9);
+  expect(byKey.path).toMatchObject({
+    d: "M 60 50 C 70 30 90 30 100 50 Q 80 90 60 50 Z",
+    appearance: { fills: [{ color: "#00FFFF80" }] },
+    geometricBounds: { x: 60, y: 35, width: 40, height: 35 },
+  });
+
+  const rendered = await call("zibel_render", { docId: doc.docId });
+  expect(rendered.content.find((c: { type: string }) => c.type === "image")?.mimeType).toBe(
+    "image/png",
+  );
+});
+
+it.each([
+  [
+    "INVALID_COLOR",
+    (parentId: string) => ({
+      type: "ellipse",
+      parentId,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      appearance: { fills: [{ color: "rgb(255, 0, 0)" }] },
+    }),
+    "nodes[1].appearance.fills[0].color",
+  ],
+  [
+    "INVALID_PATH",
+    (parentId: string) => ({ type: "path", parentId, d: "M 0 0 h 10" }),
+    "nodes[1].d",
+  ],
+  [
+    "INVALID_PARENT",
+    (parentId: string) => ({ type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 }),
+    "nodes[1].parentId",
+  ],
+] as const)("returns %s with hint and path, and creates nothing", async (code, bad, path) => {
+  const doc = await newDoc();
+  // The INVALID_PARENT case points at an Artboard; the others at the default Layer.
+  const artboardId = doc.artboards[0].id;
+  const second = bad(code === "INVALID_PARENT" ? artboardId : doc.defaultLayerId);
+  const ok = { type: "line", parentId: doc.defaultLayerId, x1: 0, y1: 0, x2: 1, y2: 1 };
+  const result = await call("zibel_node_create", { docId: doc.docId, nodes: [ok, second] });
+  expect(errorOf(result)).toMatchObject({ code, hint: expect.any(String), path });
+  const outline = (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
+  expect(outline).toMatchObject({ rev: 1, layers: [{ childCount: 0 }] });
+});
+
+it("returns INVALID_PARENT for a Layer inside a Group", async () => {
+  const doc = await newDoc();
+  const group = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [{ type: "group", parentId: doc.defaultLayerId }],
+  });
+  const result = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [{ type: "layer", parentId: group.structuredContent.createdIds[0] }],
+  });
+  expect(errorOf(result)).toMatchObject({
+    code: "INVALID_PARENT",
+    hint: expect.any(String),
+    path: "nodes[0].parentId",
+  });
+});
