@@ -123,6 +123,28 @@ const { rect, ...others } = SHAPES;
 export const Shape = z.discriminatedUnion("type", [rect, ...Object.values(others)]);
 export type Shape = z.output<typeof Shape>;
 
+/** Point Type (ADR-0013): one line from the baseline origin, in the one bundled font. */
+export const TextShape = z.object({
+  type: z.literal("text"),
+  kind: z.literal("point").default("point"),
+  x: z.number().describe("Where the baseline of the first character starts."),
+  y: z.number().describe("The baseline."),
+  content: z
+    .string()
+    .min(1)
+    .max(10_000)
+    .refine(
+      (s) => !/[\r\n]/.test(s),
+      "One line only: a hard return is not laid out yet; create one text per line.",
+    ),
+  fontFamily: z
+    .literal("Source Sans 3")
+    .default("Source Sans 3")
+    .describe("The only font bundled so far."),
+  fontSize: z.number().positive().default(12).describe("In pt."),
+});
+export type TextShape = z.output<typeof TextShape>;
+
 const clientKey = z
   .string()
   .optional()
@@ -147,7 +169,21 @@ const LineItem = LineShape.extend(leaf);
 const PolygonItem = PolygonShape.extend(leaf);
 const StarItem = StarShape.extend(leaf);
 const PathItem = PathShape.extend(leaf);
-const LEAF_ITEMS = [RectItem, EllipseItem, LineItem, PolygonItem, StarItem, PathItem] as const;
+const TextItem = TextShape.extend({
+  ...leaf,
+  appearance: AppearanceInput.optional().describe(
+    "Omit for Illustrator's default type Appearance, a black Fill and no Stroke; {} paints nothing.",
+  ),
+});
+const LEAF_ITEMS = [
+  RectItem,
+  EllipseItem,
+  LineItem,
+  PolygonItem,
+  StarItem,
+  PathItem,
+  TextItem,
+] as const;
 type LeafItem = (typeof LEAF_ITEMS)[number];
 interface GroupChild {
   type: "group";
@@ -226,9 +262,9 @@ export const Writable = z.object({
 
 const unwrapDefault = (t: z.ZodType) => (t instanceof z.ZodDefault ? t.unwrap() : t);
 const parameters = Object.fromEntries(
-  Object.values(SHAPES)
+  [TextShape, ...Object.values(SHAPES)]
     .flatMap((o) => Object.entries(o.shape))
-    .filter(([k]) => k !== "type")
+    .filter(([k]) => k !== "type" && k !== "kind")
     .map(([k, t]) => [k, unwrapDefault(t as z.ZodType)]),
 );
 
@@ -346,7 +382,12 @@ export interface GroupNode extends NodeBase {
 /** A Live Shape or Path: its parameters plus an Appearance. */
 export type ShapeNode = NodeBase & Shape & { appearance: Appearance };
 
-export type Node = LayerNode | GroupNode | ShapeNode;
+export type TextNode = NodeBase & TextShape & { appearance: Appearance };
+
+/** A Node that paints: a Live Shape, a Path or a text. */
+export type LeafNode = ShapeNode | TextNode;
+
+export type Node = LayerNode | GroupNode | LeafNode;
 
 export interface Document {
   id: string;

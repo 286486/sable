@@ -1,6 +1,6 @@
 import { createDocument, createNodes, type Node } from "@zibel/core";
 import { describe, expect, it } from "vitest";
-import { combine, editable, inverse, marquee, objectOf, objects } from "./selection.ts";
+import { combine, editable, hitTest, inverse, marquee, objectOf, objects } from "./selection.ts";
 
 /**
  * Layer 1: Group g (rects a, b), rect c, hidden rect h, locked Group lg (rect m), Layer 3 (rect e).
@@ -104,4 +104,25 @@ it("inverse selects the other selectable objects", () => {
 it("is not editable when the Node is gone", () => {
   const { doc } = fixture();
   expect(editable(doc, undefined)).toBe(false);
+});
+
+describe("hitTest", () => {
+  it("hits a text anywhere inside its bounds", () => {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const [t] = createNodes(doc, [
+      { type: "text", parentId: defaultLayerId, x: 10, y: 50, content: "Hi" },
+    ]).nodes;
+    // A text needs no Path2D: bounds (10, 38)-(20.776, 53.912) decide.
+    const ctx = {
+      save() {},
+      restore() {},
+      setTransform() {},
+    } as unknown as CanvasRenderingContext2D;
+    expect(hitTest(ctx, doc, 15, 40, 1)).toBe(t?.id);
+    expect(hitTest(ctx, doc, 22, 40, 1)).toBeNull();
+  });
 });

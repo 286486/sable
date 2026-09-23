@@ -6,11 +6,12 @@ import { formatPath, parsePath } from "./path.ts";
 import {
   AppearanceInput,
   type Document,
+  type LeafNode,
   type Node,
   PIVOTS,
   type Rect,
   SHAPES,
-  type ShapeNode,
+  TextShape,
   TransformInput,
   type UpdateInput,
   Writable,
@@ -86,7 +87,7 @@ export function transformNodes(
     const m = compose(input, pivot);
     const s = input.scaleStrokes ? 1 : scaleOf(m);
     for (const leaf of group.flatMap((n) => subtree(doc, n)).filter((n) => !isContainer(n))) {
-      const { appearance } = leaf as ShapeNode;
+      const { appearance } = leaf as LeafNode;
       const next = {
         ...leaf,
         transform: round(multiply(m, leaf.transform)),
@@ -139,8 +140,10 @@ const zodPath = (path: PropertyKey[]) =>
   path.map((k) => (typeof k === "number" ? `[${k}]` : `.${String(k)}`)).join("");
 
 function writableSchema(node: Node) {
-  if (isContainer(node)) return Writable;
-  const { type: _, ...parameters } = SHAPES[node.type as ShapeNode["type"]].shape;
+  if (node.type === "layer" || node.type === "group") return Writable;
+  // A text's kind is fixed: Point Type stays Point Type until Area Type exists.
+  const { type: _, ...parameters } =
+    node.type === "text" ? TextShape.omit({ kind: true }).shape : SHAPES[node.type].shape;
   return Writable.extend(parameters).extend({ appearance: AppearanceInput });
 }
 
@@ -156,9 +159,11 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
   for (const key of Object.keys(patch)) {
     const readOnly =
       (Object.hasOwn(READ_ONLY, key) ? READ_ONLY[key] : undefined) ??
-      (key === "d" && node.type !== "path"
-        ? "A Live Shape's d is derived from its parameters; change those instead."
-        : undefined);
+      (key === "d" && node.type === "text"
+        ? "A text has no outline until Create Outlines; change content instead."
+        : key === "d" && node.type !== "path"
+          ? "A Live Shape's d is derived from its parameters; change those instead."
+          : undefined);
     if (readOnly) throw invalid(`.${key}`, `${key} is read-only.`, readOnly);
     if (!Object.hasOwn(schema.shape, key)) {
       throw invalid(

@@ -113,3 +113,27 @@ it("wraps a transformed leaf in one <g> carrying its matrix and opacity", () => 
   expect(svg).toMatch(/<g transform="matrix\(0 1 -1 0 60 -10\)"><path[^>]*\/><path[^>]*\/><\/g>/);
   expect(svg).toContain('<g opacity="0.5" transform="matrix(0.123 0 0 1 0 0)"><path');
 });
+
+it("writes Point Type as one <text> per Fill, then per Stroke, in the bundled font family", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    { type: "text", parentId, x: 10, y: 50, content: "Hi" },
+    {
+      type: "text",
+      parentId,
+      x: 0,
+      y: 20,
+      content: 'a<b&"c"',
+      fontSize: 24,
+      appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#0000FF", width: 2 }] },
+    },
+  ]);
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    '<text x="10" y="50" font-family="Source Sans 3" font-size="12" style="font-kerning:none" xml:space="preserve" fill="#000000">Hi</text>',
+  );
+  expect(svg).toContain(
+    '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="#FF0000">a&lt;b&amp;&quot;c&quot;</text>' +
+      '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="none" stroke="#0000FF" stroke-width="2" stroke-miterlimit="10">a&lt;b&amp;&quot;c&quot;</text>',
+  );
+});

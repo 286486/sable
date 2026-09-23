@@ -19,7 +19,9 @@ import {
   type Rect,
   Shape,
   type ShapeNode,
+  TextShape,
 } from "./schema.ts";
+import { textBox } from "./text.ts";
 
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
 export const newId = () => ulid();
@@ -116,6 +118,10 @@ export function createNodes(
     let node: Node;
     if (input.type === "layer" || input.type === "group") {
       node = { ...at, type: input.type, name };
+    } else if (input.type === "text") {
+      const text = TextShape.parse(input);
+      const appearance = paint(input.appearance ?? defaultTypeAppearance(), `${path}.appearance`);
+      node = { ...at, ...text, name, appearance };
     } else {
       // Parsing with the Shape schema keeps the parameters and drops clientKey, name and the rest.
       const shape = Shape.parse(input);
@@ -228,6 +234,9 @@ export function assertParent(
 const defaultAppearance = () =>
   AppearanceInput.parse({ fills: [{ color: "#FFFFFF" }], strokes: [{ color: "#000000" }] });
 
+/** Illustrator's default for new type: a black Fill and no Stroke. */
+const defaultTypeAppearance = () => AppearanceInput.parse({ fills: [{ color: "#000000" }] });
+
 export function paint(a: AppearanceInput, path: string): Appearance {
   return {
     fills: a.fills.map((f, i) => ({
@@ -253,7 +262,9 @@ export function bounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
     return union(childrenOf(doc, node.id).map((c) => bounds(doc, c)));
   }
-  return pathBounds(transformSegments(shapeSegments(node), worldTransform(doc, node)));
+  const shape =
+    node.type === "text" ? { type: "rect" as const, ...textBox(node), radius: 0 } : node;
+  return pathBounds(transformSegments(shapeSegments(shape), worldTransform(doc, node)));
 }
 
 /** Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a container. */
@@ -331,7 +342,8 @@ export function nodeView(doc: Document, node: Node, detail: "concise" | "full") 
   return {
     ...node,
     ...concise,
-    ...(node.type !== "layer" && node.type !== "group" && outlineOf(node)),
+    // A text has no outline until Create Outlines (F-TEXT-06).
+    ...(node.type !== "layer" && node.type !== "group" && node.type !== "text" && outlineOf(node)),
     visibleBounds: visibleBounds(doc, node),
     worldTransform: worldTransform(doc, node),
   };

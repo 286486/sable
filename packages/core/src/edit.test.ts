@@ -392,3 +392,42 @@ describe("partial", () => {
     });
   });
 });
+
+describe("updateNodes on a text", () => {
+  const setup = () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [t] = createNodes(doc, [
+      { type: "text", parentId: defaultLayerId, x: 10, y: 50, content: "Hi" },
+    ]).nodes;
+    if (!t) throw new Error("setup");
+    return { doc, t };
+  };
+  const width = (doc: ReturnType<typeof setup>["doc"], id: string) => {
+    const n = doc.nodes.get(id);
+    return (n && bounds(doc, n)?.width) ?? 0;
+  };
+
+  it("rewrites content and fontSize, which changes the bounds", () => {
+    const { doc, t } = setup();
+    updateNodes(doc, [{ nodeId: t.id, patch: { content: "Hi Hi" } }]);
+    expect(width(doc, t.id)).toBeCloseTo(23.952);
+    updateNodes(doc, [{ nodeId: t.id, patch: { fontSize: 24 } }]);
+    expect(width(doc, t.id)).toBeCloseTo(47.904);
+  });
+
+  it.each([
+    [{ fontFamily: "Arial" }, "fontFamily", /Source Sans 3/],
+    [{ kind: "area" }, "kind", /x, y, content, fontFamily, fontSize/],
+    [{ content: "a\nb" }, "content", /./],
+    [{ d: "M 0 0" }, "d", /outline/i],
+  ])("rejects %j with INVALID_PATCH", (patch, key, hint) => {
+    const { doc, t } = setup();
+    const error = errorOf(() => updateNodes(doc, [{ nodeId: t.id, patch }]));
+    expect(error).toMatchObject({
+      code: "INVALID_PATCH",
+      path: `updates[0].patch.${key}`,
+      hint: expect.stringMatching(hint),
+    });
+    if (key === "kind") expect(error.hint).not.toMatch(/\bkind\b/);
+  });
+});
