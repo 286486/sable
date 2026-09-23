@@ -684,9 +684,11 @@ flowchart LR
   "keyMap": {"clientKey": "nodeId"},
   "bounds": {"x":0,"y":0,"width":0,"height":0},
   "warnings": [{"code":"TEXT_OVERFLOW","nodeId":"…","message":"…"}],
+  "failed": [{"index":0,"code":"…","message":"…","hint":"…","path":"…"}],
   "preview": {"type":"image","mimeType":"image/png","data":"…"}
 }
 ```
+`failed` 仅在调用带 `partial: true` 时出现：每个未生效项的下标与错误；已生效项照常列在 id 列表中，合为一个 Transaction。
 
 **文本 runs**
 - `content: [{text, style:{fontFamily, fontStyle, fontSize, fill, letterSpacing, ...}}]`；段落属性在节点级 `paragraphs[]`。纯字符串输入自动转为单 run。
@@ -707,7 +709,7 @@ flowchart LR
 
 ### 6.7 错误处理、并发与长任务
 
-- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
+- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
 - **F-MCP-16** 批量工具的部分失败：默认**原子**（任一失败整批回滚）；可选 `partial: true` 返回逐项结果。（P0）
 - **F-MCP-17** 长任务（`export_batch`、`image_trace`、大 `svg_import`）：单个请求内可经 SSE 响应流发送 progress；预计超过 30 秒的任务一律返回 `jobId`，由 Queues 执行，用 `job_status / job_cancel` 轮询。（P1）
 - **F-MCP-18** 幂等：读工具与 `doc_save`、`tx_rollback` 幂等；`node_create` 通过 `clientKey` + `txId` 去重（同一事务内重复提交同 key 不重复创建）。（P1）
