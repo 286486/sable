@@ -295,10 +295,13 @@ it("expires a Transaction idle for 5 minutes through the alarm", async () => {
   const t0 = Date.now();
   const a = ok(await s.begin("agent-a")).txId;
   const b = ok(await s.begin("agent-a")).txId;
+  const c = ok(await s.begin("agent-a")).txId;
   ok(await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId: a }));
   vi.setSystemTime(t0 + 4 * 60_000);
   ok(await s.outline(2, "agent-a", b));
   vi.setSystemTime(t0 + 5 * 60_000 + 1000);
+  // Past its deadline a Transaction is expired even before the alarm runs.
+  expect(await s.outline(2, "agent-a", c)).toMatchObject({ error: { code: "TX_EXPIRED" } });
   expect(await runDurableObjectAlarm(s)).toBe(true);
   const ended = (id: string) =>
     runInDurableObject(

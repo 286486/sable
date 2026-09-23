@@ -67,6 +67,7 @@ export class DocumentObject extends DurableObject<Env> {
         created_ids TEXT NOT NULL, updated_ids TEXT NOT NULL, deleted_ids TEXT NOT NULL,
         intent TEXT
       );
+      -- ponytail: ended tx rows are kept for TX_EXPIRED and never pruned; prune with history_list.
       CREATE TABLE IF NOT EXISTS tx (
         id TEXT PRIMARY KEY, actor TEXT NOT NULL, label TEXT, deadline INTEGER NOT NULL, ended TEXT
       );
@@ -313,8 +314,9 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /** Throws REV_CONFLICT unless `ifRev` is absent or equals the committed `rev`. */
-  private checkRev(doc: Document, ifRev: number | undefined): Document {
-    if (ifRev === undefined || ifRev === doc.rev) return doc;
+  private checkRev(doc: Document, ifRev: number | undefined) {
+    if (ifRev === undefined || ifRev === doc.rev) return;
+    // ponytail: unbounded when ifRev is far behind; cap the ids if a conflict ever gets large.
     const nodeIds = [
       ...new Set(
         this.log(ifRev, -1).flatMap((c) => [...c.createdIds, ...c.updatedIds, ...c.deletedIds]),

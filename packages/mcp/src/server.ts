@@ -44,7 +44,7 @@ const writeFields = {
   txId: txId
     .optional()
     .describe(
-      "Transaction id from zibel_tx_begin. The write stays invisible to others until zibel_tx_commit, and the receipt's rev stays the committed rev.",
+      "Transaction id from zibel_tx_begin. The write stays invisible to others until zibel_tx_commit, and the receipt's rev stays the committed rev. intent is then ignored: give it to zibel_tx_commit.",
     ),
   ifRev,
   partial: z
@@ -327,7 +327,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Pass the returned txId to each write, and to node_get, doc_outline and render to see your uncommitted work; nobody else sees it until zibel_tx_commit.",
         "It rolls back after 5 minutes without a call carrying its txId. label becomes the summary in zibel_doc_changes. rev is the committed rev, for ifRev.",
       ].join(" "),
-      inputSchema: { docId, label: z.string().max(200).optional() },
+      inputSchema: { docId, label: z.string().min(1).max(200).optional() },
       outputSchema: TxOutput.shape,
       annotations: {
         readOnlyHint: false,
