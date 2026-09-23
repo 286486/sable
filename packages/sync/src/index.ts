@@ -1,4 +1,11 @@
-import type { Artboard, ArtboardInput, NodeInput, OutlineNode, WriteReceipt } from "@zibel/core";
+import type {
+  Artboard,
+  ArtboardInput,
+  NodeInput,
+  OutlineNode,
+  Rect,
+  WriteReceipt,
+} from "@zibel/core";
 
 export interface CreatedDocument {
   docId: string;
@@ -15,4 +22,12 @@ export interface DocumentService {
   create(input: { name: string; artboards: ArtboardInput[] }): Promise<CreatedDocument>;
   createNodes(docId: string, nodes: NodeInput[]): Promise<WriteReceipt>;
   outline(docId: string, depth: number): Promise<{ rev: number; layers: OutlineNode[] }>;
+  render(docId: string, scale: number): Promise<{ png: Uint8Array; viewport: Viewport }>;
+}
+
+/** Maps rendered pixels back to document coordinates (F-MCP-11). */
+export interface Viewport {
+  docRect: Rect;
+  pixelSize: { width: number; height: number };
+  scale: number;
 }

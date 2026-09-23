@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ArtboardInput, NodeInput, WriteReceipt, ZibelError } from "@zibel/core";
 import type { DocumentService } from "@zibel/sync";
 import { z } from "zod";
-import { CreatedDocumentOutput, OutlineOutput } from "./schemas.ts";
+import { CreatedDocumentOutput, OutlineOutput, RenderOutput } from "./schemas.ts";
 
 const docId = z.string().describe("Document id returned by zibel_doc_create.");
 
@@ -29,7 +29,7 @@ export function createMcpServer(service: DocumentService): McpServer {
         openWorldHint: false,
       },
     },
-    (args) => run(() => service.create(args)),
+    (args) => run(async () => json(await service.create(args))),
   );
 
   server.registerTool(
@@ -47,7 +47,7 @@ export function createMcpServer(service: DocumentService): McpServer {
         openWorldHint: false,
       },
     },
-    ({ docId, nodes }) => run(() => service.createNodes(docId, nodes)),
+    ({ docId, nodes }) => run(async () => json(await service.createNodes(docId, nodes))),
   );
 
   server.registerTool(
@@ -65,20 +65,58 @@ export function createMcpServer(service: DocumentService): McpServer {
         openWorldHint: false,
       },
     },
-    ({ docId, depth }) => run(() => service.outline(docId, depth)),
+    ({ docId, depth }) => run(async () => json(await service.outline(docId, depth))),
+  );
+
+  server.registerTool(
+    "zibel_render",
+    {
+      title: "Render",
+      description:
+        "Render the whole Document (every Artboard) to a PNG so you can see what you drew. viewport maps pixels back to document coordinates: docX = docRect.x + px / scale.",
+      inputSchema: {
+        docId,
+        scale: z.number().positive().max(4).default(1).describe("Pixels per point."),
+      },
+      outputSchema: RenderOutput.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, scale }) =>
+      run(async () => {
+        const { png, viewport } = await service.render(docId, scale);
+        return {
+          structuredContent: { viewport },
+          content: [{ type: "image", data: base64(png), mimeType: "image/png" }],
+        };
+      }),
   );
 
   return server;
 }
 
-/** Wraps a structured result, or turns a ZibelError into an error result the Agent can act on. */
-async function run(fn: () => Promise<object>): Promise<CallToolResult> {
+function base64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
+}
+
+/** A structured result plus the same JSON as text, for clients that ignore structuredContent. */
+const json = (result: object): CallToolResult => ({
+  structuredContent: result as Record<string, unknown>,
+  content: [{ type: "text", text: JSON.stringify(result) }],
+});
+
+/** Turns a ZibelError into an error result the Agent can act on. */
+async function run(fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
   try {
-    const result = await fn();
-    return {
-      structuredContent: result as Record<string, unknown>,
-      content: [{ type: "text", text: JSON.stringify(result) }],
-    };
+    return await fn();
   } catch (e) {
     if (!(e instanceof ZibelError)) throw e;
     return { isError: true, content: [{ type: "text", text: JSON.stringify(e.data) }] };

@@ -12,11 +12,12 @@ import {
   newId,
   type OutlineNode,
   outline,
+  type Rect,
   union,
   type WriteReceipt,
   ZibelError,
 } from "@zibel/core";
-import { toSvg } from "@zibel/render";
+import { docRect, toSvg } from "@zibel/render";
 import type { CreatedDocument } from "@zibel/sync";
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
@@ -114,8 +115,13 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  svg(): Result<string> {
-    return guard(() => toSvg(this.load()));
+  /** Doc-scope SVG. The Worker rasterises it, so PNG encoding never blocks this Document's writes. */
+  svg(): Result<{ svg: string; docRect: Rect }> {
+    return guard(() => {
+      const doc = this.load();
+      const rect = docRect(doc);
+      return { svg: toSvg(doc, rect), docRect: rect };
+    });
   }
 
   changes(sinceRev: number): Result<ChangeEntry[]> {

@@ -1,4 +1,4 @@
-import { childrenOf, type Document, type Node } from "@zibel/core";
+import { childrenOf, type Document, type Node, type Rect, union } from "@zibel/core";
 
 const esc = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
@@ -9,14 +9,18 @@ const attrs = (a: Record<string, string | number | undefined>) =>
     .map(([k, v]) => ` ${k}="${esc(String(v))}"`)
     .join("");
 
-/** SVG for one Artboard: its frame is the viewBox, Layers become `<g>` in stacking order. */
-export function toSvg(doc: Document, artboardIndex = 0): string {
-  const artboard = doc.artboards[artboardIndex];
-  if (!artboard) throw new RangeError(`No Artboard at index ${artboardIndex}`);
-  const { x, y, width, height } = artboard.frame;
-  const background = artboard.background
-    ? `<rect${attrs({ x, y, width, height, fill: artboard.background })}/>`
-    : "";
+/** The area a doc-scope render covers: every Artboard. */
+export function docRect(doc: Document): Rect {
+  return union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 0, height: 0 };
+}
+
+/** SVG of `rect` in document coordinates (default: every Artboard). Layers become `<g>` in stacking order. */
+export function toSvg(doc: Document, rect: Rect = docRect(doc)): string {
+  const { x, y, width, height } = rect;
+  const background = doc.artboards
+    .filter((a) => a.background)
+    .map((a) => `<rect${attrs({ ...a.frame, fill: a.background })}/>`)
+    .join("");
   const body = childrenOf(doc, null)
     .map((n) => node(doc, n))
     .join("");

@@ -24,3 +24,11 @@ const OutlineNode = z.object({
 });
 
 export const OutlineOutput = z.object({ rev: z.number().int(), layers: z.array(OutlineNode) });
+
+export const RenderOutput = z.object({
+  viewport: z.object({
+    docRect: Rect,
+    pixelSize: z.object({ width: z.number().int(), height: z.number().int() }),
+    scale: z.number(),
+  }),
+});

@@ -23,6 +23,7 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_doc_create",
     "zibel_doc_outline",
     "zibel_node_create",
+    "zibel_render",
   ]);
   for (const t of tools) {
     expect(t.annotations).toHaveProperty("readOnlyHint");
@@ -85,4 +86,46 @@ it("returns INVALID_PARENT with a path when the parent is a rect", async () => {
 it("returns DOC_NOT_FOUND for an unknown docId", async () => {
   const result = await call("zibel_doc_outline", { docId: "01NOPE" });
   expect(errorOf(result)).toMatchObject({ code: "DOC_NOT_FOUND", hint: expect.any(String) });
+});
+
+it("renders the Document to a PNG with viewport metadata", async () => {
+  const doc = await newDoc();
+  await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "rect",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 30,
+        appearance: { fills: [{ color: "#FF0000" }] },
+      },
+    ],
+  });
+  const result = await call("zibel_render", { docId: doc.docId, scale: 2 });
+  const image = result.content.find((c: { type: string }) => c.type === "image");
+  expect(image.mimeType).toBe("image/png");
+  const png = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0));
+  const ihdr = new DataView(png.buffer, 16, 8);
+  expect([...png.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+  expect([ihdr.getUint32(0), ihdr.getUint32(4)]).toEqual([400, 200]);
+  expect(result.structuredContent).toEqual({
+    viewport: {
+      docRect: { x: 0, y: 0, width: 200, height: 100 },
+      pixelSize: { width: 400, height: 200 },
+      scale: 2,
+    },
+  });
+});
+
+it("refuses a render larger than 4096 px per side with LIMIT_EXCEEDED", async () => {
+  const big = (
+    await call("zibel_doc_create", { name: "Big", artboards: [{ width: 2000, height: 100 }] })
+  ).structuredContent;
+  expect(errorOf(await call("zibel_render", { docId: big.docId, scale: 4 }))).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    hint: expect.any(String),
+  });
 });
