@@ -1,6 +1,16 @@
-import type { Artboard, Document, Node } from "@zibel/core";
+import {
+  type Artboard,
+  type Document,
+  type ErrorData,
+  type Node,
+  TransformInput,
+} from "@zibel/core";
+import { z } from "zod";
 
-/** Browser wire protocol (ADR-0009): the Document on connect, then one `tx` per commit. */
+/**
+ * Browser wire protocol: the Document on connect, then one `tx` per commit (ADR-0009). A browser
+ * sends each gesture as a command and gets its `tx` or a `rejected` back (ADR-0010).
+ */
 
 /** Sent once, right after the WebSocket is accepted. */
 export interface DocumentMessage {
@@ -22,9 +32,30 @@ export interface TxMessage {
   updated: Node[];
   /** Includes the descendants of every deleted Node. */
   deletedIds: string[];
+  /** The `id` of the browser command this Transaction answers. */
+  commandId?: string;
 }
 
-export type ServerMessage = DocumentMessage | TxMessage;
+/** Sent only to the browser whose command changed nothing. */
+export interface RejectedMessage {
+  type: "rejected";
+  id: string;
+  error: ErrorData;
+}
+
+export type ServerMessage = DocumentMessage | TxMessage | RejectedMessage;
+
+/** One gesture, as one core edit. Parsed by the Document DO: browsers are not trusted. */
+export const ClientMessage = z.object({
+  type: z.literal("command"),
+  id: z.string(),
+  command: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("transform"), input: TransformInput }),
+    z.object({ type: z.literal("delete"), nodeIds: z.array(z.string()).min(1) }),
+  ]),
+});
+export type ClientMessage = z.input<typeof ClientMessage>;
+export type Command = ClientMessage["command"];
 
 /** `doc` with `msg` applied, as a new object; `doc` is left untouched. */
 export function applyBroadcast(doc: Document, msg: TxMessage): Document {

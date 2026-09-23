@@ -29,13 +29,15 @@ import {
   ZibelError,
 } from "@zibel/core";
 import { docRect, toSvg } from "@zibel/render";
-import type {
-  ChangeEntry,
-  CreatedDocument,
-  DocInfo,
-  DocumentMessage,
-  TxMessage,
-  WriteOptions,
+import {
+  type ChangeEntry,
+  ClientMessage,
+  type CreatedDocument,
+  type DocInfo,
+  type DocumentMessage,
+  type RejectedMessage,
+  type TxMessage,
+  type WriteOptions,
 } from "@zibel/sync";
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
@@ -43,6 +45,12 @@ export type Result<T> = T | { error: ErrorData };
 
 /** A Transaction rolls back after this long without a call carrying its `txId` (F-HIST-02). */
 const TX_IDLE_MS = 5 * 60_000;
+
+/** Every browser acts as this one Actor until OAuth (ADR-0010). */
+const USER = "user";
+
+/** A browser command's write also names the command its broadcast answers. */
+type Options = WriteOptions & { commandId?: string };
 
 const ENDED = {
   committed: "committed",
@@ -140,6 +148,22 @@ export class DocumentObject extends DurableObject<Env> {
     ws.close();
   }
 
+  /**
+   * One browser gesture: commits it as one Transaction of the User Actor, or answers that browser
+   * alone with `rejected` (ADR-0010).
+   */
+  override webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+    const { id, command } = ClientMessage.parse(JSON.parse(data as string));
+    const result =
+      command.type === "transform"
+        ? this.transformNodes(command.input, USER, { commandId: id })
+        : this.deleteNodes(command.nodeIds, USER, { commandId: id });
+    if ("error" in result) {
+      const msg: RejectedMessage = { type: "rejected", id, error: result.error };
+      ws.send(JSON.stringify(msg));
+    }
+  }
+
   /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */
   private broadcast(msg: TxMessage) {
     const data = JSON.stringify(msg);
@@ -184,18 +208,14 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  transformNodes(
-    input: TransformInput,
-    actor: string,
-    opts: WriteOptions = {},
-  ): Result<WriteReceipt> {
+  transformNodes(input: TransformInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Transform", (doc) => {
       const { nodes, warnings, failed } = transformNodes(doc, input, opts);
       return { updated: nodes, warnings, failed, bounds: union(nodes.map((n) => bounds(doc, n))) };
     });
   }
 
-  deleteNodes(nodeIds: string[], actor: string, opts: WriteOptions = {}): Result<WriteReceipt> {
+  deleteNodes(nodeIds: string[], actor: string, opts: Options = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Delete", (doc) => deleteNodes(doc, nodeIds, opts));
   }
 
@@ -206,7 +226,7 @@ export class DocumentObject extends DurableObject<Env> {
    */
   private write(
     actor: string,
-    opts: WriteOptions,
+    opts: Options,
     verb: string,
     edit: (doc: Document) => Change & {
       keyMap?: Record<string, string>;
@@ -235,7 +255,8 @@ export class DocumentObject extends DurableObject<Env> {
           : this.commit(actor, summary(verb, change), opts.intent, change),
       );
       if (!opts.txId) {
-        this.broadcast({ type: "tx", rev, txId, actor, intent: opts.intent ?? null, ...change });
+        const { intent = null, commandId } = opts;
+        this.broadcast({ type: "tx", rev, txId, actor, intent, ...change, commandId });
       }
       return {
         txId,

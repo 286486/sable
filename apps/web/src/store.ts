@@ -31,7 +31,7 @@ export function connect(docId: string): () => void {
           live: true,
           doc: { id: docId, name, version: 1, rev, artboards, nodes },
         });
-      } else if (doc && msg.rev === doc.rev + 1) {
+      } else if (msg.type === "tx" && doc && msg.rev === doc.rev + 1) {
         useStore.setState({ doc: applyBroadcast(doc, msg) });
       } else {
         ws.close(); // A missed rev: reconnect for the whole Document.

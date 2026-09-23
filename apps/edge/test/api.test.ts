@@ -126,3 +126,51 @@ it("lists Documents newest first at GET /api/docs", async () => {
     { docId: a.structuredContent.docId, name: "First", createdAt: expect.any(String) },
   ]);
 });
+
+/** A browser gesture as ADR-0010 sends it. */
+const command = (id: string, command: unknown) => JSON.stringify({ type: "command", id, command });
+
+it("commits a transform command as one Transaction of the User Actor, seen by doc_changes", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { createdIds, rev } = (
+    await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] })
+  ).structuredContent;
+  const [id] = createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+
+  ws.send(
+    command("c1", { type: "transform", input: { nodeIds: [id], translate: { x: 5, y: 7 } } }),
+  );
+  const [, tx] = await received(2);
+  expect(tx).toMatchObject({
+    type: "tx",
+    rev: rev + 1,
+    actor: "user",
+    commandId: "c1",
+    intent: null,
+    created: [],
+    deletedIds: [],
+  });
+  expect(tx?.type === "tx" && tx.updated).toMatchObject([{ id, transform: [1, 0, 0, 1, 5, 7] }]);
+
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: rev })).structuredContent;
+  expect(changes).toMatchObject([
+    { rev: rev + 1, actor: "user", summary: "Transform 1 Node", updatedIds: [id] },
+  ]);
+  expect(changes).toHaveLength(1);
+  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id] })).structuredContent;
+  expect(nodes[0].geometricBounds).toMatchObject({ x: 15, y: 17 });
+});
+
+it("commits a delete command and broadcasts the deleted ids", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id] = (await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] }))
+    .structuredContent.createdIds;
+  const { ws, received } = await subscribe(docId);
+  await received(1);
+
+  ws.send(command("c2", { type: "delete", nodeIds: [id] }));
+  const [, tx] = await received(2);
+  expect(tx).toMatchObject({ type: "tx", actor: "user", commandId: "c2", deletedIds: [id] });
+});
