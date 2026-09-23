@@ -4,6 +4,14 @@ import { combine, objects } from "./selection.ts";
 import { send, useStore } from "./store.ts";
 
 const SELECTED = "#DCE6FF";
+/** Inline SVG, since an emoji eye or lock depends on the system's emoji font. */
+const glyph = (d: string) => (
+  <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+    <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" />
+  </svg>
+);
+const EYE = glyph("M1 8 Q8 1 15 8 Q8 15 1 8 Z M6 8 A2 2 0 1 0 10 8 A2 2 0 1 0 6 8");
+const LOCK = glyph("M3 7 H13 V15 H3 Z M5 7 V4 A3 3 0 0 1 11 4 V7");
 const icon = {
   width: 20,
   height: 20,
@@ -82,7 +90,7 @@ export function Layers() {
               aria-label={`${node.visible ? "Hide" : "Show"} ${label}`}
               onClick={() => update(node.id, { visible: !node.visible })}
             >
-              {node.visible ? "👁" : ""}
+              {node.visible && EYE}
             </button>
             <button
               type="button"
@@ -90,7 +98,7 @@ export function Layers() {
               aria-label={`${node.locked ? "Unlock" : "Lock"} ${label}`}
               onClick={() => update(node.id, { locked: !node.locked })}
             >
-              {node.locked ? "🔒" : ""}
+              {node.locked && LOCK}
             </button>
             {expandable ? (
               <button
