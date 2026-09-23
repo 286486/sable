@@ -153,7 +153,7 @@ Document 单调递增的版本序号，每提交一个 Transaction 加一。用�
 _Avoid_: Version（保留给 schema 版本）、Etag、Snapshot
 
 **WriteReceipt（写入回执）**：
-每个写工具的统一返回：`txId`、提交后的 `rev`、新增 / 修改 / 删除的 Node id、`clientKey` 到新 id 的 `keyMap`、受影响范围的 `bounds` 与 `warnings`。Agent 靠它确认改了什么，无需重读。`partial: true` 时另附 `failed`：每个未生效项的下标与错误。
+每个写工具的统一返回：`txId`、提交后的 `rev`、新增 / 修改 / 删除的 Node id、`clientKey` 到新 id 的 `keyMap`、受影响范围的 `bounds` 与 `warnings`。Agent 靠它确认改了什么，无需重读。`partial: true` 时另附 `failed`：每个未生效项的下标与错误。Transaction 内的写入，`rev` 仍是已提交的修订号，`tx_commit` 时才递增。
 _Avoid_: Result、Response、Ack
 
 **Actor（参与者）**：

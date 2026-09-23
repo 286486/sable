@@ -30,21 +30,10 @@ import {
   ZibelError,
 } from "@zibel/core";
 import { docRect, toSvg } from "@zibel/render";
-import type { CreatedDocument, WriteOptions } from "@zibel/sync";
+import type { ChangeEntry, CreatedDocument, WriteOptions } from "@zibel/sync";
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
-
-export interface ChangeEntry {
-  rev: number;
-  txId: string;
-  actor: string;
-  summary: string;
-  createdIds: string[];
-  updatedIds: string[];
-  deletedIds: string[];
-  intent: string | null;
-}
 
 /** A Transaction rolls back after this long without a call carrying its `txId` (F-HIST-02). */
 const TX_IDLE_MS = 5 * 60_000;

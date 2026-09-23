@@ -22,6 +22,18 @@ export interface WriteOptions {
   ifRev?: number;
 }
 
+/** One committed Transaction, as `doc_changes` lists it (F-MCP-14). */
+export interface ChangeEntry {
+  rev: number;
+  txId: string;
+  actor: string;
+  summary: string;
+  createdIds: string[];
+  updatedIds: string[];
+  deletedIds: string[];
+  intent: string | null;
+}
+
 export interface CreatedDocument {
   docId: string;
   defaultLayerId: string;
@@ -43,13 +55,35 @@ export interface DocumentService {
   updateNodes(docId: string, updates: UpdateInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   deleteNodes(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
   transformNodes(docId: string, input: TransformInput, opts?: WriteOptions): Promise<WriteReceipt>;
+  /** Reads take `txId` to see that open Transaction's uncommitted edits. */
   get(
     docId: string,
     nodeIds: string[],
     detail: "concise" | "full",
+    txId?: string,
   ): Promise<{ rev: number; nodes: (ConciseView | FullView)[] }>;
-  outline(docId: string, depth: number): Promise<{ rev: number; layers: OutlineNode[] }>;
-  render(docId: string, scale: number): Promise<{ png: Uint8Array; viewport: Viewport }>;
+  outline(
+    docId: string,
+    depth: number,
+    txId?: string,
+  ): Promise<{ rev: number; layers: OutlineNode[] }>;
+  render(
+    docId: string,
+    scale: number,
+    txId?: string,
+  ): Promise<{ png: Uint8Array; viewport: Viewport }>;
+  begin(docId: string, label?: string): Promise<{ txId: string; rev: number }>;
+  commitTx(
+    docId: string,
+    txId: string,
+    opts?: { ifRev?: number; intent?: string },
+  ): Promise<WriteReceipt>;
+  rollback(docId: string, txId: string): Promise<{ txId: string; rev: number }>;
+  changes(
+    docId: string,
+    sinceRev: number,
+    limit?: number,
+  ): Promise<{ rev: number; changes: ChangeEntry[] }>;
 }
 
 /** Maps rendered pixels back to document coordinates (F-MCP-11). */
