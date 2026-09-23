@@ -43,7 +43,7 @@ _Avoid_: Vertex、Point、Node（几何意义上）
 _Avoid_: Control point、Direction point、Bezier point
 
 **Live Shape（实时形状）**：
-由参数（宽高、圆角、边数、内外半径、起止角）定义的 Node，如矩形、椭圆、多边形、星形。锚点级编辑会把它转为 Path。
+由参数（宽高、圆角、边数、内外半径、起止角）定义的 Node，如矩形、椭圆、多边形、星形。锚点级编辑会把它转为 Path。它的派生几何以 `d` 形式只读暴露。
 _Avoid_: Primitive、Basic shape、Parametric shape
 
 **Compound Path（复合路径）**：
