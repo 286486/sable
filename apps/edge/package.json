@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@zibel/core": "workspace:*",
     "@zibel/mcp": "workspace:*",
     "@zibel/render": "workspace:*",

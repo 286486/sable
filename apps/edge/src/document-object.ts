@@ -17,6 +17,7 @@ import {
   ZibelError,
 } from "@zibel/core";
 import { toSvg } from "@zibel/render";
+import type { CreatedDocument } from "@zibel/sync";
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
@@ -29,13 +30,6 @@ export interface ChangeEntry {
   createdIds: string[];
   updatedIds: string[];
   deletedIds: string[];
-}
-
-export interface CreatedDocument {
-  docId: string;
-  defaultLayerId: string;
-  artboards: Artboard[];
-  rev: number;
 }
 
 /**
@@ -113,8 +107,11 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  outline(depth: number): Result<OutlineNode[]> {
-    return guard(() => outline(this.load(), depth));
+  outline(depth: number): Result<{ rev: number; layers: OutlineNode[] }> {
+    return guard(() => {
+      const doc = this.load();
+      return { rev: doc.rev, layers: outline(doc, depth) };
+    });
   }
 
   svg(): Result<string> {

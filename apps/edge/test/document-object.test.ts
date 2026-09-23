@@ -43,9 +43,12 @@ it("keeps Nodes and the Transaction log across a DO restart, with each write's A
   await evictDurableObject(stub("d1"));
 
   expect(await stub("d1").info()).toMatchObject({ docId: "d1", name: "Doc", rev: 2 });
-  expect(await stub("d1").outline(2)).toMatchObject([
-    { id: created.defaultLayerId, children: [{ id: receipt.createdIds[0], type: "rect" }] },
-  ]);
+  expect(await stub("d1").outline(2)).toMatchObject({
+    rev: 2,
+    layers: [
+      { id: created.defaultLayerId, children: [{ id: receipt.createdIds[0], type: "rect" }] },
+    ],
+  });
   expect(await stub("d1").changes(0)).toMatchObject([
     { rev: 1, actor: "agent-a" },
     { rev: 2, actor: "agent-b", createdIds: receipt.createdIds },
@@ -70,7 +73,7 @@ it("leaves rev unchanged when a write fails", async () => {
     ),
   ).toMatchObject({ error: { code: "NODE_NOT_FOUND", path: "nodes[1].parentId" } });
   expect(await stub("d2").info()).toMatchObject({ rev: 1 });
-  expect(await stub("d2").outline(2)).toMatchObject([{ childCount: 0 }]);
+  expect(await stub("d2").outline(2)).toMatchObject({ layers: [{ childCount: 0 }] });
 });
 
 it("reports DOC_NOT_FOUND for a Document that was never created", async () => {
