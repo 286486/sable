@@ -25,7 +25,7 @@ const OutlineNode = z.object({
   id: z.string(),
   type: z.string(),
   name: z.string(),
-  bounds: Rect.nullable(),
+  bounds: Rect.nullable().optional(),
   childCount: z.number().int(),
   visible: z.boolean(),
   locked: z.boolean(),
@@ -34,7 +34,7 @@ const OutlineNode = z.object({
   },
 });
 
-export const OutlineOutput = z.object({ rev: z.number().int(), layers: z.array(OutlineNode) });
+export const OutlineOutput = z.object({ rev: z.number().int(), nodes: z.array(OutlineNode) });
 
 const Viewport = z.object({
   docRect: Rect,

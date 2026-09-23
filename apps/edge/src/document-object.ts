@@ -13,11 +13,14 @@ import {
   type FullView,
   type Node,
   type NodeInput,
+  type NodeQuery,
   newId,
   nodeView,
   type OutlineNode,
+  type OutlineOptions,
   outline,
   overlay,
+  queryNodes,
   type Rect,
   revert,
   type TransformInput,
@@ -374,13 +377,24 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   outline(
-    depth: number,
+    opts: OutlineOptions,
     actor: string,
     txId?: string,
-  ): Result<{ rev: number; layers: OutlineNode[] }> {
+  ): Result<{ rev: number; nodes: OutlineNode[] }> {
     return guard(() => {
       const doc = this.view(this.load(), actor, txId);
-      return { rev: doc.rev, layers: outline(doc, { depth }) };
+      return { rev: doc.rev, nodes: outline(doc, opts) };
+    });
+  }
+
+  query(
+    q: NodeQuery,
+    actor: string,
+    txId?: string,
+  ): Result<{ rev: number; nodes: ConciseView[]; nextCursor: string | null }> {
+    return guard(() => {
+      const doc = this.view(this.load(), actor, txId);
+      return { rev: doc.rev, ...queryNodes(doc, q) };
     });
   }
 

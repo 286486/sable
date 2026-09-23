@@ -123,8 +123,8 @@ it("creates text whose bounds grow with its content by the font's advance widths
     .structuredContent.nodes;
   expect(full).toMatchObject({ type: "text", kind: "point", content: "H", fontSize: 12 });
   expect(full).not.toHaveProperty("d");
-  const { layers } = (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
-  expect(layers[0].children.map((c: { type: string }) => c.type)).toEqual(["text", "text"]);
+  const { nodes } = (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
+  expect(nodes[0].children.map((c: { type: string }) => c.type)).toEqual(["text", "text"]);
   const rendered = await call("zibel_render", { docId: doc.docId });
   expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
 });
@@ -151,7 +151,7 @@ it("creates a rect in the default Layer and reads it back from doc_outline", asy
     (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
   const expected = {
     rev: 2,
-    layers: [
+    nodes: [
       {
         id: doc.defaultLayerId,
         type: "layer",
@@ -467,7 +467,7 @@ it.each([
   const result = await call("zibel_node_create", { docId: doc.docId, nodes: [ok, second] });
   expect(errorOf(result)).toMatchObject({ code, hint: expect.any(String), path });
   const outline = (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
-  expect(outline).toMatchObject({ rev: 1, layers: [{ childCount: 0 }] });
+  expect(outline).toMatchObject({ rev: 1, nodes: [{ childCount: 0 }] });
 });
 
 it("returns INVALID_PARENT for a Layer inside a Group", async () => {
@@ -614,7 +614,7 @@ describe("edit tools", () => {
     });
     const outline = async () =>
       (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
-    expect(await outline()).toMatchObject({ rev: 2, layers: [{ children: [{ name: "" }] }] });
+    expect(await outline()).toMatchObject({ rev: 2, nodes: [{ children: [{ name: "" }] }] });
 
     const partial = await call("zibel_node_update", { docId: doc.docId, updates, partial: true });
     expect(partial.structuredContent).toMatchObject({
@@ -624,7 +624,7 @@ describe("edit tools", () => {
         { index: 1, code: "NODE_NOT_FOUND", hint: expect.any(String), path: "updates[1].nodeId" },
       ],
     });
-    expect(await outline()).toMatchObject({ rev: 3, layers: [{ children: [{ name: "ok" }] }] });
+    expect(await outline()).toMatchObject({ rev: 3, nodes: [{ children: [{ name: "ok" }] }] });
   });
 
   it("deletes a Group with its descendants, gone from doc_outline", async () => {
@@ -644,7 +644,7 @@ describe("edit tools", () => {
     expect([...deleted.structuredContent.deletedIds].sort()).toEqual([...createdIds].sort());
     expect(
       (await call("zibel_doc_outline", { docId: doc.docId, depth: 3 })).structuredContent,
-    ).toMatchObject({ layers: [{ childCount: 0 }] });
+    ).toMatchObject({ nodes: [{ childCount: 0 }] });
     expect(
       errorOf(await call("zibel_node_get", { docId: doc.docId, nodeIds: [createdIds[3]] })),
     ).toMatchObject({ code: "NODE_NOT_FOUND" });
@@ -761,8 +761,7 @@ describe("transactions", () => {
       errorOf(await tool(name, args, token));
     const [rectId] = (await ok("node_create", { nodes: [rect] })).createdIds;
     const children = async (txId?: string) =>
-      (await ok("doc_outline", { txId })).layers[0].children?.map((c: { id: string }) => c.id) ??
-      [];
+      (await ok("doc_outline", { txId })).nodes[0].children?.map((c: { id: string }) => c.id) ?? [];
     return { docId, rect, rectId, tool, ok, err, children };
   };
 
@@ -854,7 +853,7 @@ describe("transactions", () => {
     expect(await err("node_delete", { nodeIds: [rectId], ifRev: 1 })).toMatchObject({
       code: "REV_CONFLICT",
     });
-    expect(await ok("doc_outline")).toMatchObject({ rev: 2, layers: [{ childCount: 1 }] });
+    expect(await ok("doc_outline")).toMatchObject({ rev: 2, nodes: [{ childCount: 1 }] });
     expect((await ok("node_get", { nodeIds: [rectId], detail: "full" })).nodes).toMatchObject([
       { name: "" },
     ]);

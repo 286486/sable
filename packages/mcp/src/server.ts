@@ -276,7 +276,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       annotations: read,
     },
     ({ docId, depth, txId }) =>
-      run("zibel_doc_outline", async () => json(await service.outline(docId, depth, txId))),
+      run("zibel_doc_outline", async () => json(await service.outline(docId, { depth }, txId))),
   );
 
   server.registerTool(
