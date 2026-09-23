@@ -37,3 +37,6 @@ pnpm-debug.log*
 
 # claude code local overrides
 .claude/settings.local.json
+
+# git worktrees
+.claude/worktrees/
