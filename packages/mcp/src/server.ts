@@ -46,7 +46,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Create a Document with one or more Artboards. Returns docId and the id of its default Layer, which is the parent for your first Nodes. Coordinates are document points, origin top-left, y down.",
       inputSchema: {
         name: z.string().min(1),
-        artboards: z.array(ArtboardInput).min(1),
+        artboards: z.array(ArtboardInput).min(1).max(1000),
       },
       outputSchema: CreatedDocumentOutput.shape,
       annotations: {
@@ -120,20 +120,12 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         const { png, viewport } = await service.render(docId, scale);
         return {
           structuredContent: { viewport },
-          content: [{ type: "image", data: base64(png), mimeType: "image/png" }],
+          content: [{ type: "image", data: png.toBase64(), mimeType: "image/png" }],
         };
       }),
   );
 
   return server;
-}
-
-function base64(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(s);
 }
 
 /** A structured result plus the same JSON as text, for clients that ignore structuredContent. */

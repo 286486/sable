@@ -1,4 +1,5 @@
 import { evictAllDurableObjects } from "cloudflare:test";
+import { exports } from "cloudflare:workers";
 import { expect, it } from "vitest";
 import { call, errorOf, rpc } from "./rpc.ts";
 
@@ -128,4 +129,15 @@ it("refuses a render larger than 4096 px per side with LIMIT_EXCEEDED", async ()
     code: "LIMIT_EXCEEDED",
     hint: expect.any(String),
   });
+});
+
+it("answers GET and DELETE with 405: no standalone stream and no sessions (ADR-0006)", async () => {
+  for (const method of ["GET", "DELETE"]) {
+    const res = await exports.default.fetch("http://zibel/mcp", {
+      method,
+      headers: { accept: "text/event-stream", authorization: "Bearer dev-token-a" },
+    });
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("POST");
+  }
 });
