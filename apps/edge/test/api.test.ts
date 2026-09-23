@@ -1,6 +1,6 @@
 import { exports } from "cloudflare:workers";
 import type { ServerMessage } from "@zibel/sync";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { call } from "./rpc.ts";
 
 const open: WebSocket[] = [];
@@ -62,14 +62,16 @@ it("sends the Document on connect, then a tx after node_create commits", async (
   expect(first).toMatchObject({ type: "document", rev: 1, name: "Doc", artboards });
   expect(first?.type === "document" && first.nodes.map((n) => n.id)).toEqual([defaultLayerId]);
 
-  const receipt = (await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] }))
-    .structuredContent;
+  const receipt = (
+    await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)], intent: "A box" })
+  ).structuredContent;
   const [, tx] = await received(2);
   expect(tx).toMatchObject({
     type: "tx",
     rev: 2,
     txId: receipt.txId,
     actor: "agent-a",
+    intent: "A box",
     updated: [],
     deletedIds: [],
   });
@@ -78,11 +80,18 @@ it("sends the Document on connect, then a tx after node_create commits", async (
   ]);
 });
 
-it("counts open sockets in doc_get_info", async () => {
+it("counts open sockets in doc_get_info, and drops one the browser closes", async () => {
   const { docId } = await newDoc();
-  const { received } = await subscribe(docId);
+  const { ws, received } = await subscribe(docId);
   await received(1);
-  expect((await call("zibel_doc_get_info", { docId })).structuredContent.browsers).toBe(1);
+  const browsers = async () =>
+    (await call("zibel_doc_get_info", { docId })).structuredContent.browsers;
+  expect(await browsers()).toBe(1);
+
+  const closed = new Promise((r) => ws.addEventListener("close", r));
+  ws.close();
+  await closed;
+  await vi.waitFor(async () => expect(await browsers()).toBe(0), { timeout: 1000 });
 });
 
 it("broadcasts a Transaction once, at tx_commit, not its staged writes", async () => {

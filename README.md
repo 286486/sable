@@ -28,7 +28,7 @@ pnpm check   # typecheck, Biome, and Vitest inside workerd
 pnpm dev     # builds the web app, then wrangler dev: viewer at http://localhost:8787, MCP at /mcp
 ```
 
-Every MCP request needs `Authorization: Bearer <dev token>`. The dev tokens and the Agent Actor each one maps to are in `DEV_TOKENS` in [apps/edge/wrangler.jsonc](apps/edge/wrangler.jsonc). Documents are stored under `.wrangler/state` and survive a restart of `pnpm dev`. The viewer lists them at http://localhost:8787 and opens one at `/docs/<docId>`: Space-drag or scroll to pan, Ctrl+scroll or pinch to zoom, Z then click (Alt+click) to zoom in (out), Ctrl+0 to fit the Artboards, Ctrl+1 for 100%. The viewer has no login in M0.
+Every MCP request needs `Authorization: Bearer <dev token>`. The dev tokens and the Agent Actor each one maps to are in `DEV_TOKENS` in [apps/edge/wrangler.jsonc](apps/edge/wrangler.jsonc). Documents are stored under `.wrangler/state` and survive a restart of `pnpm dev`. The viewer lists them at http://localhost:8787 and opens one at `/docs/<docId>`: Space-drag or scroll to pan, Ctrl+scroll or pinch to zoom, Z then click (Alt+click) to zoom in (out), Ctrl+0 to fit the Artboards, Ctrl+1 for 100%. The viewer has no login in M0. The first `pnpm dev` asks once to apply the local D1 migration that indexes Documents.
 
 To connect Claude Code, copy [examples/claude-code.mcp.json](examples/claude-code.mcp.json) to `.mcp.json`, or run:
 

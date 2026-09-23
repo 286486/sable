@@ -22,6 +22,8 @@ export function Viewer({ docId }: { docId: string }) {
   /** Illustrator's Zoom tool (Z): click zooms in, Alt+click out. */
   const [zoomTool, setZoomTool] = useState(false);
   const [alt, setAlt] = useState(false);
+  /** Pointer position at the last pan step; movementX/Y scale with devicePixelRatio in some Chromes. */
+  const last = useRef({ x: 0, y: 0 });
 
   useEffect(() => connect(docId), [docId]);
 
@@ -130,6 +132,7 @@ export function Viewer({ docId }: { docId: string }) {
     if (!v) return;
     if (hand) {
       e.currentTarget.setPointerCapture(e.pointerId);
+      last.current = { x: e.clientX, y: e.clientY };
     } else if (zoomTool) {
       const r = e.currentTarget.getBoundingClientRect();
       const factor = e.altKey ? 0.5 : 2;
@@ -140,7 +143,10 @@ export function Viewer({ docId }: { docId: string }) {
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const v = useStore.getState().viewport;
     if (!v || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
-    useStore.setState({ viewport: { ...v, x: v.x + e.movementX, y: v.y + e.movementY } });
+    const dx = e.clientX - last.current.x;
+    const dy = e.clientY - last.current.y;
+    last.current = { x: e.clientX, y: e.clientY };
+    useStore.setState({ viewport: { ...v, x: v.x + dx, y: v.y + dy } });
   };
 
   const cursor = hand ? "grab" : zoomTool ? (alt ? "zoom-out" : "zoom-in") : "default";

@@ -135,6 +135,11 @@ export class DocumentObject extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /** Completes the close handshake a browser starts, so it leaves getWebSockets. */
+  override webSocketClose(ws: WebSocket) {
+    ws.close();
+  }
+
   /** Sends to every browser. Called after the SQLite transaction, so a dead socket cannot undo a write. */
   private broadcast(msg: TxMessage) {
     const data = JSON.stringify(msg);
