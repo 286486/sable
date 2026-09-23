@@ -8,6 +8,7 @@ import {
   type Rect,
   scaleOf,
   shapeSegments,
+  touches,
   transformSegments,
   worldTransform,
 } from "@zibel/core";
@@ -115,14 +116,11 @@ export function combine(
 
 /** The selectable objects whose bounds touch `rect`. */
 export function marquee(doc: Document, rect: Rect): string[] {
-  const touches = (b: Rect | null) =>
-    !!b &&
-    b.x <= rect.x + rect.width &&
-    rect.x <= b.x + b.width &&
-    b.y <= rect.y + rect.height &&
-    rect.y <= b.y + b.height;
   return objects(doc)
-    .filter((n) => touches(bounds(doc, n)))
+    .filter((n) => {
+      const b = bounds(doc, n);
+      return !!b && touches(b, rect);
+    })
     .map((n) => n.id);
 }
 

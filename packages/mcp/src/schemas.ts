@@ -12,6 +12,10 @@ export const CreatedDocumentOutput = z.object({
   rev: z.number().int(),
 });
 
+export const DocListOutput = z.object({
+  documents: z.array(z.object({ docId: z.string(), name: z.string(), createdAt: z.string() })),
+});
+
 export const DocInfoOutput = z.object({
   docId: z.string(),
   name: z.string(),
@@ -25,7 +29,7 @@ const OutlineNode = z.object({
   id: z.string(),
   type: z.string(),
   name: z.string(),
-  bounds: Rect.nullable(),
+  bounds: Rect.nullable().optional(),
   childCount: z.number().int(),
   visible: z.boolean(),
   locked: z.boolean(),
@@ -34,7 +38,7 @@ const OutlineNode = z.object({
   },
 });
 
-export const OutlineOutput = z.object({ rev: z.number().int(), layers: z.array(OutlineNode) });
+export const OutlineOutput = z.object({ rev: z.number().int(), nodes: z.array(OutlineNode) });
 
 const Viewport = z.object({
   docRect: Rect,
@@ -60,6 +64,8 @@ const NodeView = z.looseObject({
 });
 
 export const NodeGetOutput = z.object({ rev: z.number().int(), nodes: z.array(NodeView) });
+
+export const NodeQueryOutput = NodeGetOutput.extend({ nextCursor: z.string().nullable() });
 
 export const TxOutput = z.object({ txId: z.string(), rev: z.number().int() });
 

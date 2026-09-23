@@ -439,3 +439,48 @@ export const WriteReceipt = z.object({
     .describe("Only with partial: true. The items that did not apply, by input index."),
 });
 export type WriteReceipt = z.infer<typeof WriteReceipt>;
+
+/** Every Node type once: the Record fails to compile when a type is added or dropped. */
+const NODE_TYPES = {
+  layer: true,
+  group: true,
+  rect: true,
+  ellipse: true,
+  line: true,
+  polygon: true,
+  star: true,
+  path: true,
+  text: true,
+} satisfies Record<Node["type"], true>;
+export const NodeType = z.enum(Object.keys(NODE_TYPES) as [Node["type"]]);
+
+const compiles = (pattern: string) => {
+  try {
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** A Node Query's filters and page (ADR-0015): every filter given must hold. */
+export const NodeQuery = z.object({
+  types: z.array(NodeType).min(1).optional(),
+  // ponytail: the length cap is the only guard against a slow pattern; add a time budget with a spatial index.
+  nameRegex: z
+    .string()
+    .max(200)
+    .refine(compiles, "Not a valid JavaScript regular expression.")
+    .optional()
+    .describe("JavaScript regular expression, no flags, tested against the stored name."),
+  tags: z.array(z.string()).min(1).optional().describe("The Node carries every one of these."),
+  parentId: z
+    .string()
+    .optional()
+    .describe("The Node's direct parent; deeper descendants do not match."),
+  withinRect: Rect.optional().describe("geometricBounds entirely inside, edges included."),
+  intersectsRect: Rect.optional().describe("geometricBounds touching, edges included."),
+  limit: z.number().int().min(1).max(1000).default(100),
+  cursor: z.string().optional().describe("nextCursor from the previous page."),
+});
+export type NodeQuery = z.input<typeof NodeQuery>;

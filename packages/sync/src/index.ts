@@ -6,7 +6,9 @@ import type {
   ConciseView,
   FullView,
   NodeInput,
+  NodeQuery,
   OutlineNode,
+  OutlineOptions,
   Rect,
   RenderOverlay,
   RenderScope,
@@ -48,6 +50,13 @@ export interface DocInfo {
   browsers: number;
 }
 
+/** A Document as `doc_list` lists it, from the D1 index (ADR-0015). */
+export interface DocSummary {
+  docId: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface CreatedDocument {
   docId: string;
   defaultLayerId: string;
@@ -65,6 +74,8 @@ export interface DocumentService {
     artboards: ArtboardInput[];
     intent?: string;
   }): Promise<CreatedDocument>;
+  /** Every Document, newest first. */
+  list(): Promise<{ documents: DocSummary[] }>;
   info(docId: string): Promise<DocInfo>;
   createNodes(docId: string, nodes: NodeInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   updateNodes(docId: string, updates: UpdateInput[], opts?: WriteOptions): Promise<WriteReceipt>;
@@ -79,9 +90,14 @@ export interface DocumentService {
   ): Promise<{ rev: number; nodes: (ConciseView | FullView)[] }>;
   outline(
     docId: string,
-    depth: number,
+    opts: OutlineOptions,
     txId?: string,
-  ): Promise<{ rev: number; layers: OutlineNode[] }>;
+  ): Promise<{ rev: number; nodes: OutlineNode[] }>;
+  query(
+    docId: string,
+    q: NodeQuery,
+    txId?: string,
+  ): Promise<{ rev: number; nodes: ConciseView[]; nextCursor: string | null }>;
   /** A PNG of the scope, and the Viewport mapping its pixels back (ADR-0014). */
   render(docId: string, req: RasterRequest): Promise<{ png: Uint8Array; viewport: Viewport }>;
   /** The SVG of the scope, the artwork only. */

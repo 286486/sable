@@ -15,6 +15,7 @@ export function documentService(env: Env, actor: string): DocumentService {
         .run();
       return created;
     },
+    list: async () => ({ documents: await listDocuments(env) }),
     info: async (docId) => unwrap(await doc(docId).info()),
     createNodes: async (docId, nodes, opts) =>
       unwrap(await doc(docId).createNodes(nodes, actor, opts)),
@@ -26,7 +27,8 @@ export function documentService(env: Env, actor: string): DocumentService {
       unwrap(await doc(docId).transformNodes(input, actor, opts)),
     get: async (docId, nodeIds, detail, txId) =>
       unwrap(await doc(docId).get(nodeIds, detail, actor, txId)),
-    outline: async (docId, depth, txId) => unwrap(await doc(docId).outline(depth, actor, txId)),
+    outline: async (docId, opts, txId) => unwrap(await doc(docId).outline(opts, actor, txId)),
+    query: async (docId, q, txId) => unwrap(await doc(docId).query(q, actor, txId)),
     begin: async (docId, label) => unwrap(await doc(docId).begin(actor, label)),
     commitTx: async (docId, txId, opts) => unwrap(await doc(docId).commitTx(txId, actor, opts)),
     rollback: async (docId, txId) => unwrap(await doc(docId).rollback(txId, actor)),
@@ -45,7 +47,7 @@ function unwrap<T extends object>(result: T): Exclude<T, { error: ErrorData }> {
   return result as Exclude<T, { error: ErrorData }>;
 }
 
-/** Every Document, newest first, for the list page (and `doc_list` in #6). */
+/** Every Document, newest first, for the list page and `doc_list`. */
 export async function listDocuments(env: Env) {
   const { results } = await env.DB.prepare(
     "SELECT id AS docId, name, created_at AS createdAt FROM documents ORDER BY rowid DESC",

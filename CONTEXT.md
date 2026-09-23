@@ -195,3 +195,17 @@ _Avoid_: Camera、View、Transform
 **Render Overlay（渲染叠加层）**：
 `render` 画在图稿之上的辅助标记：Node 的 bounds、Node id 标签、Artboard 边界。按像素定尺寸，只出现在 `render` 图像里，不进入 Document，也不进入 `export`。
 _Avoid_: Annotation、Guide（那是参考线）；不要单说 Overlay（ADR-0008 的 Transaction overlay 是另一回事）
+
+## 读取与查询
+
+**Document Outline（文档大纲）**：
+`doc_outline` 返回的稀疏 Node 树：每项只有 id、type、name、bounds（`includeBounds: false` 时省略）、childCount、visible、locked，子项展开到 `depth` 层。不带 `rootId` 时顶层永远是 Layer 列表。
+_Avoid_: Tree、Layers（那是面板）；不要单说 Outline（Illustrator 的 Outline 是轮廓视图或 Create Outlines）
+
+**Node Query（节点查询）**：
+`node_query` 按条件（类型、名称正则、标签、父级、区域）找 Node，条件同时成立才算匹配，结果按 id 排序分页。它是 Agent 侧的"选择"，不改变 Selection。
+_Avoid_: Search、Filter、Find
+
+**Cursor（游标）**：
+分页结果里的 `nextCursor`：上一页最后一个 Node 的 id，原样传回取下一页。它不在服务器上保存任何状态。
+_Avoid_: Page token、Offset、Session

@@ -16,6 +16,7 @@ import {
   type Matrix,
   type Node,
   NodeInput,
+  type NodeQuery,
   type Rect,
   Shape,
   type ShapeNode,
@@ -353,31 +354,103 @@ export interface OutlineNode {
   id: string;
   type: Node["type"];
   name: string;
-  bounds: Rect | null;
+  /** Left out with `includeBounds: false`. */
+  bounds?: Rect | null;
   childCount: number;
   visible: boolean;
   locked: boolean;
   children?: OutlineNode[];
 }
 
-/** Sparse tree whose top level is always the Layer list. */
-export function outline(doc: Document, depth = 2): OutlineNode[] {
+export interface OutlineOptions {
+  /** Its children are the top level; omitted, the Layer list is. */
+  rootId?: string;
+  /** Levels from the top level, which is level 1. */
+  depth?: number;
+  /** Keep an entry of these types or above one within `depth` (ADR-0015). */
+  types?: Node["type"][];
+  includeBounds?: boolean;
+}
+
+/** Sparse tree whose top level is the Layer list, or `rootId`'s children. */
+export function outline(
+  doc: Document,
+  { rootId, depth = 2, types, includeBounds = true }: OutlineOptions = {},
+): OutlineNode[] {
+  if (rootId !== undefined && !doc.nodes.has(rootId)) {
+    throw new ZibelError({
+      code: "NODE_NOT_FOUND",
+      message: `No Node with id ${rootId}.`,
+      hint: "Use an id from doc_outline without rootId, or from a WriteReceipt.",
+      path: "rootId",
+    });
+  }
   const walk = (parentId: string | null, level: number): OutlineNode[] =>
-    childrenOf(doc, parentId).map((n) => {
+    childrenOf(doc, parentId).flatMap((n) => {
       const kids = childrenOf(doc, n.id);
+      const children = kids.length > 0 && level < depth ? walk(n.id, level + 1) : undefined;
+      const kept =
+        !types || types.includes(n.type) || (children?.length ?? 0) > 0 || (!rootId && level === 1);
+      if (!kept) return [];
       return {
         id: n.id,
         type: n.type,
         name: n.name,
-        bounds: bounds(doc, n),
+        ...(includeBounds && { bounds: bounds(doc, n) }),
         childCount: kids.length,
         visible: n.visible,
         locked: n.locked,
-        ...(kids.length > 0 && level < depth && { children: walk(n.id, level + 1) }),
+        ...(children && { children }),
       };
     });
-  return walk(null, 1);
+  return walk(rootId ?? null, 1);
 }
+
+/**
+ * The Nodes matching every filter of `q`, sorted by id, one page at a time: `nextCursor` is the
+ * last id returned while more follow (ADR-0015).
+ */
+// ponytail: scans every Node per call; a spatial index when Documents grow.
+export function queryNodes(
+  doc: Document,
+  { types, nameRegex, tags, parentId, withinRect, intersectsRect, limit = 100, cursor }: NodeQuery,
+): { nodes: ConciseView[]; nextCursor: string | null } {
+  const name = nameRegex === undefined ? undefined : new RegExp(nameRegex);
+  const matches = [...doc.nodes.values()]
+    .filter(
+      (n) =>
+        (cursor === undefined || n.id > cursor) &&
+        (!types || types.includes(n.type)) &&
+        (!name || name.test(n.name)) &&
+        (!tags || tags.every((t) => n.tags.includes(t))) &&
+        (parentId === undefined || n.parentId === parentId),
+    )
+    .filter((n) => {
+      if (!withinRect && !intersectsRect) return true;
+      const b = bounds(doc, n);
+      return (
+        !!b &&
+        (!withinRect || inside(b, withinRect)) &&
+        (!intersectsRect || touches(b, intersectsRect))
+      );
+    })
+    .sort((a, b) => (a.id < b.id ? -1 : 1));
+  const page = matches.slice(0, limit);
+  return {
+    nodes: page.map((n) => nodeView(doc, n, "concise")),
+    nextCursor: matches.length > limit ? (page.at(-1)?.id ?? null) : null,
+  };
+}
+
+const inside = (a: Rect, outer: Rect) =>
+  outer.x <= a.x &&
+  outer.y <= a.y &&
+  a.x + a.width <= outer.x + outer.width &&
+  a.y + a.height <= outer.y + outer.height;
+
+/** Whether two rects overlap or touch, edges included. */
+export const touches = (a: Rect, b: Rect) =>
+  a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height;
 
 export function union(rects: (Rect | null)[]): Rect | null {
   const rs = rects.filter((r): r is Rect => r !== null);

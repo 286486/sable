@@ -5,11 +5,15 @@ import {
   createDocument,
   createNodes,
   nodeView,
+  type OutlineNode,
   outline,
+  queryNodes,
+  touches,
   visibleBounds,
 } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { compose } from "./matrix.ts";
+import { NodeQuery } from "./schema.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -227,7 +231,7 @@ it("creates a Group with inline children, depth first, with a keyMap for every c
     defaultLayerId,
   ]);
   expect(keyMap).toEqual({ g: g?.id, a: a?.id, inner: inner?.id, b: b?.id, c: c?.id });
-  expect(outline(doc, 3)[0]?.children?.[0]).toMatchObject({
+  expect(outline(doc, { depth: 3 })[0]?.children?.[0]).toMatchObject({
     type: "group",
     childCount: 2,
     bounds: { x: 0, y: 0, width: 100, height: 80 },
@@ -587,5 +591,221 @@ describe("text", () => {
     const { doc, defaultLayerId } = newDoc();
     expect(() => createNodes(doc, [text(defaultLayerId, content)])).toThrow();
     expect(doc.nodes.size).toBe(1);
+  });
+});
+
+it("touches two rects that share only an edge, not two apart", () => {
+  const a = { x: 0, y: 0, width: 10, height: 10 };
+  expect(touches(a, { x: 10, y: 0, width: 5, height: 5 })).toBe(true);
+  expect(touches(a, { x: 10.5, y: 0, width: 5, height: 5 })).toBe(false);
+});
+
+describe("queryNodes", () => {
+  /** Layer L: rect "Sun" (tagged sky, warm) at 0,0 10x10; Group G with rect "Moon" (sky) at 50,50
+   * 10x10 and a hidden, locked text; an empty Group E. Layer M: nothing. */
+  const fixture = () => {
+    const { doc, defaultLayerId: L } = newDoc();
+    const r = (name: string, x: number, tags: string[]) => ({
+      type: "rect" as const,
+      name,
+      x,
+      y: x,
+      width: 10,
+      height: 10,
+      tags,
+      clientKey: name,
+    });
+    const { keyMap } = createNodes(doc, [
+      { ...r("Sun", 0, ["sky", "warm"]), parentId: L },
+      {
+        type: "group",
+        parentId: L,
+        name: "G",
+        clientKey: "G",
+        children: [
+          r("Moon", 50, ["sky"]),
+          { type: "text", x: 50, y: 100, content: "Hi", clientKey: "T" },
+        ],
+      },
+      { type: "group", parentId: L, name: "E", clientKey: "E", children: [] },
+      { type: "layer", name: "M", clientKey: "M" },
+    ]);
+    const ids = { L, ...keyMap } as Record<string, string>;
+    const t = doc.nodes.get(ids.T as string);
+    if (t) Object.assign(t, { visible: false, locked: true });
+    return { doc, ids };
+  };
+  const names = (q: NodeQuery) => {
+    const { doc } = fixture();
+    return queryNodes(doc, q)
+      .nodes.map((n) => n.name || n.type)
+      .sort();
+  };
+
+  it("returns every Node without filters, hidden and locked ones included", () => {
+    expect(names({})).toEqual(["E", "G", "Layer 1", "M", "Moon", "Sun", "text"]);
+  });
+  it("filters by types", () => {
+    expect(names({ types: ["rect", "text"] })).toEqual(["Moon", "Sun", "text"]);
+  });
+  it("filters by nameRegex against the stored name", () => {
+    expect(names({ nameRegex: "^(S|M)" })).toEqual(["M", "Moon", "Sun"]);
+  });
+  it("filters by tags, each Node carrying every listed tag", () => {
+    expect(names({ tags: ["sky"] })).toEqual(["Moon", "Sun"]);
+    expect(names({ tags: ["sky", "warm"] })).toEqual(["Sun"]);
+  });
+  it("filters by direct parent only; an unknown parent matches nothing", () => {
+    const { doc, ids } = fixture();
+    const of = (parentId: string) => queryNodes(doc, { parentId }).nodes.map((n) => n.name);
+    expect(of(ids.L as string).sort()).toEqual(["E", "G", "Sun"]);
+    expect(of("01NOPE")).toEqual([]);
+  });
+  it("filters by withinRect, edges included; an empty Group never matches", () => {
+    expect(names({ withinRect: { x: 0, y: 0, width: 10, height: 10 } })).toEqual(["Sun"]);
+    expect(names({ withinRect: { x: -1, y: -1, width: 1000, height: 1000 } })).toEqual([
+      "G",
+      "Layer 1",
+      "Moon",
+      "Sun",
+      "text",
+    ]);
+  });
+  it("filters by intersectsRect, touching counts", () => {
+    expect(names({ intersectsRect: { x: 10, y: 10, width: 5, height: 5 } })).toEqual([
+      "Layer 1",
+      "Sun",
+    ]);
+  });
+  it("ANDs the filters", () => {
+    expect(names({ types: ["rect"], tags: ["sky"], nameRegex: "o" })).toEqual(["Moon"]);
+  });
+
+  it("pages through the matches in id order with nextCursor", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const made = createNodes(
+      doc,
+      Array.from({ length: 5 }, () => rect(defaultLayerId)),
+    ).nodes;
+    const sorted = made.map((n) => n.id).sort();
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 3; page++) {
+      const res = queryNodes(doc, { types: ["rect"], limit: 2, cursor });
+      seen.push(...res.nodes.map((n) => n.id));
+      cursor = res.nextCursor ?? undefined;
+      expect(res.nextCursor === null).toBe(page === 2);
+    }
+    expect(seen).toEqual(sorted);
+  });
+  it("ends with nextCursor null when the last page is exactly full", () => {
+    const { doc, defaultLayerId } = newDoc();
+    createNodes(
+      doc,
+      Array.from({ length: 4 }, () => rect(defaultLayerId)),
+    );
+    const first = queryNodes(doc, { types: ["rect"], limit: 2 });
+    const second = queryNodes(doc, { types: ["rect"], limit: 2, cursor: first.nextCursor ?? "" });
+    expect(second.nodes).toHaveLength(2);
+    expect(second.nextCursor).toBeNull();
+  });
+  it("returns concise views, 100 by default", () => {
+    const { doc, defaultLayerId } = newDoc();
+    createNodes(
+      doc,
+      Array.from({ length: 101 }, () => rect(defaultLayerId)),
+    );
+    const res = queryNodes(doc, { types: ["rect"] });
+    expect(res.nodes).toHaveLength(100);
+    expect(Object.keys(res.nodes[0] ?? {}).sort()).toEqual([
+      "childCount",
+      "geometricBounds",
+      "id",
+      "locked",
+      "name",
+      "parentId",
+      "type",
+      "visible",
+    ]);
+  });
+  it("rejects a nameRegex that does not compile or runs past 200 characters", () => {
+    expect(NodeQuery.safeParse({ nameRegex: "(" }).success).toBe(false);
+    expect(NodeQuery.safeParse({ nameRegex: "a".repeat(201) }).success).toBe(false);
+    expect(NodeQuery.safeParse({ nameRegex: "a".repeat(200) }).success).toBe(true);
+  });
+});
+
+describe("outline options", () => {
+  /** Layer 1: rect, Group G (rect, Group H (text)); Layer 2: empty. */
+  const fixture = () => {
+    const { doc, defaultLayerId: L } = newDoc();
+    const { keyMap } = createNodes(doc, [
+      rect(L),
+      {
+        type: "group",
+        parentId: L,
+        clientKey: "G",
+        children: [
+          { type: "rect", x: 0, y: 0, width: 5, height: 5, clientKey: "R" },
+          {
+            type: "group",
+            clientKey: "H",
+            children: [{ type: "text", x: 0, y: 20, content: "Hi" }],
+          },
+        ],
+      },
+      { type: "layer", name: "Layer 2" },
+    ]);
+    return { doc, L, G: keyMap.G as string, R: keyMap.R as string };
+  };
+
+  it("returns only the Layers at depth 1, with their real childCount", () => {
+    const { doc } = fixture();
+    expect(outline(doc, { depth: 1 })).toEqual([
+      expect.objectContaining({ type: "layer", name: "Layer 1", childCount: 2 }),
+      expect.objectContaining({ type: "layer", name: "Layer 2", childCount: 0 }),
+    ]);
+    expect(outline(doc, { depth: 1 }).some((n) => "children" in n)).toBe(false);
+  });
+
+  it("starts at rootId's children, counting depth from there", () => {
+    const { doc, G, R } = fixture();
+    const nodes = outline(doc, { rootId: G, depth: 1 });
+    expect(nodes.map((n) => [n.type, n.childCount])).toEqual([
+      ["rect", 0],
+      ["group", 1],
+    ]);
+    expect(nodes[1]).not.toHaveProperty("children");
+    expect(outline(doc, { rootId: R })).toEqual([]);
+  });
+
+  it("rejects an unknown rootId with NODE_NOT_FOUND at rootId", () => {
+    const { doc } = fixture();
+    expect(codeOf(() => outline(doc, { rootId: "01NOPE" }))).toMatchObject({
+      code: "NODE_NOT_FOUND",
+      path: "rootId",
+    });
+  });
+
+  it("keeps the listed types and their ancestors, and every top-level Layer", () => {
+    const { doc } = fixture();
+    const [one, two] = outline(doc, { depth: 4, types: ["text"] });
+    expect(one).toMatchObject({ childCount: 2, children: [{ type: "group", childCount: 2 }] });
+    expect(one?.children?.[0]?.children).toMatchObject([
+      { type: "group", children: [{ type: "text" }] },
+    ]);
+    expect(two).toMatchObject({ name: "Layer 2", childCount: 0 });
+    // Within depth 2 no text is reached: the Layer keeps an empty list.
+    expect(outline(doc, { types: ["text"] })[0]?.children).toEqual([]);
+  });
+
+  it("leaves bounds out with includeBounds: false", () => {
+    const { doc } = fixture();
+    const all = (nodes: OutlineNode[]): OutlineNode[] =>
+      nodes.flatMap((n) => [n, ...all(n.children ?? [])]);
+    expect(all(outline(doc, { depth: 4 })).every((n) => "bounds" in n)).toBe(true);
+    const bare = all(outline(doc, { depth: 4, includeBounds: false }));
+    expect(bare).toHaveLength(7);
+    expect(bare.some((n) => "bounds" in n)).toBe(false);
   });
 });

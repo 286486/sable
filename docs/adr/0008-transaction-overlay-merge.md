@@ -21,4 +21,4 @@ The commit fails as a whole with `NODE_GONE`, and the Transaction stays open, wh
 
 - A Node created in the Transaction takes its fractional `index` from the overlay's view, so a concurrent insert under the same parent can tie. Their relative order is then unspecified; it is not an error.
 - `tx_begin` takes an optional `label` (the log row's summary) and has a fixed 5-minute idle timeout, extended by every call that carries the `txId`. `timeoutSec` is deferred.
-- `node_get`, `doc_outline` and `render` accept `txId`.
+- `node_get`, `node_query`, `doc_outline`, `render` and `export` accept `txId`.
