@@ -141,3 +141,19 @@ it("answers GET and DELETE with 405: no standalone stream and no sessions (ADR-0
     expect(res.headers.get("allow")).toBe("POST");
   }
 });
+
+it("rejects more than 1000 Artboards or 2000 nodes in one call", async () => {
+  const tooManyArtboards = await call("zibel_doc_create", {
+    name: "x",
+    artboards: Array(1001).fill({ width: 1, height: 1 }),
+  });
+  expect(tooManyArtboards.isError).toBe(true);
+  const doc = await newDoc();
+  const rect = { type: "rect", parentId: doc.defaultLayerId, x: 0, y: 0, width: 1, height: 1 };
+  const tooManyNodes = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: Array(2001).fill(rect),
+  });
+  expect(tooManyNodes.isError).toBe(true);
+  expect(tooManyNodes.content[0].text).toMatch(/nodes/);
+});
