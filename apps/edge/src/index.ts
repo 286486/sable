@@ -1,7 +1,7 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createMcpServer } from "@zibel/mcp";
 import { actorFor, permissionDenied } from "./auth.ts";
-import { documentService } from "./service.ts";
+import { documentService, listDocuments } from "./service.ts";
 
 export { DocumentObject } from "./document-object.ts";
 
@@ -11,6 +11,7 @@ export default {
     // Browsers are not authenticated in M0: the viewer is read-only and local (ADR-0009).
     const ws = url.pathname.match(/^\/api\/docs\/([^/]+)\/ws$/)?.[1];
     if (ws) return env.DOCUMENT.get(env.DOCUMENT.idFromName(ws)).fetch(request);
+    if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
     if (url.pathname !== "/mcp") return new Response("not found", { status: 404 });
     const actor = actorFor(request, env.DEV_TOKENS);
     if (!actor) return permissionDenied();

@@ -99,3 +99,21 @@ it("broadcasts a Transaction once, at tx_commit, not its staged writes", async (
   expect(tx).toMatchObject({ type: "tx", rev: 2, txId, updated: [], deletedIds: [] });
   expect(tx?.type === "tx" && tx.created.map((n) => n.id)).toEqual(staged.createdIds);
 });
+
+it("lists Documents newest first at GET /api/docs", async () => {
+  const a = await call("zibel_doc_create", {
+    name: "First",
+    artboards: [{ width: 10, height: 10 }],
+  });
+  const b = await call("zibel_doc_create", {
+    name: "Second",
+    artboards: [{ width: 10, height: 10 }],
+  });
+  const res = await exports.default.fetch("http://zibel/api/docs");
+  expect(res.status).toBe(200);
+  const { documents } = (await res.json()) as { documents: { docId: string; name: string }[] };
+  expect(documents.slice(0, 2)).toMatchObject([
+    { docId: b.structuredContent.docId, name: "Second", createdAt: expect.any(String) },
+    { docId: a.structuredContent.docId, name: "First", createdAt: expect.any(String) },
+  ]);
+});

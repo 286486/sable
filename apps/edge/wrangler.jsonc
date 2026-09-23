@@ -8,6 +8,15 @@
   "durable_objects": {
     "bindings": [{ "name": "DOCUMENT", "class_name": "DocumentObject" }]
   },
+  // Local only until M1 creates the hosted database.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "zibel",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DocumentObject"] }],
   // Dev tokens for local Agent Actors, `token=actor` pairs. Replaced by OAuth in M1.
   "vars": {
