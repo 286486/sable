@@ -75,7 +75,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "polygon {cx, cy, radius, sides}: radius is center to vertex.",
         "star {cx, cy, outerRadius, innerRadius, points}.",
         "path {d}: SVG path data with absolute M, L, C, Q and Z only.",
-        "Shapes take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}, colors #RRGGBB or #RRGGBBAA; omit it for a white Fill and a 1 pt black Stroke.",
+        "Live Shapes and paths take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}, colors #RRGGBB or #RRGGBBAA; omit it for a white Fill and a 1 pt black Stroke.",
         "Give each node a clientKey to find its new id in the receipt's keyMap.",
       ].join(" "),
       inputSchema: { docId, nodes: z.array(NodeInput).min(1).max(2000) },
@@ -98,7 +98,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Read Nodes by id, in document coordinates.",
         "concise (default): id, type, name, parentId, visible, locked, childCount and geometricBounds.",
-        "full adds every stored property (Live Shape parameters, appearance, transform, opacity, blendMode, tags, meta), the derived outline d of a shape or path, visibleBounds (including Strokes) and worldTransform.",
+        "full adds every stored property (Live Shape parameters, appearance, transform, opacity, blendMode, tags, meta), the outline d and closed of a Live Shape or path, visibleBounds (including Strokes) and worldTransform.",
       ].join(" "),
       inputSchema: {
         docId,

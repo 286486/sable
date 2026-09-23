@@ -135,3 +135,11 @@ it("gives a 5-point star 10 vertices, alternating outer and inner, first at the 
   ]);
   expect(segments.at(-1)?.cmd).toBe("Z");
 });
+
+it("bounds a path with more segments than a function call takes arguments", () => {
+  const segments = Array.from({ length: 200_000 }, (_, i) => ({
+    cmd: "L" as const,
+    args: [i, -i],
+  }));
+  expect(pathBounds(segments)).toEqual({ x: 0, y: -199_999, width: 199_999, height: 199_999 });
+});

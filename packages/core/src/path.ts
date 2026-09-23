@@ -71,8 +71,18 @@ export function formatPath(segments: Segment[]): string {
 
 /** Exact bounds of the curves (extrema, not control points), or null for no segments. */
 export function pathBounds(segments: Segment[]): Rect | null {
-  const xs: number[] = [];
-  const ys: number[] = [];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const addX = (x: number) => {
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+  };
+  const addY = (y: number) => {
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  };
   let cur = [0, 0];
   let start = [0, 0];
   for (const { cmd, args } of segments) {
@@ -83,21 +93,19 @@ export function pathBounds(segments: Segment[]): Rect | null {
     const end = args.slice(-2);
     const [x0 = 0, y0 = 0] = cur;
     const [x = 0, y = 0] = end;
-    xs.push(x);
-    ys.push(y);
+    addX(x);
+    addY(y);
     if (cmd === "C" || cmd === "Q") {
       const px = [x0, ...args.filter((_, k) => k % 2 === 0)];
       const py = [y0, ...args.filter((_, k) => k % 2 === 1)];
-      for (const t of extrema(px)) xs.push(bezier(px, t));
-      for (const t of extrema(py)) ys.push(bezier(py, t));
+      for (const t of extrema(px)) addX(bezier(px, t));
+      for (const t of extrema(py)) addY(bezier(py, t));
     }
     if (cmd === "M") start = end;
     cur = end;
   }
-  if (xs.length === 0) return null;
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
-  return { x: minX, y: minY, width: Math.max(...xs) - minX, height: Math.max(...ys) - minY };
+  if (minX === Infinity) return null;
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
 /** Parameters in (0, 1) where a quadratic (3 points) or cubic (4 points) Bézier is flat on this axis. */

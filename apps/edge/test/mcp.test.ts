@@ -421,4 +421,13 @@ it("returns INVALID_PARENT for a Layer inside a Group", async () => {
     hint: expect.any(String),
     path: "nodes[0].parentId",
   });
+  const inline = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [{ type: "group", parentId: doc.defaultLayerId, children: [{ type: "layer" }] }],
+  });
+  expect(errorOf(inline)).toMatchObject({
+    code: "INVALID_PARENT",
+    hint: expect.any(String),
+    path: "nodes[0].children[0].type",
+  });
 });

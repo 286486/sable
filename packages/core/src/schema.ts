@@ -151,11 +151,15 @@ interface GroupChild {
 interface GroupChildIn extends Omit<GroupChild, "children"> {
   children?: ChildIn[];
 }
-/** A Node created inline in a Group: any type but `layer`, and no `parentId`. */
-export type ChildInput = z.output<LeafItem> | GroupChild;
-type ChildIn = z.input<LeafItem> | GroupChildIn;
+/**
+ * A Node created inline in a Group, without `parentId`. `layer` parses only so core can reject it with
+ * INVALID_PARENT and a hint rather than the MCP SDK's generic validation text.
+ */
+export type ChildInput = z.output<LeafItem> | GroupChild | z.output<typeof InlineLayer>;
+type ChildIn = z.input<LeafItem> | GroupChildIn | z.input<typeof InlineLayer>;
+const InlineLayer = z.object({ type: z.literal("layer"), ...item });
 const ChildInput: z.ZodType<ChildInput, ChildIn> = z.lazy(() =>
-  z.discriminatedUnion("type", [...LEAF_ITEMS, GroupItem]),
+  z.discriminatedUnion("type", [...LEAF_ITEMS, GroupItem, InlineLayer]),
 );
 const GroupItem = z.object({
   type: z.literal("group"),

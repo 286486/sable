@@ -342,11 +342,12 @@ describe("nodeView", () => {
       childCount: 0,
     });
     expect(view.d).toMatch(/^M 5 0 L 35 0 C/);
+    expect(view.closed).toBe(true);
   });
 
   it("full: a Path returns its stored d", () => {
     const { doc, path } = setup();
-    expect(nodeView(doc, path, "full")).toMatchObject({ d: "M 0 0 L 10 0 L 10 10" });
+    expect(nodeView(doc, path, "full")).toMatchObject({ d: "M 0 0 L 10 0 L 10 10", closed: false });
   });
 
   it("concise: identity, structure and geometric bounds only", () => {
@@ -379,4 +380,32 @@ describe("nodeView", () => {
       visibleBounds: { x: -3, y: -3, width: 46, height: 26 },
     });
   });
+});
+
+it("rejects an inline Layer in a Group's children with INVALID_PARENT, creating nothing", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const before = doc.nodes.size;
+  expect(
+    codeOf(() =>
+      createNodes(doc, [
+        {
+          type: "group",
+          parentId: defaultLayerId,
+          children: [rect(defaultLayerId), { type: "layer" }],
+        },
+      ]),
+    ),
+  ).toMatchObject({
+    code: "INVALID_PARENT",
+    path: "nodes[0].children[1].type",
+    hint: expect.any(String),
+  });
+  expect(doc.nodes.size).toBe(before);
+});
+
+it("gives each default Appearance its own arrays", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const [a, b] = createNodes(doc, [rect(defaultLayerId), rect(defaultLayerId)]).nodes;
+  if (!a || !b || !("appearance" in a) || !("appearance" in b)) throw new Error("setup");
+  expect(a.appearance.strokes[0]?.dash).not.toBe(b.appearance.strokes[0]?.dash);
 });

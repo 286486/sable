@@ -17,6 +17,7 @@ import {
   NodeInput,
   type Rect,
   Shape,
+  type ShapeNode,
 } from "./schema.ts";
 
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
@@ -106,13 +107,21 @@ export function createNodes(
       // Parsing with the Shape schema keeps the parameters and drops clientKey, name and the rest.
       const shape = Shape.parse(input);
       if (shape.type === "path") shape.d = formatPath(parsePath(shape.d, `${path}.d`));
-      const appearance = paint(input.appearance ?? DEFAULT_APPEARANCE, `${path}.appearance`);
+      const appearance = paint(input.appearance ?? defaultAppearance(), `${path}.appearance`);
       node = { ...at, ...shape, name, appearance };
     }
     nodes.push(node);
     if (input.clientKey !== undefined) keyMap[input.clientKey] = node.id;
     if (input.type === "group") {
       input.children.forEach((child, k) => {
+        if (child.type === "layer") {
+          throw new ZibelError({
+            code: "INVALID_PARENT",
+            message: "A Group never contains a Layer.",
+            hint: "Create the Layer on its own with a Layer id as parentId (or none for the root), then put Groups in it.",
+            path: `${path}.children[${k}].type`,
+          });
+        }
         add(child, node.id, `${path}.children[${k}]`);
       });
     }
@@ -186,11 +195,9 @@ export function assertParent(
   }
 }
 
-/** Illustrator's basic appearance for a new shape. */
-const DEFAULT_APPEARANCE = AppearanceInput.parse({
-  fills: [{ color: "#FFFFFF" }],
-  strokes: [{ color: "#000000" }],
-});
+/** Illustrator's basic appearance for a new shape, fresh per Node so no two share arrays. */
+const defaultAppearance = () =>
+  AppearanceInput.parse({ fills: [{ color: "#FFFFFF" }], strokes: [{ color: "#000000" }] });
 
 function paint(a: AppearanceInput, path: string): Appearance {
   return {
@@ -251,6 +258,11 @@ function multiply([a, b, c, d, e, f]: Matrix, [A, B, C, D, E, F]: Matrix): Matri
   ];
 }
 
+function outlineOf(node: ShapeNode): { d: string; closed: boolean } {
+  const segments = shapeSegments(node);
+  return { d: formatPath(segments), closed: segments.at(-1)?.cmd === "Z" };
+}
+
 export interface ConciseView {
   id: string;
   type: Node["type"];
@@ -264,7 +276,12 @@ export interface ConciseView {
 
 /** Every stored property, the derived `d` of a Live Shape or Path, and the derived bounds (F-DOC-03a). */
 export type FullView = Node &
-  ConciseView & { d?: string; visibleBounds: Rect | null; worldTransform: Matrix };
+  ConciseView & {
+    d?: string;
+    closed?: boolean;
+    visibleBounds: Rect | null;
+    worldTransform: Matrix;
+  };
 
 /** A Node as `node_get` returns it. */
 export function nodeView(doc: Document, node: Node, detail: "concise"): ConciseView;
@@ -290,7 +307,7 @@ export function nodeView(doc: Document, node: Node, detail: "concise" | "full") 
   return {
     ...node,
     ...concise,
-    ...(node.type !== "layer" && node.type !== "group" && { d: formatPath(shapeSegments(node)) }),
+    ...(node.type !== "layer" && node.type !== "group" && outlineOf(node)),
     visibleBounds: visibleBounds(doc, node),
     worldTransform: worldTransform(doc, node),
   };
