@@ -29,7 +29,7 @@ import {
   type WriteReceipt,
   ZibelError,
 } from "@zibel/core";
-import { docRect, toSvg } from "@zibel/render";
+import { fit, scopeRect, toSvg } from "@zibel/render";
 import {
   type ChangeEntry,
   ClientMessage,
@@ -37,8 +37,11 @@ import {
   type CreatedDocument,
   type DocInfo,
   type DocumentMessage,
+  type RasterRequest,
   type RejectedMessage,
+  type RenderRequest,
   type TxMessage,
+  type Viewport,
   type WriteOptions,
 } from "@zibel/sync";
 
@@ -381,13 +384,36 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  /** Doc-scope SVG. The Worker rasterises it, so PNG encoding never blocks this Document's writes. */
-  svg(actor: string, txId?: string): Result<{ svg: string; docRect: Rect }> {
+  /** The SVG of a Render Scope, as `export` returns it (ADR-0014). */
+  svg(actor: string, req: RenderRequest): Result<{ svg: string; docRect: Rect }> {
     return guard(() => {
-      const doc = this.view(this.load(), actor, txId);
-      const rect = docRect(doc);
-      return { svg: toSvg(doc, rect), docRect: rect };
+      const { doc, rect, nodeIds } = this.scene(actor, req);
+      return { svg: toSvg(doc, rect, { nodeIds, background: req.background }), docRect: rect };
     });
+  }
+
+  /**
+   * The SVG to rasterise at `req.scale`: fitted to whole pixels and `maxSize`, with overlays.
+   * The Worker rasterises it, so PNG encoding never blocks this Document's writes.
+   */
+  raster(actor: string, req: RasterRequest): Result<{ svg: string; viewport: Viewport }> {
+    return guard(() => {
+      const { doc, rect, nodeIds } = this.scene(actor, req);
+      const { rect: docRect, scale, pixelSize } = fit(rect, req.scale, req.maxSize);
+      const svg = toSvg(doc, docRect, {
+        nodeIds,
+        background: req.background,
+        overlays: req.overlays,
+        scale,
+      });
+      return { svg, viewport: { docRect, pixelSize, scale } };
+    });
+  }
+
+  private scene(actor: string, req: RenderRequest) {
+    const doc = this.view(this.load(), actor, req.txId);
+    const nodeIds = req.scope && "nodeIds" in req.scope ? req.scope.nodeIds : undefined;
+    return { doc, rect: scopeRect(doc, req.scope), nodeIds };
   }
 
   async begin(actor: string, label?: string): Promise<Result<{ txId: string; rev: number }>> {

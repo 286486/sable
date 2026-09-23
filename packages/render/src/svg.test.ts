@@ -6,7 +6,7 @@ import {
   shapeSegments,
 } from "@zibel/core";
 import { expect, it } from "vitest";
-import { toSvg } from "./svg.ts";
+import { fit, scopeRect, toSvg } from "./svg.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -135,5 +135,199 @@ it("writes Point Type as one <text> per Fill, then per Stroke, in the bundled fo
   expect(svg).toContain(
     '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="#FF0000">a&lt;b&amp;&quot;c&quot;</text>' +
       '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="none" stroke="#0000FF" stroke-width="2" stroke-miterlimit="10">a&lt;b&amp;&quot;c&quot;</text>',
+  );
+});
+
+const errorOf = (fn: () => unknown) => {
+  try {
+    fn();
+  } catch (e) {
+    return (e as { data?: unknown }).data;
+  }
+  throw new Error("did not throw");
+};
+
+it("resolves each Render Scope to the rect the image covers", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [
+      { width: 200, height: 100 },
+      { x: 300, y: 0, width: 50, height: 50 },
+    ],
+  });
+  const [rect, group] = createNodes(doc, [
+    {
+      type: "rect",
+      parentId,
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 30,
+      appearance: { strokes: [{ color: "#000000", width: 4 }] },
+    },
+    { type: "group", parentId, children: [] },
+  ]).nodes;
+  if (!rect || !group) throw new Error("setup");
+  const second = doc.artboards[1];
+  if (!second) throw new Error("setup");
+  expect(scopeRect(doc)).toEqual({ x: 0, y: 0, width: 350, height: 100 });
+  expect(scopeRect(doc, { artboardId: second.id })).toEqual(second.frame);
+  expect(scopeRect(doc, { rect: { x: 1, y: 2, width: 3, height: 4 } })).toEqual({
+    x: 1,
+    y: 2,
+    width: 3,
+    height: 4,
+  });
+  expect(scopeRect(doc, { nodeIds: [rect.id, group.id] })).toEqual({
+    x: 8,
+    y: 8,
+    width: 54,
+    height: 34,
+  });
+  expect(errorOf(() => scopeRect(doc, { artboardId: "nope" }))).toMatchObject({
+    code: "ARTBOARD_NOT_FOUND",
+    path: "scope.artboardId",
+  });
+  expect(errorOf(() => scopeRect(doc, { nodeIds: [rect.id, "nope"] }))).toMatchObject({
+    code: "NODE_NOT_FOUND",
+    path: "scope.nodeIds[1]",
+  });
+  expect(errorOf(() => scopeRect(doc, { nodeIds: [group.id] }))).toMatchObject({
+    code: "NOTHING_TO_RENDER",
+  });
+});
+
+it("fits a rect to whole pixels, lowering the scale to maxSize and refusing more than 4096 px", () => {
+  const rect = (width: number, height: number) => ({ x: 0, y: 0, width, height });
+  expect(fit(rect(200, 100), 2)).toEqual({
+    rect: rect(200, 100),
+    scale: 2,
+    pixelSize: { width: 400, height: 200 },
+  });
+  expect(fit(rect(2000, 100), 1, 1600)).toEqual({
+    rect: rect(2000, 100),
+    scale: 0.8,
+    pixelSize: { width: 1600, height: 80 },
+  });
+  // Widened to whole pixels, since resvg stretches the drawing to its rounded size.
+  expect(fit(rect(10.2, 10), 2)).toEqual({
+    rect: rect(10.5, 10),
+    scale: 2,
+    pixelSize: { width: 21, height: 20 },
+  });
+  expect(errorOf(() => fit(rect(2000, 100), 4, 8000))).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    path: "maxSize",
+    hint: expect.stringContaining("4096"),
+  });
+  expect(errorOf(() => fit(rect(2000, 100), 4))).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    path: "scale",
+    hint: expect.stringContaining("scale <= 2.04"),
+  });
+});
+
+/** A Layer holding Group A (rect, line) and rect B, on a white Artboard. */
+function scene() {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+  });
+  const [a, b] = createNodes(doc, [
+    {
+      type: "group",
+      parentId,
+      children: [
+        {
+          type: "rect",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          appearance: { fills: [{ color: "#AA0000" }] },
+        },
+        {
+          type: "line",
+          x1: 0,
+          y1: 0,
+          x2: 5,
+          y2: 5,
+          appearance: { strokes: [{ color: "#00AA00" }] },
+        },
+      ],
+    },
+    {
+      type: "rect",
+      parentId,
+      x: 50,
+      y: 50,
+      width: 10,
+      height: 10,
+      appearance: { fills: [{ color: "#0000AA" }] },
+    },
+  ]).nodes;
+  const [inA, lineInA] = [...doc.nodes.values()].filter((n) => n.parentId === a?.id);
+  if (!a || !b || !inA || !lineInA) throw new Error("setup");
+  return { doc, a, b, inA, lineInA };
+}
+
+it("draws only the listed Nodes and what they contain, inside their ancestors", () => {
+  const { doc, a, inA } = scene();
+  const rect = { x: 0, y: 0, width: 10, height: 10 };
+  const group = toSvg(doc, rect, { nodeIds: [a.id] });
+  expect(group).toMatch(
+    /<svg[^>]*><g><g><path[^>]*#AA0000"\/><path[^>]*#00AA00"[^>]*\/><\/g><\/g><\/svg>$/,
+  );
+  expect(group).not.toContain("#0000AA");
+  // A selection export has no Artboard background.
+  expect(group).not.toContain("#FFFFFF");
+  expect(toSvg(doc, rect, { nodeIds: [inA.id] })).toMatch(
+    /<svg[^>]*><g><g><path[^>]*#AA0000"\/><\/g><\/g><\/svg>$/,
+  );
+  a.visible = false;
+  expect(toSvg(doc, rect, { nodeIds: [inA.id] })).toMatch(/<svg[^>]*><\/svg>$/);
+});
+
+it("fills the whole rect with background beneath the Artboard backgrounds", () => {
+  const { doc, a } = scene();
+  const rect = { x: -5, y: -5, width: 300, height: 200 };
+  expect(toSvg(doc, rect, { background: "#112233" })).toMatch(
+    /<svg[^>]*><rect x="-5" y="-5" width="300" height="200" fill="#112233"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF"\/><g>/,
+  );
+  expect(toSvg(doc, rect, { background: "#112233", nodeIds: [a.id] })).toMatch(
+    /<svg[^>]*><rect[^>]*fill="#112233"\/><g>/,
+  );
+});
+
+it("labels every drawn Node but Layers with its id and bounds, sized in pixels", () => {
+  const { doc, a, b, inA, lineInA } = scene();
+  const layer = doc.nodes.get(a.parentId ?? "");
+  if (!layer) throw new Error("setup");
+  const svg = toSvg(doc, undefined, { overlays: ["ids", "bounds"], scale: 2 });
+  for (const n of [a, b, inA, lineInA]) {
+    expect(svg).toContain(`>${n.id}</text>`);
+  }
+  expect(svg).not.toContain(layer.id);
+  expect(svg).toContain('font-size="5.5"');
+  expect(svg).toContain(
+    '<rect x="50" y="50" width="10" height="10" fill="none" stroke="#FF00FF" stroke-width="0.5"/>',
+  );
+  // Four boxes, none for the Layer; overlays come after the artwork.
+  expect(svg.match(/stroke="#FF00FF" stroke-width="0.5"\/>/g)).toHaveLength(4);
+  expect(svg.indexOf("#FF00FF")).toBeGreaterThan(svg.indexOf("#0000AA"));
+  expect(toSvg(doc)).not.toContain("#FF00FF");
+});
+
+it("gives hidden Nodes and Nodes outside the scope no overlay, and outlines Artboards", () => {
+  const { doc, a, b, inA } = scene();
+  inA.visible = false;
+  const svg = toSvg(doc, undefined, { nodeIds: [a.id], overlays: ["ids", "artboards"], scale: 4 });
+  expect(svg).toContain(`>${a.id}</text>`);
+  expect(svg).not.toContain(inA.id);
+  expect(svg).not.toContain(b.id);
+  expect(svg).toContain(
+    '<rect x="0" y="0" width="200" height="100" fill="none" stroke="#00AEEF" stroke-width="0.25"/>',
   );
 });

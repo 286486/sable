@@ -27,7 +27,7 @@ export function subtree(doc: Document, node: Node): Node[] {
   return [node, ...childrenOf(doc, node.id).flatMap((c) => subtree(doc, c))];
 }
 
-function lookup(doc: Document, id: string, path: string): Node {
+export function lookup(doc: Document, id: string, path: string): Node {
   const node = doc.nodes.get(id);
   if (node) return node;
   throw new ZibelError({

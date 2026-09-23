@@ -1,14 +1,23 @@
 import {
+  bounds,
   childrenOf,
   type Document,
   formatNumber,
   formatPath,
   IDENTITY,
+  lookup,
   type Node,
   type Rect,
+  type RenderOverlay,
+  type RenderScope,
   shapeSegments,
   union,
+  visibleBounds,
+  ZibelError,
 } from "@zibel/core";
+
+/** The longest side `render` and `export` rasterise (REQUIREMENTS §7). */
+export const MAX_RENDER_SIDE = 4096;
 
 const esc = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
@@ -26,21 +35,157 @@ export function docRect(doc: Document): Rect {
   return union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 0, height: 0 };
 }
 
-/** SVG of `rect` in document coordinates (default: every Artboard). Layers become `<g>` in stacking order. */
-export function toSvg(doc: Document, rect: Rect = docRect(doc)): string {
-  const { x, y, width, height } = rect;
-  const background = doc.artboards
-    .filter((a) => a.background)
-    .map((a) => `<rect${attrs({ ...a.frame, fill: a.background })}/>`)
-    .join("");
-  const body = childrenOf(doc, null)
-    .map((n) => node(doc, n))
-    .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg"${attrs({ width, height, viewBox: `${x} ${y} ${width} ${height}` })}>${background}${body}</svg>`;
+/** The rect a Render Scope covers, in document coordinates (ADR-0014). */
+export function scopeRect(doc: Document, scope?: RenderScope): Rect {
+  if (!scope) return docRect(doc);
+  if ("rect" in scope) return scope.rect;
+  if ("artboardId" in scope) {
+    const artboard = doc.artboards.find((a) => a.id === scope.artboardId);
+    if (artboard) return artboard.frame;
+    throw new ZibelError({
+      code: "ARTBOARD_NOT_FOUND",
+      message: `No Artboard with id ${scope.artboardId}.`,
+      hint: "zibel_doc_get_info lists the Artboards with their ids.",
+      path: "scope.artboardId",
+    });
+  }
+  const rect = union(
+    scope.nodeIds.map((id, i) => visibleBounds(doc, lookup(doc, id, `scope.nodeIds[${i}]`))),
+  );
+  if (rect) return rect;
+  throw new ZibelError({
+    code: "NOTHING_TO_RENDER",
+    message: "The listed Nodes are empty Layers or Groups: there is nothing to draw.",
+    hint: "List Nodes that contain artwork, or pass scope {rect} instead.",
+    path: "scope.nodeIds",
+  });
 }
 
-function node(doc: Document, n: Node): string {
+/**
+ * The scale, pixel size and rect of an image of `rect` at `scale`, lowered to fit `maxSize`.
+ * resvg rounds the pixel size and stretches the drawing to it, so the rect widens to whole pixels
+ * (by less than one) to keep `scale` the exact zoom drawn.
+ */
+export function fit(rect: Rect, scale: number, maxSize?: number) {
+  const long = Math.max(rect.width, rect.height);
+  const used = maxSize !== undefined && long * scale > maxSize ? maxSize / long : scale;
+  // The epsilon keeps float noise such as 2000 × 0.8 = 1600.0000000000002 from adding a pixel.
+  const px = (side: number) => Math.max(1, Math.ceil(side * used - 1e-6));
+  if (px(long) > MAX_RENDER_SIDE) {
+    const fits = Math.floor((MAX_RENDER_SIDE / long) * 100) / 100;
+    const viaMaxSize = maxSize !== undefined && maxSize > MAX_RENDER_SIDE;
+    throw new ZibelError({
+      code: "LIMIT_EXCEEDED",
+      message: `The image would be ${px(long)} px on its longest side; the limit is ${MAX_RENDER_SIDE}.`,
+      hint: viaMaxSize
+        ? `Use maxSize <= ${MAX_RENDER_SIDE} (default 1600), or scale <= ${fits}.`
+        : `Use scale <= ${fits}, or a smaller scope.`,
+      path: viaMaxSize ? "maxSize" : "scale",
+    });
+  }
+  const pixelSize = { width: px(rect.width), height: px(rect.height) };
+  const widen = (side: number, pixels: number) =>
+    Math.abs(pixels / used - side) < 1e-9 ? side : pixels / used;
+  return {
+    rect: {
+      ...rect,
+      width: widen(rect.width, pixelSize.width),
+      height: widen(rect.height, pixelSize.height),
+    },
+    scale: used,
+    pixelSize,
+  };
+}
+
+export interface SvgOptions {
+  /** Draw only these Nodes and what they contain, and no Artboard backgrounds (nodeIds scope). */
+  nodeIds?: string[];
+  /** A colour filling the whole rect beneath everything. */
+  background?: string;
+  /** Render Overlays drawn over the artwork, sized in pixels at `scale` (ADR-0014). */
+  overlays?: RenderOverlay[];
+  scale?: number;
+}
+
+/** Which Nodes a walk draws: all of them, or those inside `scope`. */
+interface Walk {
+  scope: Set<string> | undefined;
+  inside: boolean;
+  /** Collects the Nodes drawn, but Layers, for the overlays. */
+  drawn: Node[];
+}
+
+/** SVG of `rect` in document coordinates (default: every Artboard). Layers become `<g>` in stacking order. */
+export function toSvg(doc: Document, rect: Rect = docRect(doc), opts: SvgOptions = {}): string {
+  const { x, y, width, height } = rect;
+  const scope = opts.nodeIds && new Set(opts.nodeIds);
+  const background = [
+    opts.background ? `<rect${attrs({ ...rect, fill: opts.background })}/>` : "",
+    ...(scope ? [] : doc.artboards)
+      .filter((a) => a.background)
+      .map((a) => `<rect${attrs({ ...a.frame, fill: a.background })}/>`),
+  ].join("");
+  const drawn: Node[] = [];
+  const body = childrenOf(doc, null)
+    .map((n) => node(doc, n, { scope, inside: !scope, drawn }))
+    .join("");
+  const overlay = opts.overlays?.length
+    ? overlays(doc, drawn, new Set(opts.overlays), opts.scale ?? 1)
+    : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg"${attrs({ width, height, viewBox: `${x} ${y} ${width} ${height}` })}>${background}${body}${overlay}</svg>`;
+}
+
+// Magenta boxes and labels, cyan Artboard edges: colours artwork rarely uses, and neither is the
+// default black Stroke.
+const BOX = "#FF00FF";
+const EDGE = "#00AEEF";
+
+/** Artboard edges, then boxes, then id labels on top, each a fixed pixel size at `scale`. */
+function overlays(doc: Document, drawn: Node[], on: Set<RenderOverlay>, scale: number): string {
+  const px = (v: number) => formatNumber(v / scale);
+  const outline = (r: Rect, stroke: string) =>
+    `<rect${attrs({
+      x: formatNumber(r.x),
+      y: formatNumber(r.y),
+      width: formatNumber(r.width),
+      height: formatNumber(r.height),
+      fill: "none",
+      stroke,
+      "stroke-width": px(1),
+    })}/>`;
+  const boxes = drawn.flatMap((n) => {
+    const b = bounds(doc, n);
+    return b ? [{ n, b }] : [];
+  });
+  // Inside the top-left corner, so a Node at the image's edge keeps its label; a white halo
+  // under the text reads on any colour.
+  const label = ({ n, b }: { n: Node; b: Rect }) =>
+    [
+      { fill: "none", stroke: "#FFFFFF", "stroke-width": px(3), "stroke-linejoin": "round" },
+      { fill: BOX },
+    ]
+      .map(
+        (paint) =>
+          `<text${attrs({
+            x: formatNumber(b.x + 2 / scale),
+            y: formatNumber(b.y + 11 / scale),
+            "font-family": "Source Sans 3",
+            "font-size": px(11),
+            ...paint,
+          })}>${esc(n.id)}</text>`,
+      )
+      .join("");
+  return [
+    ...(on.has("artboards") ? doc.artboards.map((a) => outline(a.frame, EDGE)) : []),
+    ...(on.has("bounds") ? boxes.map(({ b }) => outline(b, BOX)) : []),
+    ...(on.has("ids") ? boxes.map(label) : []),
+  ].join("");
+}
+
+function node(doc: Document, n: Node, walk: Walk): string {
   if (!n.visible) return "";
+  const inside = walk.inside || walk.scope?.has(n.id) === true;
+  if (inside && n.type !== "layer") walk.drawn.push(n);
   const group = {
     opacity: n.opacity === 1 ? undefined : n.opacity,
     transform: n.transform.every((v, i) => v === IDENTITY[i])
@@ -49,10 +194,12 @@ function node(doc: Document, n: Node): string {
   };
   if (n.type === "layer" || n.type === "group") {
     const kids = childrenOf(doc, n.id)
-      .map((c) => node(doc, c))
+      .map((c) => node(doc, c, { ...walk, inside }))
       .join("");
-    return `<g${attrs(group)}>${kids}</g>`;
+    // Outside the scope, a container is drawn only as the way to a listed Node.
+    return inside || kids ? `<g${attrs(group)}>${kids}</g>` : "";
   }
+  if (!inside) return "";
   // A leaf is painted once per Fill, then once per Stroke: Illustrator's default stacking, Fills
   // below Strokes. A Live Shape or Path is a <path> of the same outline node_get reports as d.
   const paint =

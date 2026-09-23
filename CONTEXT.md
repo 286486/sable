@@ -181,3 +181,17 @@ _Avoid_: Session、Client、Connection、User（Actor 可能是 Agent）
 **Agent**：
 通过 MCP 调用 Zibel 的 AI 客户端，以自己的凭证作为一个 Actor。与人类用户拥有同等的编辑能力，只是入口不同。
 _Avoid_: Bot、AI、Model、Assistant
+
+## 渲染与导出
+
+**Render Scope（渲染范围）**：
+`render` 与 `export` 画出的那块区域：整个 Document（所有 Artboard 的并集）、一个 Artboard、若干 Node（取它们的 visible bounds，且只画这些 Node）或一个文档坐标矩形。它决定 `docRect`。
+_Avoid_: Region、Crop、Viewport（那是返回的映射）
+
+**Viewport（视口元数据）**：
+`render` 返回的 `{docRect, pixelSize, scale}`：图像覆盖的文档矩形、像素尺寸、实际采用的每点像素数。Agent 用 `docX = docRect.x + px / scale` 把截图坐标换回文档坐标。
+_Avoid_: Camera、View、Transform
+
+**Render Overlay（渲染叠加层）**：
+`render` 画在图稿之上的辅助标记：Node 的 bounds、Node id 标签、Artboard 边界。按像素定尺寸，只出现在 `render` 图像里，不进入 Document，也不进入 `export`。
+_Avoid_: Annotation、Guide（那是参考线）；不要单说 Overlay（ADR-0008 的 Transaction overlay 是另一回事）

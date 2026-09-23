@@ -36,13 +36,16 @@ const OutlineNode = z.object({
 
 export const OutlineOutput = z.object({ rev: z.number().int(), layers: z.array(OutlineNode) });
 
-export const RenderOutput = z.object({
-  viewport: z.object({
-    docRect: Rect,
-    pixelSize: z.object({ width: z.number().int(), height: z.number().int() }),
-    scale: z.number(),
-  }),
+const Viewport = z.object({
+  docRect: Rect,
+  pixelSize: z.object({ width: z.number().int(), height: z.number().int() }),
+  scale: z.number(),
 });
+
+export const RenderOutput = z.object({ viewport: Viewport });
+
+/** svg: docRect, its viewBox; png: viewport. */
+export const ExportOutput = z.object({ docRect: Rect.optional(), viewport: Viewport.optional() });
 
 /** A `node_get` entry: the concise fields typed; `full` adds the stored and derived properties. */
 const NodeView = z.looseObject({

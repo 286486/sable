@@ -50,3 +50,16 @@ it("keeps runs of spaces, so the drawn width follows the advance sum", async () 
   // Two more spaces move the last glyph right by two space advances: 2 × 200 × 100 / 1000 = 40 pt.
   expect((await right("a    b")) - (await right("a  b"))).toBeCloseTo(40, -0.5);
 });
+
+it("rounds the pixel size to the nearest pixel and stretches the drawing to it", async () => {
+  // Why fit() widens the rect to whole pixels: at 10.2 pt × 2 resvg draws 20 px, not 20.4.
+  const size = async (width: number) =>
+    (
+      await svgToPixels(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="10" viewBox="0 0 ${width} 10"/>`,
+        2,
+      )
+    ).width;
+  expect(await size(10.2)).toBe(20);
+  expect(await size(10.5)).toBe(21);
+});
