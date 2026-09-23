@@ -7,3 +7,8 @@ This product includes software developed by the Zibel project
 Third-party components bundled or redistributed with Zibel are listed here
 together with their required attribution notices. This file is updated as
 dependencies are added.
+
+Source Sans 3 Regular (packages/render/fonts/SourceSans3-Regular.ttf)
+Copyright 2010-2024 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+Licensed under the SIL Open Font License, Version 1.1; the full text is in
+packages/render/fonts/LICENSE.md. Shipped unmodified.

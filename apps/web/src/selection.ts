@@ -3,9 +3,9 @@ import {
   childrenOf,
   type Document,
   formatPath,
+  type LeafNode,
   type Node,
   type Rect,
-  type ShapeNode,
   scaleOf,
   shapeSegments,
   transformSegments,
@@ -78,15 +78,22 @@ export function hitTest(
   return hit && (objectOf(doc, hit)?.id ?? null);
 }
 
-/** Inside a Fill, or on the outline (painted or not, as Illustrator hits an unpainted Path). */
+/**
+ * Inside a Fill, or on the outline (painted or not, as Illustrator hits an unpainted Path); a
+ * text anywhere inside its bounds.
+ */
 function paintedAt(
   ctx: CanvasRenderingContext2D,
   doc: Document,
-  n: ShapeNode,
+  n: LeafNode,
   x: number,
   y: number,
   tolerance: number,
 ): boolean {
+  if (n.type === "text") {
+    const b = bounds(doc, n);
+    return !!b && b.x <= x && x <= b.x + b.width && b.y <= y && y <= b.y + b.height;
+  }
   const m = worldTransform(doc, n);
   const path = new Path2D(formatPath(transformSegments(shapeSegments(n), m)));
   if (n.appearance.fills.length > 0 && ctx.isPointInPath(path, x, y)) return true;

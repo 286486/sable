@@ -119,3 +119,35 @@ it("skips hidden Nodes, and applies opacity and transform through save and resto
   expect(log).toContain("transform 0 1 -1 0 60 -10");
   expect(after.visible).toBe(true);
 });
+
+it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "text",
+      parentId,
+      x: 10,
+      y: 50,
+      content: "Hi",
+      appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#0000FF", width: 2 }] },
+    },
+  ]);
+  const { ctx, log } = recorder();
+  drawDocument(ctx, doc);
+  const body = log.filter((l) => !/^(save|restore|globalAlpha|transform)/.test(l));
+  expect(body).toEqual([
+    "fillStyle=#FFFFFF",
+    "fillRect 0 0 200 100",
+    'font=12px "Source Sans 3"',
+    "fontKerning=none",
+    "fillStyle=#FF0000",
+    "fillText Hi 10 50",
+    "strokeStyle=#0000FF",
+    "lineWidth=2",
+    "lineCap=butt",
+    "lineJoin=miter",
+    "miterLimit=10",
+    "setLineDash ",
+    "strokeText Hi 10 50",
+  ]);
+});

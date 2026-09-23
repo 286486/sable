@@ -519,3 +519,73 @@ it("creates the valid items with partial and reports the invalid one", () => {
   ]);
   expect(outline(doc)[0]?.childCount).toBe(1);
 });
+
+describe("text", () => {
+  // Advances from the TTF at 12 pt: H 652, i 246, space 200; ascender 1000, descender -326.
+  const text = (parentId: string, content = "Hi") =>
+    ({ type: "text", parentId, x: 10, y: 50, content }) as const;
+
+  it("stores Point Type in Source Sans 3 at 12 pt with a black Fill and no Stroke", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [node] = createNodes(doc, [text(defaultLayerId)]).nodes;
+    expect(node).toMatchObject({
+      type: "text",
+      kind: "point",
+      x: 10,
+      y: 50,
+      content: "Hi",
+      fontFamily: "Source Sans 3",
+      fontSize: 12,
+      appearance: { fills: [{ color: "#000000" }], strokes: [] },
+    });
+  });
+
+  it("is bounded by its advances and the font's ascender and descender, and has no d", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [hi, longer] = createNodes(doc, [
+      text(defaultLayerId),
+      text(defaultLayerId, "Hi Hi"),
+    ]).nodes;
+    if (!hi || !longer) throw new Error("setup");
+    const b = bounds(doc, hi);
+    expect(b?.x).toBeCloseTo(10);
+    expect(b?.y).toBeCloseTo(38);
+    expect(b?.width).toBeCloseTo(10.776);
+    expect(b?.height).toBeCloseTo(15.912);
+    expect((bounds(doc, longer)?.width ?? 0) - (b?.width ?? 0)).toBeCloseTo(13.176);
+    const full = nodeView(doc, hi, "full");
+    expect(full).not.toHaveProperty("d");
+    expect(full).not.toHaveProperty("closed");
+  });
+
+  it("maps its box through its transform", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [node] = createNodes(doc, [text(defaultLayerId)]).nodes;
+    if (!node) throw new Error("setup");
+    doc.nodes.set(node.id, { ...node, transform: [0, 1, -1, 0, 0, 0] });
+    const b = bounds(doc, doc.nodes.get(node.id) ?? node);
+    // (10, 38)-(20.776, 53.912) turned 90° clockwise about the origin.
+    expect(b?.x).toBeCloseTo(-53.912);
+    expect(b?.y).toBeCloseTo(10);
+    expect(b?.width).toBeCloseTo(15.912);
+    expect(b?.height).toBeCloseTo(10.776);
+  });
+
+  it("is created inline in a Group", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [group, inner] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: defaultLayerId,
+        children: [{ type: "text", x: 10, y: 50, content: "Hi" }],
+      },
+    ]).nodes;
+    expect(inner).toMatchObject({ type: "text", parentId: group?.id });
+  });
+
+  it.each(["", "a\nb", "a\rb", "a\tb", "a\u2028b"])("rejects content %j", (content) => {
+    const { doc, defaultLayerId } = newDoc();
+    expect(() => createNodes(doc, [text(defaultLayerId, content)])).toThrow();
+    expect(doc.nodes.size).toBe(1);
+  });
+});

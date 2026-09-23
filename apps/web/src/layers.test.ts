@@ -82,3 +82,7 @@ it("offers no disclosure for an empty container", () => {
     expanded: false,
   });
 });
+
+it("auto-names a text by its content", () => {
+  expect(autoName({ type: "text", content: "Q3 revenue" } as Node)).toBe("Q3 revenue");
+});

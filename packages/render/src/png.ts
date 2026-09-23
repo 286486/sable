@@ -1,21 +1,37 @@
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
 import wasm from "@resvg/resvg-wasm/index_bg.wasm";
+import font from "../fonts/SourceSans3-Regular.ttf";
 
 // Workers forbid compiling wasm from bytes at runtime, so the module is imported statically
 // and initialised once per isolate.
 const ready = initWasm(wasm);
 
-export async function svgToPng(
+// The one bundled font (ADR-0013); workerd has no system fonts to fall back on.
+const fonts = {
+  fontBuffers: [new Uint8Array(font)],
+  loadSystemFonts: false,
+  defaultFontFamily: "Source Sans 3",
+};
+
+async function rasterise<T>(
   svg: string,
   scale: number,
-): Promise<{ png: Uint8Array; width: number; height: number }> {
+  read: (image: { asPng(): Uint8Array; pixels: Uint8Array }) => T,
+): Promise<{ width: number; height: number } & T> {
   await ready;
-  const resvg = new Resvg(svg, { fitTo: { mode: "zoom", value: scale } });
+  const resvg = new Resvg(svg, { fitTo: { mode: "zoom", value: scale }, font: fonts });
   const image = resvg.render();
   try {
-    return { png: image.asPng(), width: image.width, height: image.height };
+    return { ...read(image), width: image.width, height: image.height };
   } finally {
     image.free();
     resvg.free();
   }
 }
+
+export const svgToPng = (svg: string, scale: number) =>
+  rasterise(svg, scale, (image) => ({ png: image.asPng() }));
+
+/** Raw RGBA, row by row; for tests, since workerd cannot decode a PNG. */
+export const svgToPixels = (svg: string, scale: number) =>
+  rasterise(svg, scale, (image) => ({ pixels: image.pixels.slice() }));

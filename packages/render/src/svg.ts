@@ -13,7 +13,9 @@ import {
 const esc = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
 
-const attrs = (a: Record<string, string | number | undefined>) =>
+type Attrs = Record<string, string | number | undefined>;
+
+const attrs = (a: Attrs) =>
   Object.entries(a)
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => ` ${k}="${esc(String(v))}"`)
@@ -51,24 +53,36 @@ function node(doc: Document, n: Node): string {
       .join("");
     return `<g${attrs(group)}>${kids}</g>`;
   }
-  // Every leaf is a <path> of the same outline node_get reports as d, painted once per Fill, then
-  // once per Stroke: Illustrator's default stacking, Fills below Strokes.
-  const d = formatPath(shapeSegments(n));
+  // A leaf is painted once per Fill, then once per Stroke: Illustrator's default stacking, Fills
+  // below Strokes. A Live Shape or Path is a <path> of the same outline node_get reports as d.
+  const paint =
+    n.type === "text"
+      ? (a: Attrs) =>
+          `<text${attrs({
+            x: n.x,
+            y: n.y,
+            "font-family": n.fontFamily,
+            "font-size": n.fontSize,
+            // resvg honours font-kerning only as a style; unkerned, the drawn width is the
+            // advance sum the bounds report (ADR-0013).
+            style: "font-kerning:none",
+            "xml:space": "preserve",
+            ...a,
+          })}>${esc(n.content)}</text>`
+      : (a: Attrs) => `<path${attrs({ d: formatPath(shapeSegments(n)), ...a })}/>`;
   const paints = [
-    ...n.appearance.fills.map((f) => `<path${attrs({ d, fill: f.color })}/>`),
-    ...n.appearance.strokes.map(
-      (s) =>
-        `<path${attrs({
-          d,
-          fill: "none",
-          stroke: s.color,
-          "stroke-width": s.width,
-          "stroke-linecap": s.cap === "butt" ? undefined : s.cap,
-          "stroke-linejoin": s.join === "miter" ? undefined : s.join,
-          // SVG's default miter limit is 4, Illustrator's is 10: always write it for miter joins.
-          "stroke-miterlimit": s.join === "miter" ? s.miterLimit : undefined,
-          "stroke-dasharray": s.dash.length > 0 ? s.dash.join(" ") : undefined,
-        })}/>`,
+    ...n.appearance.fills.map((f) => paint({ fill: f.color })),
+    ...n.appearance.strokes.map((s) =>
+      paint({
+        fill: "none",
+        stroke: s.color,
+        "stroke-width": s.width,
+        "stroke-linecap": s.cap === "butt" ? undefined : s.cap,
+        "stroke-linejoin": s.join === "miter" ? undefined : s.join,
+        // SVG's default miter limit is 4, Illustrator's is 10: always write it for miter joins.
+        "stroke-miterlimit": s.join === "miter" ? s.miterLimit : undefined,
+        "stroke-dasharray": s.dash.length > 0 ? s.dash.join(" ") : undefined,
+      }),
     ),
   ].join("");
   const wrap = attrs(group);
