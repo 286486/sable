@@ -227,3 +227,107 @@ it("fits a rect to whole pixels, lowering the scale to maxSize and refusing more
     hint: expect.stringContaining("scale <= 2.04"),
   });
 });
+
+/** A Layer holding Group A (rect, line) and rect B, on a white Artboard. */
+function scene() {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+  });
+  const [a, b] = createNodes(doc, [
+    {
+      type: "group",
+      parentId,
+      children: [
+        {
+          type: "rect",
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          appearance: { fills: [{ color: "#AA0000" }] },
+        },
+        {
+          type: "line",
+          x1: 0,
+          y1: 0,
+          x2: 5,
+          y2: 5,
+          appearance: { strokes: [{ color: "#00AA00" }] },
+        },
+      ],
+    },
+    {
+      type: "rect",
+      parentId,
+      x: 50,
+      y: 50,
+      width: 10,
+      height: 10,
+      appearance: { fills: [{ color: "#0000AA" }] },
+    },
+  ]).nodes;
+  const [inA, lineInA] = [...doc.nodes.values()].filter((n) => n.parentId === a?.id);
+  if (!a || !b || !inA || !lineInA) throw new Error("setup");
+  return { doc, a, b, inA, lineInA };
+}
+
+it("draws only the listed Nodes and what they contain, inside their ancestors", () => {
+  const { doc, a, inA } = scene();
+  const rect = { x: 0, y: 0, width: 10, height: 10 };
+  const group = toSvg(doc, rect, { nodeIds: [a.id] });
+  expect(group).toMatch(
+    /<svg[^>]*><g><g><path[^>]*#AA0000"\/><path[^>]*#00AA00"[^>]*\/><\/g><\/g><\/svg>$/,
+  );
+  expect(group).not.toContain("#0000AA");
+  // A selection export has no Artboard background.
+  expect(group).not.toContain("#FFFFFF");
+  expect(toSvg(doc, rect, { nodeIds: [inA.id] })).toMatch(
+    /<svg[^>]*><g><g><path[^>]*#AA0000"\/><\/g><\/g><\/svg>$/,
+  );
+  a.visible = false;
+  expect(toSvg(doc, rect, { nodeIds: [inA.id] })).toMatch(/<svg[^>]*><\/svg>$/);
+});
+
+it("fills the whole rect with background beneath the Artboard backgrounds", () => {
+  const { doc, a } = scene();
+  const rect = { x: -5, y: -5, width: 300, height: 200 };
+  expect(toSvg(doc, rect, { background: "#112233" })).toMatch(
+    /<svg[^>]*><rect x="-5" y="-5" width="300" height="200" fill="#112233"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF"\/><g>/,
+  );
+  expect(toSvg(doc, rect, { background: "#112233", nodeIds: [a.id] })).toMatch(
+    /<svg[^>]*><rect[^>]*fill="#112233"\/><g>/,
+  );
+});
+
+it("labels every drawn Node but Layers with its id and bounds, sized in pixels", () => {
+  const { doc, a, b, inA, lineInA } = scene();
+  const layer = doc.nodes.get(a.parentId ?? "");
+  if (!layer) throw new Error("setup");
+  const svg = toSvg(doc, undefined, { overlays: ["ids", "bounds"], scale: 2 });
+  for (const n of [a, b, inA, lineInA]) {
+    expect(svg).toContain(`>${n.id}</text>`);
+  }
+  expect(svg).not.toContain(layer.id);
+  expect(svg).toContain('font-size="5.5"');
+  expect(svg).toContain(
+    '<rect x="50" y="50" width="10" height="10" fill="none" stroke="#FF00FF" stroke-width="0.5"/>',
+  );
+  // Four boxes, none for the Layer; overlays come after the artwork.
+  expect(svg.match(/stroke="#FF00FF" stroke-width="0.5"\/>/g)).toHaveLength(4);
+  expect(svg.indexOf("#FF00FF")).toBeGreaterThan(svg.indexOf("#0000AA"));
+  expect(toSvg(doc)).not.toContain("#FF00FF");
+});
+
+it("gives hidden Nodes and Nodes outside the scope no overlay, and outlines Artboards", () => {
+  const { doc, a, b, inA } = scene();
+  inA.visible = false;
+  const svg = toSvg(doc, undefined, { nodeIds: [a.id], overlays: ["ids", "artboards"], scale: 4 });
+  expect(svg).toContain(`>${a.id}</text>`);
+  expect(svg).not.toContain(inA.id);
+  expect(svg).not.toContain(b.id);
+  expect(svg).toContain(
+    '<rect x="0" y="0" width="200" height="100" fill="none" stroke="#00AEEF" stroke-width="0.25"/>',
+  );
+});

@@ -1,4 +1,5 @@
 import {
+  bounds,
   childrenOf,
   type Document,
   formatNumber,
@@ -6,6 +7,7 @@ import {
   IDENTITY,
   lookup,
   type Node,
+  type Overlay,
   type Rect,
   type RenderScope,
   shapeSegments,
@@ -95,21 +97,95 @@ export function fit(rect: Rect, scale: number, maxSize?: number) {
   };
 }
 
-/** SVG of `rect` in document coordinates (default: every Artboard). Layers become `<g>` in stacking order. */
-export function toSvg(doc: Document, rect: Rect = docRect(doc)): string {
-  const { x, y, width, height } = rect;
-  const background = doc.artboards
-    .filter((a) => a.background)
-    .map((a) => `<rect${attrs({ ...a.frame, fill: a.background })}/>`)
-    .join("");
-  const body = childrenOf(doc, null)
-    .map((n) => node(doc, n))
-    .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg"${attrs({ width, height, viewBox: `${x} ${y} ${width} ${height}` })}>${background}${body}</svg>`;
+export interface SvgOptions {
+  /** Draw only these Nodes and what they contain, and no Artboard backgrounds (nodeIds scope). */
+  nodeIds?: string[];
+  /** A colour filling the whole rect beneath everything. */
+  background?: string;
+  /** Render Overlays drawn over the artwork, sized in pixels at `scale` (ADR-0014). */
+  overlays?: Overlay[];
+  scale?: number;
 }
 
-function node(doc: Document, n: Node): string {
+/** Which Nodes a walk draws: all of them, or those inside `scope`. */
+interface Walk {
+  scope: Set<string> | undefined;
+  inside: boolean;
+  /** Collects the Nodes drawn, but Layers, for the overlays. */
+  drawn: Node[];
+}
+
+/** SVG of `rect` in document coordinates (default: every Artboard). Layers become `<g>` in stacking order. */
+export function toSvg(doc: Document, rect: Rect = docRect(doc), opts: SvgOptions = {}): string {
+  const { x, y, width, height } = rect;
+  const scope = opts.nodeIds && new Set(opts.nodeIds);
+  const background = [
+    opts.background ? `<rect${attrs({ ...rect, fill: opts.background })}/>` : "",
+    ...(scope ? [] : doc.artboards)
+      .filter((a) => a.background)
+      .map((a) => `<rect${attrs({ ...a.frame, fill: a.background })}/>`),
+  ].join("");
+  const drawn: Node[] = [];
+  const body = childrenOf(doc, null)
+    .map((n) => node(doc, n, { scope, inside: !scope, drawn }))
+    .join("");
+  const overlay = opts.overlays?.length
+    ? overlays(doc, drawn, new Set(opts.overlays), opts.scale ?? 1)
+    : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg"${attrs({ width, height, viewBox: `${x} ${y} ${width} ${height}` })}>${background}${body}${overlay}</svg>`;
+}
+
+// Magenta boxes and labels, cyan Artboard edges: colours artwork rarely uses, and neither is the
+// default black Stroke.
+const BOX = "#FF00FF";
+const EDGE = "#00AEEF";
+
+/** Artboard edges, then boxes, then id labels on top, each a fixed pixel size at `scale`. */
+function overlays(doc: Document, drawn: Node[], on: Set<Overlay>, scale: number): string {
+  const px = (v: number) => formatNumber(v / scale);
+  const outline = (r: Rect, stroke: string) =>
+    `<rect${attrs({
+      x: formatNumber(r.x),
+      y: formatNumber(r.y),
+      width: formatNumber(r.width),
+      height: formatNumber(r.height),
+      fill: "none",
+      stroke,
+      "stroke-width": px(1),
+    })}/>`;
+  const boxes = drawn.flatMap((n) => {
+    const b = bounds(doc, n);
+    return b ? [{ n, b }] : [];
+  });
+  // Inside the top-left corner, so a Node at the image's edge keeps its label; a white halo
+  // under the text reads on any colour.
+  const label = ({ n, b }: { n: Node; b: Rect }) =>
+    [
+      { fill: "none", stroke: "#FFFFFF", "stroke-width": px(3), "stroke-linejoin": "round" },
+      { fill: BOX },
+    ]
+      .map(
+        (paint) =>
+          `<text${attrs({
+            x: formatNumber(b.x + 2 / scale),
+            y: formatNumber(b.y + 11 / scale),
+            "font-family": "Source Sans 3",
+            "font-size": px(11),
+            ...paint,
+          })}>${n.id}</text>`,
+      )
+      .join("");
+  return [
+    ...(on.has("artboards") ? doc.artboards.map((a) => outline(a.frame, EDGE)) : []),
+    ...(on.has("bounds") ? boxes.map(({ b }) => outline(b, BOX)) : []),
+    ...(on.has("ids") ? boxes.map(label) : []),
+  ].join("");
+}
+
+function node(doc: Document, n: Node, walk: Walk): string {
   if (!n.visible) return "";
+  const inside = walk.inside || walk.scope?.has(n.id) === true;
+  if (inside && n.type !== "layer") walk.drawn.push(n);
   const group = {
     opacity: n.opacity === 1 ? undefined : n.opacity,
     transform: n.transform.every((v, i) => v === IDENTITY[i])
@@ -118,10 +194,12 @@ function node(doc: Document, n: Node): string {
   };
   if (n.type === "layer" || n.type === "group") {
     const kids = childrenOf(doc, n.id)
-      .map((c) => node(doc, c))
+      .map((c) => node(doc, c, { ...walk, inside }))
       .join("");
-    return `<g${attrs(group)}>${kids}</g>`;
+    // Outside the scope, a container is drawn only as the way to a listed Node.
+    return inside || kids ? `<g${attrs(group)}>${kids}</g>` : "";
   }
+  if (!inside) return "";
   // A leaf is painted once per Fill, then once per Stroke: Illustrator's default stacking, Fills
   // below Strokes. A Live Shape or Path is a <path> of the same outline node_get reports as d.
   const paint =
