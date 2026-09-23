@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bounds, createDocument, createNodes } from "./document.ts";
-import { transformNodes } from "./edit.ts";
+import { transformNodes, updateNodes } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
 import type { Node, ShapeNode } from "./schema.ts";
 
@@ -153,5 +153,137 @@ describe("transformNodes", () => {
       errorOf(() => transformNodes(doc, { nodeIds: [a.id, "nope"], translate: { x: 1 } })),
     ).toMatchObject({ code: "NODE_NOT_FOUND", path: "nodeIds[1]", hint: expect.any(String) });
     expect(shape(doc, a.id).transform).toEqual([1, 0, 0, 1, 0, 0]);
+  });
+});
+
+describe("updateNodes", () => {
+  const setup = () => {
+    const { doc, defaultLayerId, rect } = newDoc();
+    const [r, p] = createNodes(doc, [
+      rect(10, 10, {
+        appearance: {
+          fills: [{ color: "#00FF00" }],
+          strokes: [{ color: "#000000" }, { color: "#FFFFFF", width: 3 }],
+        },
+      }),
+      { type: "path", parentId: defaultLayerId, d: "M 0 0 L 5 5" },
+    ]).nodes;
+    if (!r || !p) throw new Error("setup");
+    return { doc, defaultLayerId, r, p };
+  };
+
+  it("merges common properties, recursing into meta and deleting with null (RFC 7396)", () => {
+    const { doc, r } = setup();
+    updateNodes(doc, [
+      {
+        nodeId: r.id,
+        patch: {
+          name: "Hero",
+          visible: false,
+          opacity: 0.5,
+          blendMode: "multiply",
+          tags: ["a"],
+          meta: { a: 1, b: 2 },
+        },
+      },
+    ]);
+    const { nodes } = updateNodes(doc, [{ nodeId: r.id, patch: { meta: { b: null, c: 3 } } }]);
+    expect(nodes.map((n) => n.id)).toEqual([r.id]);
+    expect(doc.nodes.get(r.id)).toMatchObject({
+      name: "Hero",
+      visible: false,
+      opacity: 0.5,
+      blendMode: "multiply",
+      tags: ["a"],
+      meta: { a: 1, c: 3 },
+    });
+  });
+
+  it("changes Live Shape parameters, which changes the derived outline", () => {
+    const { doc, r } = setup();
+    updateNodes(doc, [{ nodeId: r.id, patch: { radius: 8, width: 60 } }]);
+    expect(shape(doc, r.id)).toMatchObject({ radius: 8, width: 60, height: 30 });
+    expect(bounds(doc, shape(doc, r.id))).toEqual({ x: 10, y: 10, width: 60, height: 30 });
+  });
+
+  it("replaces a whole fills or strokes list and keeps the other", () => {
+    const { doc, r } = setup();
+    updateNodes(doc, [{ nodeId: r.id, patch: { appearance: { fills: [{ color: "#FF0000" }] } } }]);
+    expect(shape(doc, r.id).appearance.fills).toEqual([{ type: "solid", color: "#FF0000" }]);
+    expect(shape(doc, r.id).appearance.strokes).toHaveLength(2);
+    updateNodes(doc, [
+      { nodeId: r.id, patch: { appearance: { strokes: [{ color: "#000000" }] } } },
+    ]);
+    expect(shape(doc, r.id).appearance.strokes).toEqual([
+      { color: "#000000", width: 1, cap: "butt", join: "miter", miterLimit: 10, dash: [] },
+    ]);
+  });
+
+  it("normalises a Path's new d", () => {
+    const { doc, p } = setup();
+    updateNodes(doc, [{ nodeId: p.id, patch: { d: "M 0 0 L 10.0004 0" } }]);
+    expect(shape(doc, p.id)).toMatchObject({ d: "M 0 0 L 10 0" });
+  });
+
+  it.each([
+    [{ transform: [1, 0, 0, 1, 0, 0] }, "transform", /node_transform/],
+    [{ parentId: "x" }, "parentId", /reparent/i],
+    [{ type: "ellipse" }, "type", /type/],
+    [{ sides: 5 }, "sides", /x, y, width, height, radius/],
+    [{ d: "M 0 0" }, "d", /parameters/],
+    [{ name: null }, "name", /null/],
+    [{ width: -1 }, "width", /./],
+  ])("rejects %j with INVALID_PATCH", (patch, key, hint) => {
+    const { doc, r } = setup();
+    expect(errorOf(() => updateNodes(doc, [{ nodeId: r.id, patch }]))).toMatchObject({
+      code: "INVALID_PATCH",
+      path: `updates[0].patch.${key}`,
+      hint: expect.stringMatching(hint),
+    });
+  });
+
+  it("rejects appearance on a Group", () => {
+    const { doc, defaultLayerId } = setup();
+    expect(
+      errorOf(() => updateNodes(doc, [{ nodeId: defaultLayerId, patch: { appearance: {} } }])),
+    ).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.appearance" });
+  });
+
+  it("reports INVALID_COLOR and INVALID_PATH at the patch path", () => {
+    const { doc, r, p } = setup();
+    expect(
+      errorOf(() =>
+        updateNodes(doc, [{ nodeId: r.id, patch: { appearance: { fills: [{ color: "red" }] } } }]),
+      ),
+    ).toMatchObject({
+      code: "INVALID_COLOR",
+      path: "updates[0].patch.appearance.fills[0].color",
+      hint: expect.stringContaining("#FF0000"),
+    });
+    expect(
+      errorOf(() => updateNodes(doc, [{ nodeId: p.id, patch: { d: "M 0 0 h 1" } }])),
+    ).toMatchObject({ code: "INVALID_PATH", path: "updates[0].patch.d" });
+  });
+
+  it("applies two patches to one Node in order", () => {
+    const { doc, r } = setup();
+    updateNodes(doc, [
+      { nodeId: r.id, patch: { name: "a" } },
+      { nodeId: r.id, patch: { opacity: 0.5 } },
+    ]);
+    expect(doc.nodes.get(r.id)).toMatchObject({ name: "a", opacity: 0.5 });
+  });
+
+  it("changes nothing when one item fails", () => {
+    const { doc, r } = setup();
+    expect(
+      errorOf(() =>
+        updateNodes(doc, [
+          { nodeId: r.id, patch: { name: "changed" } },
+          { nodeId: "nope", patch: { name: "x" } },
+        ]),
+      ),
+    ).toMatchObject({ code: "NODE_NOT_FOUND", path: "updates[1].nodeId" });
+    expect(doc.nodes.get(r.id)?.name).toBe("");
   });
 });

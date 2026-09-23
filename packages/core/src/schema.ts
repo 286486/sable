@@ -110,6 +110,14 @@ export const PathShape = z.object({
   type: z.literal("path"),
   d: z.string().describe("SVG path data, absolute M, L, C, Q and Z only, e.g. M 0 0 L 10 0 Z."),
 });
+export const SHAPES = {
+  rect: RectShape,
+  ellipse: EllipseShape,
+  line: LineShape,
+  polygon: PolygonShape,
+  star: StarShape,
+  path: PathShape,
+};
 export const Shape = z.discriminatedUnion("type", [
   RectShape,
   EllipseShape,
@@ -124,9 +132,13 @@ const clientKey = z
   .string()
   .optional()
   .describe("Your own key for this item; the receipt's keyMap maps it to the new id.");
+const tags = z.array(z.string());
+const meta = z.record(z.string(), z.unknown()).describe("Any JSON: your notes or data bindings.");
 const item = {
   clientKey,
   name: z.string().optional(),
+  tags: tags.optional(),
+  meta: meta.optional(),
 };
 const leaf = {
   ...item,
@@ -146,6 +158,8 @@ interface GroupChild {
   type: "group";
   clientKey?: string;
   name?: string;
+  tags?: string[];
+  meta?: Record<string, unknown>;
   children: ChildInput[];
 }
 interface GroupChildIn extends Omit<GroupChild, "children"> {
@@ -183,6 +197,67 @@ export const NodeInput = z.discriminatedUnion("type", [
   ...[...LEAF_ITEMS, GroupItem].map((s) => s.extend({ parentId })),
 ]);
 export type NodeInput = z.input<typeof NodeInput>;
+
+/** Illustrator's 16 blend modes, by their CSS names. */
+export const BlendMode = z.enum([
+  "normal",
+  "darken",
+  "multiply",
+  "color-burn",
+  "lighten",
+  "screen",
+  "color-dodge",
+  "overlay",
+  "soft-light",
+  "hard-light",
+  "difference",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+]);
+
+/** What `node_update` may write on every Node; a leaf adds its parameters and `appearance`. */
+export const Writable = z.object({
+  name: z.string(),
+  visible: z.boolean(),
+  locked: z.boolean(),
+  opacity: z.number().min(0).max(1),
+  blendMode: BlendMode,
+  tags,
+  meta,
+});
+
+const unwrapDefault = (t: z.ZodType) => (t instanceof z.ZodDefault ? t.unwrap() : t);
+const parameters = Object.fromEntries(
+  Object.values(SHAPES)
+    .flatMap((o) => Object.entries(o.shape))
+    .filter(([k]) => k !== "type")
+    .map(([k, t]) => [k, unwrapDefault(t as z.ZodType)]),
+);
+
+/**
+ * The published `node_update` patch. Nothing here has a default, or the MCP SDK would insert it into
+ * the patch and overwrite the stored value. Loose, so read-only keys reach core and get a hint; every
+ * key is nullable because null deletes in a merge patch.
+ */
+export const NodePatch = z
+  .looseObject(
+    Object.fromEntries(
+      Object.entries({
+        ...Writable.shape,
+        appearance: z.object({ fills: z.array(Fill), strokes: z.array(Stroke) }).partial(),
+        ...parameters,
+      }).map(([k, t]) => [k, (t as z.ZodType).nullable().optional()]),
+    ),
+  )
+  .describe(
+    "JSON Merge Patch (RFC 7396) of the Node's writable properties: objects merge, null deletes, arrays and everything else replace.",
+  );
+
+export const UpdateInput = z.object({ nodeId: z.string(), patch: NodePatch });
+export type UpdateInput = z.input<typeof UpdateInput>;
 
 /** `[a, b, c, d, e, f]` with SVG semantics. */
 export type Matrix = [number, number, number, number, number, number];
@@ -254,7 +329,7 @@ interface NodeBase {
   visible: boolean;
   locked: boolean;
   opacity: number;
-  blendMode: string;
+  blendMode: z.infer<typeof BlendMode>;
   transform: Matrix;
   tags: string[];
   meta: Record<string, unknown>;

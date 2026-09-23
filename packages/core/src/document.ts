@@ -33,10 +33,10 @@ const base = (parentId: string | null, index: string) => ({
   visible: true,
   locked: false,
   opacity: 1,
-  blendMode: "normal",
+  blendMode: "normal" as const,
   transform: [...IDENTITY] as Matrix,
-  tags: [],
-  meta: {},
+  tags: [] as string[],
+  meta: {} as Record<string, unknown>,
 });
 
 /** A new Document with its Artboards and one default Layer to draw into. */
@@ -98,7 +98,11 @@ export function createNodes(
     parentId: string | null,
     path: string,
   ) => {
-    const at = base(parentId, nextIndex(parentId));
+    const at = {
+      ...base(parentId, nextIndex(parentId)),
+      ...(input.tags && { tags: input.tags }),
+      ...(input.meta && { meta: input.meta }),
+    };
     const name = input.name ?? "";
     let node: Node;
     if (input.type === "layer" || input.type === "group") {
@@ -199,7 +203,7 @@ export function assertParent(
 const defaultAppearance = () =>
   AppearanceInput.parse({ fills: [{ color: "#FFFFFF" }], strokes: [{ color: "#000000" }] });
 
-function paint(a: AppearanceInput, path: string): Appearance {
+export function paint(a: AppearanceInput, path: string): Appearance {
   return {
     fills: a.fills.map((f, i) => ({
       ...f,

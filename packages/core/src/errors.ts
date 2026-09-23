@@ -4,6 +4,7 @@ export type ErrorCode =
   | "INVALID_PARENT"
   | "INVALID_COLOR"
   | "INVALID_PATH"
+  | "INVALID_PATCH"
   | "LIMIT_EXCEEDED"
   | "PERMISSION_DENIED";
 

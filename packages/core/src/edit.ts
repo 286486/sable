@@ -1,14 +1,19 @@
 import type { z } from "zod";
-import { bounds, childrenOf, union } from "./document.ts";
+import { bounds, childrenOf, paint, union } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { compose, multiply, round, scaleOf } from "./matrix.ts";
+import { formatPath, parsePath } from "./path.ts";
 import {
+  AppearanceInput,
   type Document,
   type Node,
   PIVOTS,
   type Rect,
+  SHAPES,
   type ShapeNode,
   TransformInput,
+  type UpdateInput,
+  Writable,
   type WriteReceipt,
 } from "./schema.ts";
 
@@ -98,4 +103,101 @@ export function transformNodes(
     }
   }
   return { nodes, warnings };
+}
+
+/** Keys `node_update` never writes, with where to go instead. */
+const READ_ONLY: Record<string, string> = {
+  id: "Ids never change.",
+  type: "A Node's type never changes; create a new Node and delete this one.",
+  parentId: "Moving a Node to another parent needs node_reparent, which is not available yet.",
+  index: "Stacking order needs node_reorder, which is not available yet.",
+  transform: "Use node_transform to move, rotate, scale or skew.",
+  childCount: "Derived from the tree; read-only.",
+  geometricBounds: "Derived; move or resize the Node to change it.",
+  visibleBounds: "Derived; move or resize the Node to change it.",
+  worldTransform: "Derived; use node_transform.",
+  closed: "Derived from d: end d with Z to close it.",
+};
+
+/** RFC 7396: objects merge recursively, null deletes, anything else (arrays too) replaces. */
+export function mergePatch(target: unknown, patch: unknown): unknown {
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
+  if (!isObject(patch)) return patch;
+  const out = isObject(target) ? { ...target } : {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete out[k];
+    else out[k] = mergePatch(out[k], v);
+  }
+  return out;
+}
+
+const zodPath = (path: PropertyKey[]) =>
+  path.map((k) => (typeof k === "number" ? `[${k}]` : `.${String(k)}`)).join("");
+
+function writableSchema(node: Node) {
+  if (isContainer(node)) return Writable;
+  const { type: _, ...parameters } = SHAPES[node.type as ShapeNode["type"]].shape;
+  return Writable.extend(parameters).extend({ appearance: AppearanceInput });
+}
+
+/** Validates and merges one patch, returning the new Node without storing it. */
+function patched(doc: Document, raw: UpdateInput, i: number): Node {
+  // Not parsed with NodePatch: the per-type schema below checks every value and answers with a hint.
+  const { nodeId, patch } = raw as { nodeId: string; patch: Record<string, unknown> };
+  const node = lookup(doc, nodeId, `updates[${i}].nodeId`);
+  const at = `updates[${i}].patch`;
+  const invalid = (key: string, message: string, hint: string) =>
+    new ZibelError({ code: "INVALID_PATCH", message, hint, path: `${at}${key}` });
+  const schema = writableSchema(node);
+  for (const key of Object.keys(patch)) {
+    const readOnly =
+      READ_ONLY[key] ??
+      (key === "d" && node.type !== "path"
+        ? "A Live Shape's d is derived from its parameters; change those instead."
+        : undefined);
+    if (readOnly) throw invalid(`.${key}`, `${key} is read-only.`, readOnly);
+    if (!(key in schema.shape)) {
+      throw invalid(
+        `.${key}`,
+        `A ${node.type} has no ${key}.`,
+        `A ${node.type} can write: ${Object.keys(schema.shape).join(", ")}.`,
+      );
+    }
+  }
+  const merged = mergePatch(node, patch) as Record<string, unknown>;
+  const parsed = schema.safeParse(merged);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0] as z.core.$ZodIssue;
+    const key = zodPath(issue.path);
+    const deleted = issue.path.length === 1 && patch[issue.path[0] as string] === null;
+    throw invalid(
+      key,
+      `${key.slice(1)}: ${issue.message}`,
+      deleted
+        ? `null deletes a key in a merge patch, and ${key.slice(1)} is required; send a value instead.`
+        : issue.message,
+    );
+  }
+  const next = { ...node, ...parsed.data } as Node;
+  if (next.type !== "layer" && next.type !== "group") {
+    next.appearance = paint(next.appearance as AppearanceInput, `${at}.appearance`);
+  }
+  if (next.type === "path" && "d" in patch) next.d = formatPath(parsePath(next.d, `${at}.d`));
+  return next;
+}
+
+/**
+ * Applies one merge patch per item, in order, so two patches to one Node both land. Validates every
+ * item before storing any.
+ */
+export function updateNodes(doc: Document, updates: UpdateInput[]): { nodes: Node[] } {
+  const staged = { ...doc, nodes: new Map(doc.nodes) };
+  const nodes = updates.map((u, i) => {
+    const next = patched(staged, u, i);
+    staged.nodes.set(next.id, next);
+    return next;
+  });
+  for (const n of nodes) doc.nodes.set(n.id, n);
+  return { nodes };
 }

@@ -464,3 +464,9 @@ describe("bounds honour transform", () => {
     expect(outline(doc)[0]?.bounds).toEqual({ x: 30, y: 40, width: 100, height: 60 });
   });
 });
+
+it("stores tags and meta given at creation", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const [r] = createNodes(doc, [{ ...rect(defaultLayerId), tags: ["bar"], meta: { q: 3 } }]).nodes;
+  expect(r).toMatchObject({ tags: ["bar"], meta: { q: 3 } });
+});
