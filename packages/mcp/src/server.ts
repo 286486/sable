@@ -13,6 +13,7 @@ import { z } from "zod";
 import {
   ChangesOutput,
   CreatedDocumentOutput,
+  DocInfoOutput,
   NodeGetOutput,
   OutlineOutput,
   RenderOutput,
@@ -291,6 +292,24 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
           content: [{ type: "image", data: png.toBase64(), mimeType: "image/png" }],
         };
       }),
+  );
+
+  server.registerTool(
+    "zibel_doc_get_info",
+    {
+      title: "Document info",
+      description:
+        "A Document's name, Artboards, Node count, current committed rev and how many browsers have it open right now. Call it before writing to learn the rev to pass as ifRev and whether a person is watching.",
+      inputSchema: { docId },
+      outputSchema: DocInfoOutput.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    ({ docId }) => run("zibel_doc_get_info", async () => json(await service.info(docId))),
   );
 
   server.registerTool(

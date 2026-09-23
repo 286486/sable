@@ -1,6 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
 import {
-  type Artboard,
   type ArtboardInput,
   bounds,
   type ConciseView,
@@ -30,7 +29,7 @@ import {
   ZibelError,
 } from "@zibel/core";
 import { docRect, toSvg } from "@zibel/render";
-import type { ChangeEntry, CreatedDocument, WriteOptions } from "@zibel/sync";
+import type { ChangeEntry, CreatedDocument, DocInfo, WriteOptions } from "@zibel/sync";
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
@@ -106,10 +105,17 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  info(): Result<{ docId: string; name: string; rev: number; artboards: Artboard[] }> {
+  info(): Result<DocInfo> {
     return guard(() => {
-      const { id, name, rev, artboards } = this.load();
-      return { docId: id, name, rev, artboards };
+      const { id, name, rev, artboards, nodes } = this.load();
+      return {
+        docId: id,
+        name,
+        artboards,
+        nodeCount: nodes.size,
+        rev,
+        browsers: this.ctx.getWebSockets().length,
+      };
     });
   }
 

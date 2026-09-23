@@ -1,13 +1,24 @@
 import { Rect } from "@zibel/core";
 import { z } from "zod";
 
+const Artboards = z.array(
+  z.object({ id: z.string(), name: z.string(), frame: Rect, background: z.string().optional() }),
+);
+
 export const CreatedDocumentOutput = z.object({
   docId: z.string(),
   defaultLayerId: z.string(),
-  artboards: z.array(
-    z.object({ id: z.string(), name: z.string(), frame: Rect, background: z.string().optional() }),
-  ),
+  artboards: Artboards,
   rev: z.number().int(),
+});
+
+export const DocInfoOutput = z.object({
+  docId: z.string(),
+  name: z.string(),
+  artboards: Artboards,
+  nodeCount: z.number().int(),
+  rev: z.number().int(),
+  browsers: z.number().int(),
 });
 
 const OutlineNode = z.object({
