@@ -58,6 +58,16 @@ _Avoid_: Compound Shape（另一个概念）、Hole、Cutout
 对若干子 Node 施加布尔运算（Unite / Minus Front / Intersect / Exclude）的非破坏性 Live Object；子 Node 保留、可编辑、结果实时重算。
 _Avoid_: Boolean、Boolean group、Pathfinder object
 
+## 文字
+
+**Text（文字）**：
+显示字符的 Node，`type` 为 `text`，按 `kind` 分为 Point Type、Area Type、Type on a Path。字符属性（字体族、字号）存在 Node 上。
+_Avoid_: Label、Text box、Text element
+
+**Point Type（点文字）**：
+从一个点开始、只在硬回车处换行的 Text，`kind: "point"`。那个点是第一个字符基线的起点。
+_Avoid_: Point text、Label、Single-line text
+
 ## 实时对象
 
 **Live Object（实时对象）**：
