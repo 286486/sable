@@ -4,6 +4,7 @@ import {
   type ArtboardInput,
   bounds,
   type ConciseView,
+  commitTransaction,
   createDocument,
   createNodes,
   type Document,
@@ -17,8 +18,10 @@ import {
   nodeView,
   type OutlineNode,
   outline,
+  overlay,
   type Rect,
   type TransformInput,
+  type TxRow,
   transformNodes,
   type UpdateInput,
   union,
@@ -27,21 +30,19 @@ import {
   ZibelError,
 } from "@zibel/core";
 import { docRect, toSvg } from "@zibel/render";
-import type { CreatedDocument, WriteOptions } from "@zibel/sync";
+import type { ChangeEntry, CreatedDocument, WriteOptions } from "@zibel/sync";
 
 /** RPC results carry errors as data: Workers RPC keeps only the message of a thrown error. */
 export type Result<T> = T | { error: ErrorData };
 
-export interface ChangeEntry {
-  rev: number;
-  txId: string;
-  actor: string;
-  summary: string;
-  createdIds: string[];
-  updatedIds: string[];
-  deletedIds: string[];
-  intent: string | null;
-}
+/** A Transaction rolls back after this long without a call carrying its `txId` (F-HIST-02). */
+const TX_IDLE_MS = 5 * 60_000;
+
+const ENDED = {
+  committed: "committed",
+  rolled_back: "rolled back",
+  expired: "expired after 5 minutes idle",
+} as const;
 
 interface Change {
   created?: Node[];
@@ -65,6 +66,14 @@ export class DocumentObject extends DurableObject<Env> {
         rev INTEGER PRIMARY KEY, tx_id TEXT NOT NULL, actor TEXT NOT NULL, summary TEXT NOT NULL,
         created_ids TEXT NOT NULL, updated_ids TEXT NOT NULL, deleted_ids TEXT NOT NULL,
         intent TEXT
+      );
+      -- ponytail: ended tx rows are kept for TX_EXPIRED and never pruned; prune with history_list.
+      CREATE TABLE IF NOT EXISTS tx (
+        id TEXT PRIMARY KEY, actor TEXT NOT NULL, label TEXT, deadline INTEGER NOT NULL, ended TEXT
+      );
+      CREATE TABLE IF NOT EXISTS tx_nodes (
+        tx_id TEXT NOT NULL, node_id TEXT NOT NULL, base TEXT, working TEXT,
+        PRIMARY KEY (tx_id, node_id)
       );
     `);
   }
@@ -138,8 +147,9 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /**
-   * Runs one edit on a freshly loaded Document and commits it as one Transaction. Core throws before
-   * changing anything it rejects, so a failure never reaches SQLite.
+   * Runs one edit on a freshly loaded Document and commits it as one Transaction, or with `txId`
+   * stages it in that Transaction's overlay (ADR-0008). Core throws before changing anything it
+   * rejects, so a failure never reaches SQLite.
    */
   private write(
     actor: string,
@@ -153,6 +163,9 @@ export class DocumentObject extends DurableObject<Env> {
     },
   ): Result<WriteReceipt> {
     return guard(() => {
+      const committed = this.load();
+      const doc = this.view(committed, actor, opts.txId);
+      this.checkRev(committed, opts.ifRev);
       const {
         keyMap = {},
         bounds,
@@ -161,11 +174,12 @@ export class DocumentObject extends DurableObject<Env> {
         created = [],
         updated = [],
         deletedIds = [],
-      } = edit(this.load());
-      const count = created.length + updated.length + deletedIds.length;
-      const summary = `${verb} ${count} ${count === 1 ? "Node" : "Nodes"}`;
+      } = edit(doc);
+      const change = { created, updated, deletedIds };
       const { txId, rev } = this.ctx.storage.transactionSync(() =>
-        this.commit(actor, summary, opts.intent, { created, updated, deletedIds }),
+        opts.txId
+          ? this.stage(opts.txId, committed.rev, change)
+          : this.commit(actor, summary(verb, change), opts.intent, change),
       );
       return {
         txId,
@@ -181,12 +195,15 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
+  /** Reads see the overlay of `txId` when given (ADR-0008); `rev` is always the committed one. */
   get(
     nodeIds: string[],
     detail: "concise" | "full",
+    actor: string,
+    txId?: string,
   ): Result<{ rev: number; nodes: (ConciseView | FullView)[] }> {
     return guard(() => {
-      const doc = this.load();
+      const doc = this.view(this.load(), actor, txId);
       const nodes = nodeIds.map((id, i) => {
         const node = doc.nodes.get(id);
         if (!node) {
@@ -203,42 +220,227 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  outline(depth: number): Result<{ rev: number; layers: OutlineNode[] }> {
+  outline(
+    depth: number,
+    actor: string,
+    txId?: string,
+  ): Result<{ rev: number; layers: OutlineNode[] }> {
     return guard(() => {
-      const doc = this.load();
+      const doc = this.view(this.load(), actor, txId);
       return { rev: doc.rev, layers: outline(doc, depth) };
     });
   }
 
   /** Doc-scope SVG. The Worker rasterises it, so PNG encoding never blocks this Document's writes. */
-  svg(): Result<{ svg: string; docRect: Rect }> {
+  svg(actor: string, txId?: string): Result<{ svg: string; docRect: Rect }> {
     return guard(() => {
-      const doc = this.load();
+      const doc = this.view(this.load(), actor, txId);
       const rect = docRect(doc);
       return { svg: toSvg(doc, rect), docRect: rect };
     });
   }
 
-  changes(sinceRev: number): Result<ChangeEntry[]> {
-    return guard(() => {
-      this.load();
-      return this.sql
-        .exec<Record<string, string | number | null>>(
-          "SELECT * FROM tx_log WHERE rev > ? ORDER BY rev",
-          sinceRev,
-        )
-        .toArray()
-        .map((r) => ({
-          rev: r.rev as number,
-          txId: r.tx_id as string,
-          actor: r.actor as string,
-          summary: r.summary as string,
-          createdIds: JSON.parse(r.created_ids as string),
-          updatedIds: JSON.parse(r.updated_ids as string),
-          deletedIds: JSON.parse(r.deleted_ids as string),
-          intent: (r.intent as string | null) ?? null,
-        }));
+  async begin(actor: string, label?: string): Promise<Result<{ txId: string; rev: number }>> {
+    const result = guard(() => {
+      const { rev } = this.load();
+      const txId = newId();
+      this.sql.exec(
+        "INSERT INTO tx (id, actor, label, deadline) VALUES (?, ?, ?, ?)",
+        txId,
+        actor,
+        label ?? null,
+        Date.now() + TX_IDLE_MS,
+      );
+      return { txId, rev };
     });
+    await this.schedule();
+    return result;
+  }
+
+  /** Applies the overlay onto the Document as committed now: one `rev`, one log row. */
+  commitTx(
+    txId: string,
+    actor: string,
+    opts: { ifRev?: number; intent?: string } = {},
+  ): Result<WriteReceipt> {
+    return guard(() => {
+      const doc = this.load();
+      const { label } = this.openTx(txId, actor);
+      this.checkRev(doc, opts.ifRev);
+      const before = { ...doc, nodes: new Map(doc.nodes) };
+      const change = commitTransaction(doc, this.rows(txId));
+      const { created, updated, deletedIds } = change;
+      const { rev } = this.ctx.storage.transactionSync(() => {
+        this.end(txId, "committed");
+        return this.commit(actor, label ?? summary("Commit", change), opts.intent, change, txId);
+      });
+      return {
+        txId,
+        rev,
+        createdIds: created.map((n) => n.id),
+        updatedIds: updated.map((n) => n.id),
+        deletedIds,
+        keyMap: {},
+        bounds: union([
+          ...[...created, ...updated].map((n) => bounds(doc, n)),
+          ...deletedIds.map((id) => bounds(before, before.nodes.get(id) as Node)),
+        ]),
+        warnings: [],
+      };
+    });
+  }
+
+  rollback(txId: string, actor: string): Result<{ txId: string; rev: number }> {
+    return guard(() => {
+      const { rev } = this.load();
+      this.openTx(txId, actor);
+      this.end(txId, "rolled_back");
+      return { txId, rev };
+    });
+  }
+
+  /** Rolls back every Transaction past its deadline, then waits for the next one. */
+  override async alarm(): Promise<void> {
+    const due = this.sql
+      .exec<{ id: string }>("SELECT id FROM tx WHERE ended IS NULL AND deadline <= ?", Date.now())
+      .toArray();
+    for (const { id } of due) this.end(id, "expired");
+    await this.schedule();
+  }
+
+  /** Committed Transactions after `sinceRev`, oldest first, and the current `rev`. */
+  changes(sinceRev: number, limit = 100): Result<{ rev: number; changes: ChangeEntry[] }> {
+    return guard(() => ({ rev: this.load().rev, changes: this.log(sinceRev, limit) }));
+  }
+
+  /** Throws REV_CONFLICT unless `ifRev` is absent or equals the committed `rev`. */
+  private checkRev(doc: Document, ifRev: number | undefined) {
+    if (ifRev === undefined || ifRev === doc.rev) return;
+    // ponytail: unbounded when ifRev is far behind; cap the ids if a conflict ever gets large.
+    const nodeIds = [
+      ...new Set(
+        this.log(ifRev, -1).flatMap((c) => [...c.createdIds, ...c.updatedIds, ...c.deletedIds]),
+      ),
+    ];
+    throw new ZibelError({
+      code: "REV_CONFLICT",
+      message: `The Document is at rev ${doc.rev}, not ${ifRev}.`,
+      hint: `Call zibel_doc_changes with sinceRev: ${ifRev} to see what changed, then retry with ifRev: ${doc.rev}.`,
+      path: "ifRev",
+      rev: doc.rev,
+      nodeIds,
+    });
+  }
+
+  /** `limit` -1 means all. */
+  private log(sinceRev: number, limit: number): ChangeEntry[] {
+    return this.sql
+      .exec<Record<string, string | number | null>>(
+        "SELECT * FROM tx_log WHERE rev > ? ORDER BY rev LIMIT ?",
+        sinceRev,
+        limit,
+      )
+      .toArray()
+      .map((r) => ({
+        rev: r.rev as number,
+        txId: r.tx_id as string,
+        actor: r.actor as string,
+        summary: r.summary as string,
+        createdIds: JSON.parse(r.created_ids as string),
+        updatedIds: JSON.parse(r.updated_ids as string),
+        deletedIds: JSON.parse(r.deleted_ids as string),
+        intent: (r.intent as string | null) ?? null,
+      }));
+  }
+
+  /** The Document as `txId` sees it, extending that Transaction's deadline; `doc` without it. */
+  private view(doc: Document, actor: string, txId: string | undefined): Document {
+    if (txId === undefined) return doc;
+    this.openTx(txId, actor);
+    return overlay(doc, this.rows(txId));
+  }
+
+  /** Resolves an open Transaction of `actor` and extends its deadline. */
+  private openTx(txId: string, actor: string): { label: string | null } {
+    const tx = this.sql
+      .exec<{ actor: string; label: string | null; deadline: number; ended: string | null }>(
+        "SELECT actor, label, deadline, ended FROM tx WHERE id = ?",
+        txId,
+      )
+      .toArray()[0];
+    if (!tx || tx.actor !== actor) {
+      throw new ZibelError({
+        code: "TX_NOT_FOUND",
+        message: `No Transaction ${txId} of yours in this Document.`,
+        hint: "Use the txId from your zibel_tx_begin on this Document, or begin a new one.",
+        path: "txId",
+      });
+    }
+    // The alarm may run late; a Transaction past its deadline is expired whether it ran or not.
+    if (!tx.ended && tx.deadline <= Date.now()) {
+      this.end(txId, "expired");
+      tx.ended = "expired";
+    }
+    if (tx.ended) {
+      let how: string = ENDED[tx.ended as keyof typeof ENDED];
+      if (tx.ended === "committed") {
+        const log = this.sql.exec<{ rev: number }>("SELECT rev FROM tx_log WHERE tx_id = ?", txId);
+        how += ` at rev ${log.one().rev}`;
+      }
+      throw new ZibelError({
+        code: "TX_EXPIRED",
+        message: `Transaction ${txId} has ended.`,
+        hint: `It was ${how}. Begin a new Transaction with zibel_tx_begin, or write without txId.`,
+        path: "txId",
+      });
+    }
+    this.sql.exec("UPDATE tx SET deadline = ? WHERE id = ?", Date.now() + TX_IDLE_MS, txId);
+    return { label: tx.label };
+  }
+
+  private rows(txId: string): TxRow[] {
+    const parse = (json: string | null) => (json === null ? null : (JSON.parse(json) as Node));
+    return this.sql
+      .exec<{ node_id: string; base: string | null; working: string | null }>(
+        "SELECT node_id, base, working FROM tx_nodes WHERE tx_id = ? ORDER BY rowid",
+        txId,
+      )
+      .toArray()
+      .map((r) => ({ id: r.node_id, base: parse(r.base), working: parse(r.working) }));
+  }
+
+  /**
+   * Records the edit in the overlay. `base` is taken from the committed Node on first touch only.
+   * Call inside transactionSync.
+   */
+  private stage(txId: string, rev: number, change: Required<Change>) {
+    const upsert = (id: string, working: string | null) =>
+      this.sql.exec(
+        `INSERT INTO tx_nodes (tx_id, node_id, base, working)
+         VALUES (?, ?, (SELECT json FROM nodes WHERE id = ?), ?)
+         ON CONFLICT (tx_id, node_id) DO UPDATE SET working = excluded.working`,
+        txId,
+        id,
+        id,
+        working,
+      );
+    for (const n of [...change.created, ...change.updated]) upsert(n.id, JSON.stringify(n));
+    for (const id of change.deletedIds) upsert(id, null);
+    return { txId, rev };
+  }
+
+  private end(txId: string, how: keyof typeof ENDED) {
+    this.sql.exec("UPDATE tx SET ended = ? WHERE id = ?", how, txId);
+    this.sql.exec("DELETE FROM tx_nodes WHERE tx_id = ?", txId);
+  }
+
+  /** Points the alarm at the earliest open deadline, or clears it. */
+  private async schedule() {
+    const { next } = this.sql
+      .exec<{ next: number | null }>("SELECT MIN(deadline) AS next FROM tx WHERE ended IS NULL")
+      .one();
+    if (next === null) await this.ctx.storage.deleteAlarm();
+    else await this.ctx.storage.setAlarm(next);
   }
 
   private load(): Document {
@@ -269,7 +471,13 @@ export class DocumentObject extends DurableObject<Env> {
   }
 
   /** Writes the changed Nodes, bumps `rev` once and logs the Transaction. Call inside transactionSync. */
-  private commit(actor: string, summary: string, intent: string | undefined, change: Change) {
+  private commit(
+    actor: string,
+    summary: string,
+    intent: string | undefined,
+    change: Change,
+    txId = newId(),
+  ) {
     const { created = [], updated = [], deletedIds = [] } = change;
     for (const node of [...created, ...updated]) {
       this.sql.exec(
@@ -282,7 +490,6 @@ export class DocumentObject extends DurableObject<Env> {
     const rev = this.sql
       .exec<{ rev: number }>("UPDATE doc SET rev = rev + 1 RETURNING rev")
       .one().rev;
-    const txId = newId();
     const ids = (nodes: Node[]) => JSON.stringify(nodes.map((n) => n.id));
     this.sql.exec(
       "INSERT INTO tx_log VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -297,6 +504,11 @@ export class DocumentObject extends DurableObject<Env> {
     );
     return { txId, rev };
   }
+}
+
+function summary(verb: string, { created = [], updated = [], deletedIds = [] }: Change) {
+  const count = created.length + updated.length + deletedIds.length;
+  return `${verb} ${count} ${count === 1 ? "Node" : "Nodes"}`;
 }
 
 function guard<T>(fn: () => T): Result<T> {

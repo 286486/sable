@@ -20,10 +20,15 @@ export function documentService(env: Env, actor: string): DocumentService {
       unwrap(await doc(docId).deleteNodes(nodeIds, actor, opts)),
     transformNodes: async (docId, input, opts) =>
       unwrap(await doc(docId).transformNodes(input, actor, opts)),
-    get: async (docId, nodeIds, detail) => unwrap(await doc(docId).get(nodeIds, detail)),
-    outline: async (docId, depth) => unwrap(await doc(docId).outline(depth)),
-    render: async (docId, scale) => {
-      const { svg, docRect } = unwrap(await doc(docId).svg());
+    get: async (docId, nodeIds, detail, txId) =>
+      unwrap(await doc(docId).get(nodeIds, detail, actor, txId)),
+    outline: async (docId, depth, txId) => unwrap(await doc(docId).outline(depth, actor, txId)),
+    begin: async (docId, label) => unwrap(await doc(docId).begin(actor, label)),
+    commitTx: async (docId, txId, opts) => unwrap(await doc(docId).commitTx(txId, actor, opts)),
+    rollback: async (docId, txId) => unwrap(await doc(docId).rollback(txId, actor)),
+    changes: async (docId, sinceRev, limit) => unwrap(await doc(docId).changes(sinceRev, limit)),
+    render: async (docId, scale, txId) => {
+      const { svg, docRect } = unwrap(await doc(docId).svg(actor, txId));
       const side = Math.ceil(Math.max(docRect.width, docRect.height) * scale);
       if (side > MAX_RENDER_SIDE) {
         throw new ZibelError({

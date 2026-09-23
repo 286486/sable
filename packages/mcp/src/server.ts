@@ -10,7 +10,14 @@ import {
 } from "@zibel/core";
 import type { DocumentService } from "@zibel/sync";
 import { z } from "zod";
-import { CreatedDocumentOutput, NodeGetOutput, OutlineOutput, RenderOutput } from "./schemas.ts";
+import {
+  ChangesOutput,
+  CreatedDocumentOutput,
+  NodeGetOutput,
+  OutlineOutput,
+  RenderOutput,
+  TxOutput,
+} from "./schemas.ts";
 
 const docId = z.string().describe("Document id returned by zibel_doc_create.");
 const intent = z
@@ -18,11 +25,28 @@ const intent = z
   .max(500)
   .optional()
   .describe("One sentence on what this write is for, shown to people editing the Document.");
-/** Accepted by every Node write (§6.4). `txId` and `ifRev` take effect with Transactions (#7). */
+const txId = z
+  .string()
+  .describe("Transaction id from zibel_tx_begin. Only the Actor that began it can use it.");
+const readTxId = txId
+  .optional()
+  .describe("Transaction id from zibel_tx_begin: also show its uncommitted edits.");
+const ifRev = z
+  .number()
+  .int()
+  .optional()
+  .describe(
+    "Fail with REV_CONFLICT, changing nothing, unless the Document's committed rev equals this: set it to the rev you last read so you never overwrite someone else's newer edit.",
+  );
+/** Accepted by every Node write (§6.4). */
 const writeFields = {
   intent,
-  txId: z.string().optional().describe("Reserved for Transactions; no effect yet."),
-  ifRev: z.number().int().optional().describe("Reserved for revision checks; no effect yet."),
+  txId: txId
+    .optional()
+    .describe(
+      "Transaction id from zibel_tx_begin. The write stays invisible to others until zibel_tx_commit, and the receipt's rev stays the committed rev. intent is then ignored: give it to zibel_tx_commit.",
+    ),
+  ifRev,
   partial: z
     .boolean()
     .default(false)
@@ -122,10 +146,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, nodes, intent, partial }) =>
-      run("zibel_node_create", async () =>
-        json(await service.createNodes(docId, nodes, { intent, partial })),
-      ),
+    ({ docId, nodes, ...opts }) =>
+      run("zibel_node_create", async () => json(await service.createNodes(docId, nodes, opts))),
   );
 
   server.registerTool(
@@ -147,10 +169,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: WriteReceipt.shape,
       annotations: edit,
     },
-    ({ docId, updates, intent, partial }) =>
-      run("zibel_node_update", async () =>
-        json(await service.updateNodes(docId, updates, { intent, partial })),
-      ),
+    ({ docId, updates, ...opts }) =>
+      run("zibel_node_update", async () => json(await service.updateNodes(docId, updates, opts))),
   );
 
   server.registerTool(
@@ -167,10 +187,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       outputSchema: WriteReceipt.shape,
       annotations: edit,
     },
-    ({ docId, nodeIds, intent, partial }) =>
-      run("zibel_node_delete", async () =>
-        json(await service.deleteNodes(docId, nodeIds, { intent, partial })),
-      ),
+    ({ docId, nodeIds, ...opts }) =>
+      run("zibel_node_delete", async () => json(await service.deleteNodes(docId, nodeIds, opts))),
   );
 
   server.registerTool(
@@ -193,9 +211,9 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, intent, partial, txId: _t, ifRev: _r, ...input }) =>
+    ({ docId, intent, partial, txId, ifRev, ...input }) =>
       run("zibel_node_transform", async () =>
-        json(await service.transformNodes(docId, input, { intent, partial })),
+        json(await service.transformNodes(docId, input, { intent, partial, txId, ifRev })),
       ),
   );
 
@@ -213,6 +231,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         docId,
         nodeIds: z.array(z.string()).min(1).max(1000),
         detail: z.enum(["concise", "full"]).default("concise"),
+        txId: readTxId,
       },
       outputSchema: NodeGetOutput.shape,
       annotations: {
@@ -222,8 +241,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, nodeIds, detail }) =>
-      run("zibel_node_get", async () => json(await service.get(docId, nodeIds, detail))),
+    ({ docId, nodeIds, detail, txId }) =>
+      run("zibel_node_get", async () => json(await service.get(docId, nodeIds, detail, txId))),
   );
 
   server.registerTool(
@@ -232,7 +251,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Document outline",
       description:
         "Sparse tree of the Document: the top level is always the Layer list. Each entry has id, type, name, bounds, childCount, visible and locked; children appear down to `depth` levels.",
-      inputSchema: { docId, depth: z.number().int().min(1).default(2) },
+      inputSchema: { docId, depth: z.number().int().min(1).default(2), txId: readTxId },
       outputSchema: OutlineOutput.shape,
       annotations: {
         readOnlyHint: true,
@@ -241,8 +260,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, depth }) =>
-      run("zibel_doc_outline", async () => json(await service.outline(docId, depth))),
+    ({ docId, depth, txId }) =>
+      run("zibel_doc_outline", async () => json(await service.outline(docId, depth, txId))),
   );
 
   server.registerTool(
@@ -254,6 +273,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       inputSchema: {
         docId,
         scale: z.number().positive().max(4).default(1).describe("Pixels per point."),
+        txId: readTxId,
       },
       outputSchema: RenderOutput.shape,
       annotations: {
@@ -263,14 +283,103 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         openWorldHint: false,
       },
     },
-    ({ docId, scale }) =>
+    ({ docId, scale, txId }) =>
       run("zibel_render", async () => {
-        const { png, viewport } = await service.render(docId, scale);
+        const { png, viewport } = await service.render(docId, scale, txId);
         return {
           structuredContent: { viewport },
           content: [{ type: "image", data: png.toBase64(), mimeType: "image/png" }],
         };
       }),
+  );
+
+  server.registerTool(
+    "zibel_doc_changes",
+    {
+      title: "Document changes",
+      description: [
+        "What was committed after sinceRev, oldest first, by any Actor (people and Agents): each entry has rev, txId, actor, summary, intent and the created, updated and deleted Node ids. rev is the Document's current committed rev.",
+        "Call it before a round of writes to see what a person changed since your last read, then pass that rev as ifRev.",
+      ].join(" "),
+      inputSchema: {
+        docId,
+        sinceRev: z.number().int().min(0),
+        limit: z.number().int().min(1).max(1000).default(100),
+      },
+      outputSchema: ChangesOutput.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, sinceRev, limit }) =>
+      run("zibel_doc_changes", async () => json(await service.changes(docId, sinceRev, limit))),
+  );
+
+  server.registerTool(
+    "zibel_tx_begin",
+    {
+      title: "Begin Transaction",
+      description: [
+        "Start a Transaction to make several writes one step that people see, and undo, at once.",
+        "Pass the returned txId to each write, and to node_get, doc_outline and render to see your uncommitted work; nobody else sees it until zibel_tx_commit.",
+        "It rolls back after 5 minutes without a call carrying its txId. label becomes the summary in zibel_doc_changes. rev is the committed rev, for ifRev.",
+      ].join(" "),
+      inputSchema: { docId, label: z.string().min(1).max(200).optional() },
+      outputSchema: TxOutput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, label }) =>
+      run("zibel_tx_begin", async () => json(await service.begin(docId, label))),
+  );
+
+  server.registerTool(
+    "zibel_tx_commit",
+    {
+      title: "Commit Transaction",
+      description: [
+        "Apply every write of the Transaction at once: rev goes up by one and the receipt lists every created, updated and deleted id.",
+        "Properties someone else changed meanwhile are kept unless the Transaction changed the same property. If someone deleted a Node the Transaction edited, or a Layer or Group it created Nodes in, the commit fails with NODE_GONE listing them and the Transaction stays open for zibel_tx_rollback.",
+      ].join(" "),
+      inputSchema: { docId, txId, ifRev, intent },
+      outputSchema: WriteReceipt.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, txId, ifRev, intent }) =>
+      run("zibel_tx_commit", async () =>
+        json(await service.commitTx(docId, txId, { ifRev, intent })),
+      ),
+  );
+
+  server.registerTool(
+    "zibel_tx_rollback",
+    {
+      title: "Roll back Transaction",
+      description:
+        "Discard every uncommitted write of the Transaction; the Document stays as it is committed. Later calls with the txId return TX_EXPIRED.",
+      inputSchema: { docId, txId },
+      outputSchema: TxOutput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, txId }) =>
+      run("zibel_tx_rollback", async () => json(await service.rollback(docId, txId))),
   );
 
   return server;

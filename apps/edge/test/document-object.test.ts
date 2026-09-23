@@ -1,6 +1,6 @@
-import { evictDurableObject } from "cloudflare:test";
+import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
 
@@ -45,16 +45,19 @@ it("keeps Nodes and the Transaction log across a DO restart, with each write's A
   await evictDurableObject(stub("d1"));
 
   expect(await stub("d1").info()).toMatchObject({ docId: "d1", name: "Doc", rev: 2 });
-  expect(await stub("d1").outline(2)).toMatchObject({
+  expect(await stub("d1").outline(2, "agent-a")).toMatchObject({
     rev: 2,
     layers: [
       { id: created.defaultLayerId, children: [{ id: receipt.createdIds[0], type: "rect" }] },
     ],
   });
-  expect(await stub("d1").changes(0)).toMatchObject([
-    { rev: 1, actor: "agent-a" },
-    { rev: 2, actor: "agent-b", createdIds: receipt.createdIds },
-  ]);
+  expect(await stub("d1").changes(0)).toMatchObject({
+    rev: 2,
+    changes: [
+      { rev: 1, actor: "agent-a" },
+      { rev: 2, actor: "agent-b", createdIds: receipt.createdIds },
+    ],
+  });
 });
 
 it("leaves rev unchanged when a write fails", async () => {
@@ -72,12 +75,14 @@ it("leaves rev unchanged when a write fails", async () => {
     ),
   ).toMatchObject({ error: { code: "NODE_NOT_FOUND", path: "nodes[1].parentId" } });
   expect(await stub("d2").info()).toMatchObject({ rev: 1 });
-  expect(await stub("d2").outline(2)).toMatchObject({ layers: [{ childCount: 0 }] });
+  expect(await stub("d2").outline(2, "agent-a")).toMatchObject({ layers: [{ childCount: 0 }] });
 });
 
 it("reports DOC_NOT_FOUND for a Document that was never created", async () => {
   expect(await stub("missing").info()).toMatchObject({ error: { code: "DOC_NOT_FOUND" } });
-  expect(await stub("missing").outline(2)).toMatchObject({ error: { code: "DOC_NOT_FOUND" } });
+  expect(await stub("missing").outline(2, "agent-a")).toMatchObject({
+    error: { code: "DOC_NOT_FOUND" },
+  });
 });
 
 it("logs update, transform and delete with their ids and intent, across a restart", async () => {
@@ -124,8 +129,11 @@ it("logs update, transform and delete with their ids and intent, across a restar
 
   await evictDurableObject(stub("d3"));
 
-  expect(await stub("d3").outline(2)).toMatchObject({ rev: 6, layers: [{ childCount: 0 }] });
-  expect(await stub("d3").changes(0)).toEqual([
+  expect(await stub("d3").outline(2, "agent-a")).toMatchObject({
+    rev: 6,
+    layers: [{ childCount: 0 }],
+  });
+  expect(ok(await stub("d3").changes(0)).changes).toEqual([
     expect.objectContaining({ rev: 1, intent: "start a poster" }),
     expect.objectContaining({ rev: 2, createdIds: [id], intent: "draw a box" }),
     expect.objectContaining({ rev: 3, actor: "agent-b", updatedIds: [id], intent: "make it red" }),
@@ -133,4 +141,185 @@ it("logs update, transform and delete with their ids and intent, across a restar
     expect.objectContaining({ rev: 5, updatedIds: [id] }),
     expect.objectContaining({ rev: 6, deletedIds: [id], createdIds: [], updatedIds: [] }),
   ]);
+});
+
+it("rejects a write whose ifRev is stale with REV_CONFLICT, changing nothing", async () => {
+  const created = ok(
+    await stub("d4").create({ docId: "d4", name: "Doc", artboards, actor: "agent-a" }),
+  );
+  const rect = { type: "rect" as const, x: 0, y: 0, width: 10, height: 10 };
+  const [id = ""] = ok(
+    await stub("d4").createNodes([{ ...rect, parentId: created.defaultLayerId }], "agent-a"),
+  ).createdIds;
+  expect(
+    await stub("d4").updateNodes([{ nodeId: id, patch: { name: "x" } }], "agent-b", { ifRev: 1 }),
+  ).toMatchObject({
+    error: { code: "REV_CONFLICT", rev: 2, nodeIds: [id], path: "ifRev", hint: expect.any(String) },
+  });
+  expect(await stub("d4").info()).toMatchObject({ rev: 2 });
+  expect(await stub("d4").get([id], "full", "agent-a")).toMatchObject({ nodes: [{ name: "" }] });
+  expect(
+    await stub("d4").updateNodes([{ nodeId: id, patch: { name: "x" } }], "agent-b", { ifRev: 2 }),
+  ).toMatchObject({ rev: 3 });
+  expect(await stub("d4").changes(0, 1)).toMatchObject({ rev: 3, changes: [{ rev: 1 }] });
+  expect(await stub("d4").changes(1)).toMatchObject({
+    rev: 3,
+    changes: [{ rev: 2 }, { rev: 3, actor: "agent-b" }],
+  });
+});
+
+const rect = { type: "rect" as const, x: 0, y: 0, width: 10, height: 10 };
+
+/** A Document with one committed rect, at rev 2. */
+async function withRect(docId: string) {
+  const { defaultLayerId } = ok(
+    await stub(docId).create({ docId, name: "Doc", artboards, actor: "agent-a" }),
+  );
+  const [rectId = ""] = ok(
+    await stub(docId).createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a"),
+  ).createdIds;
+  return { s: stub(docId), defaultLayerId, rectId };
+}
+
+const layerChildren = async (s: ReturnType<typeof stub>, txId?: string) => {
+  const { layers } = ok(await s.outline(2, "agent-a", txId));
+  return (layers[0]?.children ?? []).map((c) => c.id);
+};
+
+it("keeps a Transaction's edits in an overlay until commit, across a restart", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("t1");
+  const { txId, rev } = ok(await s.begin("agent-a", "Draw a face"));
+  expect(rev).toBe(2);
+  const made = ok(
+    await s.createNodes(
+      [
+        { ...rect, parentId: defaultLayerId },
+        { ...rect, parentId: defaultLayerId },
+      ],
+      "agent-a",
+      { txId },
+    ),
+  );
+  expect(made).toMatchObject({ txId, rev: 2 });
+  const [a = "", b = ""] = made.createdIds;
+  ok(await s.updateNodes([{ nodeId: a, patch: { name: "eye" } }], "agent-a", { txId }));
+  ok(await s.deleteNodes([b], "agent-a", { txId }));
+  expect(await layerChildren(s, txId)).toEqual([rectId, a]);
+  expect(await layerChildren(s)).toEqual([rectId]);
+  expect(await s.get([a], "concise", "agent-a")).toMatchObject({
+    error: { code: "NODE_NOT_FOUND" },
+  });
+  expect(await s.info()).toMatchObject({ rev: 2 });
+
+  await evictDurableObject(s);
+
+  expect(ok(await s.commitTx(txId, "agent-a", { intent: "face" }))).toMatchObject({
+    txId,
+    rev: 3,
+    createdIds: [a],
+    updatedIds: [],
+    deletedIds: [],
+    bounds: { x: 0, y: 0, width: 10, height: 10 },
+  });
+  expect(await layerChildren(s)).toEqual([rectId, a]);
+  expect(ok(await s.get([a], "concise", "agent-a")).nodes).toMatchObject([{ name: "eye" }]);
+  expect(ok(await s.changes(2))).toMatchObject({
+    rev: 3,
+    changes: [{ rev: 3, txId, actor: "agent-a", summary: "Draw a face", intent: "face" }],
+  });
+  expect(await s.commitTx(txId, "agent-a")).toMatchObject({
+    error: { code: "TX_EXPIRED", hint: expect.stringContaining("committed at rev 3") },
+  });
+});
+
+it("rolls back to the Document as it was before tx_begin", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("t2");
+  const before = ok(await s.outline(3, "agent-a"));
+  const { txId } = ok(await s.begin("agent-a"));
+  ok(await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId }));
+  ok(await s.updateNodes([{ nodeId: rectId, patch: { name: "x" } }], "agent-a", { txId }));
+  ok(await s.deleteNodes([rectId], "agent-a", { txId }));
+  expect(ok(await s.rollback(txId, "agent-a"))).toEqual({ txId, rev: 2 });
+  expect(ok(await s.outline(3, "agent-a"))).toEqual(before);
+  expect(await s.info()).toMatchObject({ rev: 2 });
+  expect(
+    await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId }),
+  ).toMatchObject({ error: { code: "TX_EXPIRED", hint: expect.stringContaining("rolled back") } });
+  expect(await s.rollback(txId, "agent-a")).toMatchObject({ error: { code: "TX_EXPIRED" } });
+});
+
+it("merges per property at commit, and fails with NODE_GONE when an edited Node was deleted", async () => {
+  const { s, rectId } = await withRect("t3");
+  const { txId } = ok(await s.begin("agent-a"));
+  ok(await s.updateNodes([{ nodeId: rectId, patch: { opacity: 0.5 } }], "agent-a", { txId }));
+  ok(await s.updateNodes([{ nodeId: rectId, patch: { name: "z" } }], "agent-b"));
+  expect(ok(await s.commitTx(txId, "agent-a"))).toMatchObject({ rev: 4, updatedIds: [rectId] });
+  expect(ok(await s.get([rectId], "full", "agent-a")).nodes).toMatchObject([
+    { name: "z", opacity: 0.5 },
+  ]);
+
+  const tx2 = ok(await s.begin("agent-a")).txId;
+  ok(await s.updateNodes([{ nodeId: rectId, patch: { opacity: 1 } }], "agent-a", { txId: tx2 }));
+  expect(await s.commitTx(tx2, "agent-a", { ifRev: 3 })).toMatchObject({
+    error: { code: "REV_CONFLICT", rev: 4 },
+  });
+  ok(await s.deleteNodes([rectId], "agent-b"));
+  expect(await s.commitTx(tx2, "agent-a")).toMatchObject({
+    error: { code: "NODE_GONE", nodeIds: [rectId], hint: expect.any(String) },
+  });
+  expect(await s.info()).toMatchObject({ rev: 5 });
+  // The Transaction stays open.
+  expect(ok(await s.get([rectId], "full", "agent-a", tx2)).nodes).toMatchObject([{ opacity: 1 }]);
+  ok(await s.rollback(tx2, "agent-a"));
+});
+
+it("hides a Transaction from other Actors and from unknown ids", async () => {
+  const { s, defaultLayerId } = await withRect("t4");
+  const { txId } = ok(await s.begin("agent-a"));
+  const create = (actor: string, id: string) =>
+    s.createNodes([{ ...rect, parentId: defaultLayerId }], actor, { txId: id });
+  expect(await create("agent-b", txId)).toMatchObject({
+    error: { code: "TX_NOT_FOUND", path: "txId" },
+  });
+  expect(await s.outline(2, "agent-b", txId)).toMatchObject({ error: { code: "TX_NOT_FOUND" } });
+  expect(await s.commitTx(txId, "agent-b")).toMatchObject({ error: { code: "TX_NOT_FOUND" } });
+  expect(await create("agent-a", "01NOPE")).toMatchObject({ error: { code: "TX_NOT_FOUND" } });
+  expect(await create("agent-a", txId)).toMatchObject({ txId });
+});
+
+afterEach(() => vi.useRealTimers());
+
+it("expires a Transaction idle for 5 minutes through the alarm", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("t5");
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const t0 = Date.now();
+  const a = ok(await s.begin("agent-a")).txId;
+  const b = ok(await s.begin("agent-a")).txId;
+  const c = ok(await s.begin("agent-a")).txId;
+  ok(await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId: a }));
+  vi.setSystemTime(t0 + 4 * 60_000);
+  ok(await s.outline(2, "agent-a", b));
+  vi.setSystemTime(t0 + 5 * 60_000 + 1000);
+  // Past its deadline a Transaction is expired even before the alarm runs.
+  expect(await s.outline(2, "agent-a", c)).toMatchObject({ error: { code: "TX_EXPIRED" } });
+  expect(await runDurableObjectAlarm(s)).toBe(true);
+  const ended = (id: string) =>
+    runInDurableObject(
+      s,
+      (_, state) =>
+        state.storage.sql
+          .exec<{ ended: string | null }>("SELECT ended FROM tx WHERE id = ?", id)
+          .one().ended,
+    );
+  expect(await ended(a)).toBe("expired");
+  expect(await ended(b)).toBeNull();
+  expect(
+    await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId: a }),
+  ).toMatchObject({ error: { code: "TX_EXPIRED", hint: expect.stringContaining("idle") } });
+  expect(await layerChildren(s)).toEqual([rectId]);
+  ok(await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId: b }));
+  vi.setSystemTime(t0 + 11 * 60_000);
+  expect(await runDurableObjectAlarm(s)).toBe(true);
+  expect(await s.rollback(b, "agent-a")).toMatchObject({ error: { code: "TX_EXPIRED" } });
+  expect(await runDurableObjectAlarm(s)).toBe(false);
 });

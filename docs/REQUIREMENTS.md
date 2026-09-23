@@ -633,9 +633,9 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `tx_begin` | `docId`, `label`, `timeoutSec?` | `txId` | |
-| `tx_commit` | `docId`, `txId` | 汇总回执（全部受影响 id） | |
-| `tx_rollback` | `docId`, `txId` | — | D |
+| `tx_begin` | `docId`, `label?` | `txId`、`rev`（当前已提交修订号，供 `ifRev` 使用） | 5 分钟无活动回滚；`timeoutSec` 暂缓，见 ADR-0008 |
+| `tx_commit` | `docId`, `txId`, `ifRev?`, `intent?` | 汇总回执（全部受影响 id） | |
+| `tx_rollback` | `docId`, `txId` | `txId`、`rev` | D |
 | `history_list` | `docId`, `limit` | 事务列表（含来源 user / agent） | R |
 | `history_undo` / `history_redo` | `docId`, `steps?` | 回执 | D |
 | `snapshot_save` / `snapshot_restore` / `snapshot_list` | `docId`, `name` | — | restore 为 D |

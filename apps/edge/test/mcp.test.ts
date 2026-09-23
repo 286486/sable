@@ -1,7 +1,7 @@
-import { evictAllDurableObjects } from "cloudflare:test";
+import { evictAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { COLOR_PATTERN } from "@zibel/core";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
@@ -27,6 +27,7 @@ it("lists tools with annotations and an outputSchema", async () => {
     outputSchema: object;
   }[];
   expect(tools.map((t) => t.name).sort()).toEqual([
+    "zibel_doc_changes",
     "zibel_doc_create",
     "zibel_doc_outline",
     "zibel_node_create",
@@ -35,6 +36,9 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_node_transform",
     "zibel_node_update",
     "zibel_render",
+    "zibel_tx_begin",
+    "zibel_tx_commit",
+    "zibel_tx_rollback",
   ]);
   const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
   const inputKeys = (name: string) => {
@@ -53,6 +57,16 @@ it("lists tools with annotations and an outputSchema", async () => {
     );
   }
   expect(inputKeys("zibel_doc_create")).toContain("intent");
+  for (const name of ["zibel_node_get", "zibel_doc_outline", "zibel_render"]) {
+    expect(inputKeys(name)).toContain("txId");
+  }
+  expect(inputKeys("zibel_tx_commit")).toEqual(
+    expect.arrayContaining(["docId", "txId", "ifRev", "intent"]),
+  );
+  expect(byName.zibel_doc_changes?.annotations).toMatchObject({ readOnlyHint: true });
+  expect(byName.zibel_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
+  expect(byName.zibel_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
+  expect(JSON.stringify(tools)).not.toContain("no effect yet");
   for (const t of tools) {
     expect(t.annotations).toHaveProperty("readOnlyHint");
     expect(t.annotations).toHaveProperty("openWorldHint", false);
@@ -684,14 +698,211 @@ describe("edit tools", () => {
       docId: doc.docId,
       updates: [{ nodeId: id, patch: { name: "red" } }],
       intent: "make it red",
-      txId: "ignored-for-now",
-      ifRev: 99,
     });
     const log = await env.DOCUMENT.get(env.DOCUMENT.idFromName(doc.docId)).changes(0);
-    expect(Array.isArray(log) && log.at(-1)).toMatchObject({
+    expect("changes" in log && log.changes.at(-1)).toMatchObject({
       actor: "agent-a",
       intent: "make it red",
       updatedIds: [id],
     });
+  });
+});
+
+describe("transactions", () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** A Document with one committed rect (rev 2), and helpers bound to it. */
+  const setup = async () => {
+    const doc = await newDoc();
+    const docId = doc.docId as string;
+    const rect = {
+      type: "rect",
+      parentId: doc.defaultLayerId,
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 30,
+    };
+    const tool = async (name: string, args: object = {}, token?: string) =>
+      call(`zibel_${name}`, { docId, ...args }, token);
+    const ok = async (name: string, args: object = {}, token?: string) => {
+      const result = await tool(name, args, token);
+      if (result.isError) throw new Error(result.content[0].text);
+      return result.structuredContent;
+    };
+    const err = async (name: string, args: object = {}, token?: string) =>
+      errorOf(await tool(name, args, token));
+    const [rectId] = (await ok("node_create", { nodes: [rect] })).createdIds;
+    const children = async (txId?: string) =>
+      (await ok("doc_outline", { txId })).layers[0].children?.map((c: { id: string }) => c.id) ??
+      [];
+    return { docId, rect, rectId, tool, ok, err, children };
+  };
+
+  it("shows uncommitted edits only to reads carrying the txId, then commits them in one rev", async () => {
+    const { rect, rectId, ok, err, children } = await setup();
+    const { txId, rev } = await ok("tx_begin", { label: "Add a box" });
+    expect(rev).toBe(2);
+    const made = await ok("node_create", { nodes: [rect], txId });
+    expect(made).toMatchObject({ txId, rev: 2 });
+    const [id] = made.createdIds;
+    await ok("node_update", { updates: [{ nodeId: id, patch: { name: "box" } }], txId });
+    await ok("node_transform", { nodeIds: [id], translate: { x: 5 }, txId });
+
+    expect((await ok("node_get", { nodeIds: [id], txId })).nodes).toMatchObject([
+      { name: "box", geometricBounds: { x: 15 } },
+    ]);
+    expect(await err("node_get", { nodeIds: [id] })).toMatchObject({ code: "NODE_NOT_FOUND" });
+    expect(await children(txId)).toEqual([rectId, id]);
+    expect(await children()).toEqual([rectId]);
+    const png = await ok("render", { txId });
+    expect(png.viewport.docRect).toBeDefined();
+    expect((await ok("doc_outline")).rev).toBe(2);
+
+    expect(await ok("tx_commit", { txId })).toMatchObject({
+      txId,
+      rev: 3,
+      createdIds: [id],
+      updatedIds: [],
+      deletedIds: [],
+    });
+    expect(await children()).toEqual([rectId, id]);
+    expect((await ok("node_get", { nodeIds: [id] })).nodes).toMatchObject([{ name: "box" }]);
+    expect(await ok("doc_changes", { sinceRev: 2 })).toMatchObject({
+      rev: 3,
+      changes: [{ rev: 3, txId, summary: "Add a box", createdIds: [id] }],
+    });
+  });
+
+  it("rolls back to the Document exactly as it was before tx_begin", async () => {
+    const { rect, rectId, ok, err } = await setup();
+    const before = await ok("doc_outline", { depth: 5 });
+    const changes = await ok("doc_changes", { sinceRev: 0 });
+    const { txId } = await ok("tx_begin");
+    await ok("node_create", { nodes: [rect], txId });
+    await ok("node_update", { updates: [{ nodeId: rectId, patch: { name: "x" } }], txId });
+    await ok("node_delete", { nodeIds: [rectId], txId });
+    expect(await ok("tx_rollback", { txId })).toEqual({ txId, rev: 2 });
+    expect(await ok("doc_outline", { depth: 5 })).toEqual(before);
+    expect((await ok("node_get", { nodeIds: [rectId], detail: "full" })).nodes).toMatchObject([
+      { name: "" },
+    ]);
+    expect(await ok("doc_changes", { sinceRev: 0 })).toEqual(changes);
+    expect(await err("node_get", { nodeIds: [rectId], txId })).toMatchObject({
+      code: "TX_EXPIRED",
+      hint: expect.stringContaining("rolled back"),
+    });
+  });
+
+  it("expires an idle Transaction through the alarm; the next call gets TX_EXPIRED", async () => {
+    const { docId, rect, ok, err, children, rectId } = await setup();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { txId } = await ok("tx_begin");
+    await ok("node_create", { nodes: [rect], txId });
+    vi.setSystemTime(Date.now() + 5 * 60_000 + 1000);
+    expect(await runDurableObjectAlarm(env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)))).toBe(
+      true,
+    );
+    expect(await err("node_create", { nodes: [rect], txId })).toMatchObject({
+      code: "TX_EXPIRED",
+      hint: expect.stringContaining("idle"),
+      path: "txId",
+    });
+    expect(await children()).toEqual([rectId]);
+  });
+
+  it("rejects a write with a stale ifRev with REV_CONFLICT and changes nothing", async () => {
+    const { rectId, ok, err } = await setup();
+    const update = (ifRev: number, name: string) => ({
+      updates: [{ nodeId: rectId, patch: { name } }],
+      ifRev,
+    });
+    expect(await err("node_update", update(1, "x"))).toMatchObject({
+      code: "REV_CONFLICT",
+      rev: 2,
+      nodeIds: [rectId],
+      hint: expect.stringContaining("zibel_doc_changes"),
+      path: "ifRev",
+    });
+    expect(await err("node_delete", { nodeIds: [rectId], ifRev: 1 })).toMatchObject({
+      code: "REV_CONFLICT",
+    });
+    expect(await ok("doc_outline")).toMatchObject({ rev: 2, layers: [{ childCount: 1 }] });
+    expect((await ok("node_get", { nodeIds: [rectId], detail: "full" })).nodes).toMatchObject([
+      { name: "" },
+    ]);
+    expect(await ok("node_update", update(2, "y"))).toMatchObject({ rev: 3 });
+
+    const { txId } = await ok("tx_begin");
+    await ok("node_update", { ...update(3, "z"), txId });
+    expect(await err("tx_commit", { txId, ifRev: 2 })).toMatchObject({ code: "REV_CONFLICT" });
+    expect(await ok("tx_commit", { txId, ifRev: 3 })).toMatchObject({ rev: 4 });
+  });
+
+  it("fails the commit with NODE_GONE when a Node it edited was deleted outside", async () => {
+    const { rectId, ok, err } = await setup();
+    const { txId } = await ok("tx_begin");
+    await ok("node_update", { updates: [{ nodeId: rectId, patch: { opacity: 0.5 } }], txId });
+    await ok("node_delete", { nodeIds: [rectId] }, "dev-token-a");
+    expect(await err("tx_commit", { txId })).toMatchObject({
+      code: "NODE_GONE",
+      nodeIds: [rectId],
+      hint: expect.stringContaining("zibel_tx_rollback"),
+    });
+    expect((await ok("doc_outline")).rev).toBe(3);
+    expect(await ok("tx_rollback", { txId })).toEqual({ txId, rev: 3 });
+  });
+
+  it("lists Transactions from two Actors in doc_changes with their attribution", async () => {
+    const { rect, rectId, ok, err } = await setup();
+    await ok(
+      "node_update",
+      { updates: [{ nodeId: rectId, patch: { name: "b" } }], intent: "rename" },
+      "dev-token-b",
+    );
+    const { txId } = await ok("tx_begin", { label: "Two boxes" });
+    const { createdIds } = await ok("node_create", { nodes: [rect, rect], txId });
+    await ok("tx_commit", { txId, intent: "more boxes" });
+    expect(await ok("doc_changes", { sinceRev: 1 })).toEqual({
+      rev: 4,
+      changes: [
+        expect.objectContaining({ rev: 2, actor: "agent-a", createdIds: [rectId] }),
+        expect.objectContaining({
+          rev: 3,
+          actor: "agent-b",
+          updatedIds: [rectId],
+          intent: "rename",
+        }),
+        {
+          rev: 4,
+          txId,
+          actor: "agent-a",
+          summary: "Two boxes",
+          createdIds,
+          updatedIds: [],
+          deletedIds: [],
+          intent: "more boxes",
+        },
+      ],
+    });
+    expect(await ok("doc_changes", { sinceRev: 1, limit: 1 })).toMatchObject({
+      rev: 4,
+      changes: [{ rev: 2 }],
+    });
+    expect(await err("node_create", { nodes: [rect], txId: "01NOPE" })).toMatchObject({
+      code: "TX_NOT_FOUND",
+    });
+  });
+
+  it("keeps a Transaction to the Actor that began it", async () => {
+    const { rect, ok, err } = await setup();
+    const { txId } = await ok("tx_begin");
+    expect(await err("node_create", { nodes: [rect], txId }, "dev-token-b")).toMatchObject({
+      code: "TX_NOT_FOUND",
+    });
+    expect(await err("tx_commit", { txId }, "dev-token-b")).toMatchObject({
+      code: "TX_NOT_FOUND",
+    });
+    expect(await ok("node_create", { nodes: [rect], txId })).toMatchObject({ txId });
   });
 });

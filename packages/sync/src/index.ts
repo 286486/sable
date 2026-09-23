@@ -16,6 +16,22 @@ export interface WriteOptions {
   intent?: string;
   /** Apply the valid items and report the rest in the receipt's `failed` (F-MCP-16). */
   partial?: boolean;
+  /** Stage the write in this open Transaction instead of committing it (ADR-0008). */
+  txId?: string;
+  /** Fail with REV_CONFLICT unless the committed `rev` equals this. */
+  ifRev?: number;
+}
+
+/** One committed Transaction, as `doc_changes` lists it (F-MCP-14). */
+export interface ChangeEntry {
+  rev: number;
+  txId: string;
+  actor: string;
+  summary: string;
+  createdIds: string[];
+  updatedIds: string[];
+  deletedIds: string[];
+  intent: string | null;
 }
 
 export interface CreatedDocument {
@@ -39,13 +55,35 @@ export interface DocumentService {
   updateNodes(docId: string, updates: UpdateInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   deleteNodes(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
   transformNodes(docId: string, input: TransformInput, opts?: WriteOptions): Promise<WriteReceipt>;
+  /** Reads take `txId` to see that open Transaction's uncommitted edits. */
   get(
     docId: string,
     nodeIds: string[],
     detail: "concise" | "full",
+    txId?: string,
   ): Promise<{ rev: number; nodes: (ConciseView | FullView)[] }>;
-  outline(docId: string, depth: number): Promise<{ rev: number; layers: OutlineNode[] }>;
-  render(docId: string, scale: number): Promise<{ png: Uint8Array; viewport: Viewport }>;
+  outline(
+    docId: string,
+    depth: number,
+    txId?: string,
+  ): Promise<{ rev: number; layers: OutlineNode[] }>;
+  render(
+    docId: string,
+    scale: number,
+    txId?: string,
+  ): Promise<{ png: Uint8Array; viewport: Viewport }>;
+  begin(docId: string, label?: string): Promise<{ txId: string; rev: number }>;
+  commitTx(
+    docId: string,
+    txId: string,
+    opts?: { ifRev?: number; intent?: string },
+  ): Promise<WriteReceipt>;
+  rollback(docId: string, txId: string): Promise<{ txId: string; rev: number }>;
+  changes(
+    docId: string,
+    sinceRev: number,
+    limit?: number,
+  ): Promise<{ rev: number; changes: ChangeEntry[] }>;
 }
 
 /** Maps rendered pixels back to document coordinates (F-MCP-11). */

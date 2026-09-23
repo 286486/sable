@@ -5,3 +5,4 @@ export * from "./errors.ts";
 export * from "./matrix.ts";
 export * from "./path.ts";
 export * from "./schema.ts";
+export * from "./tx.ts";

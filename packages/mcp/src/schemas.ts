@@ -46,3 +46,21 @@ const NodeView = z.looseObject({
 });
 
 export const NodeGetOutput = z.object({ rev: z.number().int(), nodes: z.array(NodeView) });
+
+export const TxOutput = z.object({ txId: z.string(), rev: z.number().int() });
+
+export const ChangesOutput = z.object({
+  rev: z.number().int(),
+  changes: z.array(
+    z.object({
+      rev: z.number().int(),
+      txId: z.string(),
+      actor: z.string(),
+      summary: z.string(),
+      createdIds: z.array(z.string()),
+      updatedIds: z.array(z.string()),
+      deletedIds: z.array(z.string()),
+      intent: z.string().nullable(),
+    }),
+  ),
+});

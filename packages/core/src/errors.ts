@@ -6,7 +6,11 @@ export type ErrorCode =
   | "INVALID_PATH"
   | "INVALID_PATCH"
   | "LIMIT_EXCEEDED"
-  | "PERMISSION_DENIED";
+  | "PERMISSION_DENIED"
+  | "REV_CONFLICT"
+  | "NODE_GONE"
+  | "TX_NOT_FOUND"
+  | "TX_EXPIRED";
 
 /** What an Agent sees for a failed call: enough to fix the call without a stack trace. */
 export interface ErrorData {
@@ -14,6 +18,10 @@ export interface ErrorData {
   message: string;
   hint: string;
   path?: string;
+  /** REV_CONFLICT: the committed rev. */
+  rev?: number;
+  /** REV_CONFLICT: Nodes changed since `ifRev`. NODE_GONE: the deleted Nodes. */
+  nodeIds?: string[];
 }
 
 export class ZibelError extends Error {
