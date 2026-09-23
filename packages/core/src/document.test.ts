@@ -81,3 +81,74 @@ it("rejects an Artboard id as a parent", () => {
     code: "INVALID_PARENT",
   });
 });
+
+it("stores an Appearance with its defaults filled in", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const [node] = createNodes(doc, [
+    {
+      ...rect(defaultLayerId),
+      appearance: {
+        fills: [{ color: "#ff8800" }],
+        strokes: [{ color: "#000000AA", width: 2, cap: "round", dash: [4, 2] }],
+      },
+    },
+  ]);
+  expect(node).toMatchObject({
+    appearance: {
+      fills: [{ type: "solid", color: "#ff8800" }],
+      strokes: [
+        { color: "#000000AA", width: 2, cap: "round", join: "miter", miterLimit: 10, dash: [4, 2] },
+      ],
+    },
+  });
+});
+
+it("gives a shape without an Appearance Illustrator's default: white Fill, 1 pt black Stroke", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const [plain, bare] = createNodes(doc, [
+    rect(defaultLayerId),
+    { ...rect(defaultLayerId), appearance: {} },
+  ]);
+  expect(plain).toMatchObject({
+    appearance: { fills: [{ color: "#FFFFFF" }], strokes: [{ color: "#000000", width: 1 }] },
+  });
+  expect(bare).toMatchObject({ appearance: { fills: [], strokes: [] } });
+});
+
+it.each([
+  ["rgb(255, 136, 0)", /#FF8800/],
+  ["red", /#FF0000/],
+  [[1, 0.5, 0], /#FF8000/],
+  [0.5, /#RRGGBB/],
+  ["#F80", /#FF8800/],
+])("rejects the color %j with INVALID_COLOR and a conversion hint", (color, hint) => {
+  const { doc, defaultLayerId } = newDoc();
+  const error = codeOf(() =>
+    createNodes(doc, [
+      rect(defaultLayerId),
+      { ...rect(defaultLayerId), appearance: { strokes: [{ color: "#000000" }, { color }] } },
+    ]),
+  );
+  expect(error).toMatchObject({
+    code: "INVALID_COLOR",
+    path: "nodes[1].appearance.strokes[1].color",
+  });
+  expect(error.hint).toMatch(hint);
+  expect(outline(doc)[0]?.childCount).toBe(0);
+});
+
+it("rejects a bad Artboard background with INVALID_COLOR", () => {
+  expect(
+    codeOf(() =>
+      createDocument({
+        id: "d",
+        name: "Doc",
+        artboards: [{ width: 1, height: 1, background: "white" }],
+      }),
+    ),
+  ).toMatchObject({
+    code: "INVALID_COLOR",
+    path: "artboards[0].background",
+    hint: expect.stringMatching(/#FFFFFF/),
+  });
+});

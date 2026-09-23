@@ -1,15 +1,17 @@
 import { generateKeyBetween } from "fractional-indexing";
 import { ulid } from "ulid";
+import { parseColor } from "./color.ts";
 import { ZibelError } from "./errors.ts";
 import {
-  Appearance,
+  type Appearance,
+  AppearanceInput,
   type Artboard,
   type ArtboardInput,
   type Document,
   type LayerNode,
   type Matrix,
   type Node,
-  type NodeInput,
+  NodeInput,
   type Rect,
 } from "./schema.ts";
 
@@ -45,7 +47,9 @@ export function createDocument(input: { id: string; name: string; artboards: Art
       id: newId(),
       name: a.name ?? `Artboard ${i + 1}`,
       frame: { x, y: a.y ?? 0, width: a.width, height: a.height },
-      ...(a.background && { background: a.background }),
+      ...(a.background !== undefined && {
+        background: parseColor(a.background, `artboards[${i}].background`),
+      }),
     };
   });
   const layer: LayerNode = {
@@ -70,7 +74,8 @@ export function createDocument(input: { id: string; name: string; artboards: Art
  */
 export function createNodes(doc: Document, inputs: NodeInput[]): Node[] {
   const lastIndex = new Map<string, string | null>();
-  const created = inputs.map((input, i): Node => {
+  const created = inputs.map((raw, i): Node => {
+    const input = NodeInput.parse(raw);
     const path = `nodes[${i}].parentId`;
     const parent = doc.nodes.get(input.parentId);
     if (!parent) {
@@ -104,20 +109,35 @@ export function createNodes(doc: Document, inputs: NodeInput[]): Node[] {
       : (childrenOf(doc, parent.id).at(-1)?.index ?? null);
     const index = generateKeyBetween(prev, null);
     lastIndex.set(parent.id, index);
-    const { type, x, y, width, height, name, appearance } = input;
+    const { parentId: _, clientKey: __, name, appearance, ...shape } = input;
     return {
       ...base(parent.id, index),
-      type,
+      ...shape,
       name: name ?? "",
-      x,
-      y,
-      width,
-      height,
-      appearance: Appearance.parse(appearance ?? {}),
+      appearance: paint(appearance ?? DEFAULT_APPEARANCE, `nodes[${i}].appearance`),
     };
   });
   for (const node of created) doc.nodes.set(node.id, node);
   return created;
+}
+
+/** Illustrator's basic appearance for a new shape. */
+const DEFAULT_APPEARANCE = AppearanceInput.parse({
+  fills: [{ color: "#FFFFFF" }],
+  strokes: [{ color: "#000000" }],
+});
+
+function paint(a: AppearanceInput, path: string): Appearance {
+  return {
+    fills: a.fills.map((f, i) => ({
+      ...f,
+      color: parseColor(f.color, `${path}.fills[${i}].color`),
+    })),
+    strokes: a.strokes.map((s, i) => ({
+      ...s,
+      color: parseColor(s.color, `${path}.strokes[${i}].color`),
+    })),
+  };
 }
 
 // ponytail: scans every Node per lookup; keep a parent index beside the map when Documents grow.

@@ -8,9 +8,9 @@ const MAX_RENDER_SIDE = 4096;
 export function documentService(env: Env, actor: string): DocumentService {
   const doc = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
   return {
-    create: (input) => {
+    create: async (input) => {
       const docId = newId();
-      return doc(docId).create({ ...input, docId, actor });
+      return unwrap(await doc(docId).create({ ...input, docId, actor }));
     },
     createNodes: async (docId, nodes) => unwrap(await doc(docId).createNodes(nodes, actor)),
     outline: async (docId, depth) => unwrap(await doc(docId).outline(depth)),

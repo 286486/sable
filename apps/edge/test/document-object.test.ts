@@ -4,15 +4,17 @@ import { expect, it } from "vitest";
 
 const stub = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
 
+const ok = <T extends object>(result: T): Exclude<T, { error: unknown }> => {
+  if ("error" in result) throw new Error(JSON.stringify(result.error));
+  return result as Exclude<T, { error: unknown }>;
+};
+
 const artboards = [{ width: 200, height: 100 }];
 
 it("keeps Nodes and the Transaction log across a DO restart, with each write's Actor", async () => {
-  const created = await stub("d1").create({
-    docId: "d1",
-    name: "Doc",
-    artboards,
-    actor: "agent-a",
-  });
+  const created = ok(
+    await stub("d1").create({ docId: "d1", name: "Doc", artboards, actor: "agent-a" }),
+  );
   expect(created).toMatchObject({ docId: "d1", rev: 1 });
 
   const receipt = await stub("d1").createNodes(
@@ -56,12 +58,9 @@ it("keeps Nodes and the Transaction log across a DO restart, with each write's A
 });
 
 it("leaves rev unchanged when a write fails", async () => {
-  const created = await stub("d2").create({
-    docId: "d2",
-    name: "Doc",
-    artboards,
-    actor: "agent-a",
-  });
+  const created = ok(
+    await stub("d2").create({ docId: "d2", name: "Doc", artboards, actor: "agent-a" }),
+  );
   const rect = { type: "rect" as const, x: 0, y: 0, width: 1, height: 1 };
   expect(
     await stub("d2").createNodes(

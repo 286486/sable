@@ -1,9 +1,16 @@
 import { z } from "zod";
+import { COLOR_PATTERN } from "./color.ts";
 
-/** `#RRGGBB` or `#RRGGBBAA`, case-insensitive (REQUIREMENTS §6.5). */
-export const Color = z
-  .string()
-  .regex(/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/, "Colors are #RRGGBB or #RRGGBBAA, e.g. #FF8800.");
+/**
+ * `#RRGGBB` or `#RRGGBBAA`, case-insensitive (REQUIREMENTS §6.5). The published schema carries the
+ * pattern, but any value parses so core can answer INVALID_COLOR with a conversion hint instead of
+ * the MCP SDK's generic validation text.
+ */
+export const Color = z.unknown().meta({
+  type: "string",
+  pattern: COLOR_PATTERN,
+  description: "#RRGGBB or #RRGGBBAA, e.g. #FF8800.",
+});
 
 export const Rect = z.object({
   x: z.number(),
@@ -13,12 +20,30 @@ export const Rect = z.object({
 });
 export type Rect = z.infer<typeof Rect>;
 
-// ponytail: solid Fills and one-width Strokes only; cap, join, dash and gradients arrive with #3.
-export const Appearance = z.object({
-  fills: z.array(z.object({ color: Color })).default([]),
-  strokes: z.array(z.object({ color: Color, width: z.number().positive().default(1) })).default([]),
+export const Fill = z.object({ type: z.literal("solid").default("solid"), color: Color });
+export const Stroke = z.object({
+  color: Color,
+  width: z.number().positive().default(1),
+  cap: z.enum(["butt", "round", "square"]).default("butt"),
+  join: z.enum(["miter", "round", "bevel"]).default("miter"),
+  miterLimit: z.number().min(1).max(500).default(10),
+  dash: z
+    .array(z.number().nonnegative())
+    .default([])
+    .describe("Alternating dash and gap lengths in pt, e.g. [4, 2]; empty for a solid Stroke."),
 });
-export type Appearance = z.infer<typeof Appearance>;
+// ponytail: solid Fills only; gradients and patterns arrive with their own issue.
+export type AppearanceInput = z.output<typeof AppearanceInput>;
+export const AppearanceInput = z.object({
+  fills: z.array(Fill).default([]).describe("Painted bottom to top."),
+  strokes: z.array(Stroke).default([]).describe("Painted bottom to top, above every Fill."),
+});
+
+type Painted<T extends z.ZodType> = Omit<z.output<T>, "color"> & { color: string };
+export interface Appearance {
+  fills: Painted<typeof Fill>[];
+  strokes: Painted<typeof Stroke>[];
+}
 
 export const ArtboardInput = z.object({
   name: z.string().optional(),
@@ -94,19 +119,16 @@ export type Shape = z.output<
   | typeof PathShape
 >;
 
-export const RectInput = z.object({
-  type: z.literal("rect"),
+export const RectInput = RectShape.extend({
   parentId: z.string().describe("Id of a Layer or Group. doc_create returns the default Layer id."),
   clientKey: z
     .string()
     .optional()
     .describe("Your own key for this item; the receipt's keyMap maps it to the new id."),
   name: z.string().optional(),
-  x: z.number(),
-  y: z.number(),
-  width: z.number().nonnegative(),
-  height: z.number().nonnegative(),
-  appearance: Appearance.optional(),
+  appearance: AppearanceInput.optional().describe(
+    "Omit for Illustrator's default, a white Fill and a 1 pt black Stroke; {} paints nothing.",
+  ),
 });
 export const NodeInput = RectInput;
 export type NodeInput = z.input<typeof NodeInput>;
@@ -134,10 +156,7 @@ export interface LayerNode extends NodeBase {
   type: "layer";
 }
 
-export interface RectNode extends NodeBase, Rect {
-  type: "rect";
-  appearance: Appearance;
-}
+export type RectNode = NodeBase & z.output<typeof RectShape> & { appearance: Appearance };
 
 export type Node = LayerNode | RectNode;
 

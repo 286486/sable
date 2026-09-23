@@ -1,5 +1,6 @@
 import { evictAllDurableObjects } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
+import { COLOR_PATTERN } from "@zibel/core";
 import { expect, it } from "vitest";
 import { call, errorOf, rpc } from "./rpc.ts";
 
@@ -19,7 +20,12 @@ it("initializes without a session id", async () => {
 
 it("lists tools with annotations and an outputSchema", async () => {
   const { body } = await rpc("tools/list");
-  const tools = body.result.tools as { name: string; annotations: object; outputSchema: object }[];
+  const tools = body.result.tools as {
+    name: string;
+    annotations: object;
+    inputSchema: object;
+    outputSchema: object;
+  }[];
   expect(tools.map((t) => t.name).sort()).toEqual([
     "zibel_doc_create",
     "zibel_doc_outline",
@@ -31,6 +37,11 @@ it("lists tools with annotations and an outputSchema", async () => {
     expect(t.annotations).toHaveProperty("openWorldHint", false);
     expect(t.outputSchema).toMatchObject({ type: "object" });
   }
+  // Core validates colours, but Agents still read the pattern from the published schema (§6.5).
+  const nodeCreate = tools.find((t) => t.name === "zibel_node_create");
+  expect(JSON.stringify(nodeCreate?.inputSchema)).toContain(
+    JSON.stringify({ type: "string", pattern: COLOR_PATTERN }).slice(1, -1),
+  );
 });
 
 it("creates a rect in the default Layer and reads it back from doc_outline", async () => {
@@ -81,6 +92,18 @@ it("returns INVALID_PARENT with a path when the parent is a rect", async () => {
     code: "INVALID_PARENT",
     hint: expect.any(String),
     path: "nodes[0].parentId",
+  });
+});
+
+it("returns INVALID_COLOR with a hint for a bad Artboard background", async () => {
+  const result = await call("zibel_doc_create", {
+    name: "Doc",
+    artboards: [{ width: 10, height: 10, background: "white" }],
+  });
+  expect(errorOf(result)).toMatchObject({
+    code: "INVALID_COLOR",
+    hint: expect.stringContaining("#FFFFFF"),
+    path: "artboards[0].background",
   });
 });
 

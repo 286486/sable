@@ -57,22 +57,24 @@ export class DocumentObject extends DurableObject<Env> {
     name: string;
     artboards: ArtboardInput[];
     actor: string;
-  }): CreatedDocument {
-    const { doc, defaultLayerId } = createDocument({
-      id: input.docId,
-      name: input.name,
-      artboards: input.artboards,
+  }): Result<CreatedDocument> {
+    return guard(() => {
+      const { doc, defaultLayerId } = createDocument({
+        id: input.docId,
+        name: input.name,
+        artboards: input.artboards,
+      });
+      const { rev } = this.ctx.storage.transactionSync(() => {
+        this.sql.exec(
+          "INSERT INTO doc (id, name, rev, artboards) VALUES (?, ?, 0, ?)",
+          doc.id,
+          doc.name,
+          JSON.stringify(doc.artboards),
+        );
+        return this.commit(input.actor, `Create Document "${doc.name}"`, [...doc.nodes.values()]);
+      });
+      return { docId: doc.id, defaultLayerId, artboards: doc.artboards, rev };
     });
-    const { rev } = this.ctx.storage.transactionSync(() => {
-      this.sql.exec(
-        "INSERT INTO doc (id, name, rev, artboards) VALUES (?, ?, 0, ?)",
-        doc.id,
-        doc.name,
-        JSON.stringify(doc.artboards),
-      );
-      return this.commit(input.actor, `Create Document "${doc.name}"`, [...doc.nodes.values()]);
-    });
-    return { docId: doc.id, defaultLayerId, artboards: doc.artboards, rev };
   }
 
   info(): Result<{ docId: string; name: string; rev: number; artboards: Artboard[] }> {
