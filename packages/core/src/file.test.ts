@@ -90,6 +90,17 @@ it("parses what it serialises back to the same Document, and the same text", () 
   expect(serializeDocument(reopened)).toBe(text);
 });
 
+it("reads a Path without fillRule as nonzero and keeps evenodd", () => {
+  const file = JSON.parse(serializeDocument(scene()));
+  const path = file.nodes.find((n: { type: string }) => n.type === "path");
+  expect(path.fillRule).toBe("nonzero");
+  delete path.fillRule;
+  const rule = (text: string) => parseDocument(text).nodes.find((n) => n.type === "path");
+  expect(rule(JSON.stringify(file))).toMatchObject({ fillRule: "nonzero" });
+  path.fillRule = "evenodd";
+  expect(rule(JSON.stringify(file))).toMatchObject({ fillRule: "evenodd" });
+});
+
 describe("migrations", () => {
   // A test migration: version 1 called the name `title`.
   const up: Migration = ({ title, ...rest }) => ({ ...rest, name: title });

@@ -5,7 +5,7 @@ date: 2026-09-24
 
 # A Compound Path is a `path` with several subpaths and a fill rule
 
-Designers cut holes with Compound Paths (Illustrator's Object > Compound Path > Make), and Inkscape's default style writes `fill-rule:evenodd` on every path it draws, so the round trip (ADR-0017) needs the fill rule (#30). REQUIREMENTS F-DOC-03 listed both a `fillRule` on `path` and a separate `compound_path` node type, after Illustrator's CompoundPathItem, which holds PathItems.
+Designers cut holes with Compound Paths (Illustrator's Object > Compound Path > Make), and an SVG `<path>` carries the same thing as `fill-rule`, which import drops today with a warning, so the round trip (ADR-0017) needs it (#30). REQUIREMENTS F-DOC-03 listed both a `fillRule` on `path` and a separate `compound_path` node type, after Illustrator's CompoundPathItem, which holds PathItems.
 
 Zibel has no `compound_path` type. A `path` Node gains `fillRule`, `"nonzero"` (the default) or `"evenodd"`, after Illustrator's PathItem `evenodd` and its Attributes panel. A Compound Path is a `path` whose `d` has more than one subpath: one Appearance, one fill rule, one Node, as CONTEXT.md defines it ("视为一个 Path").
 

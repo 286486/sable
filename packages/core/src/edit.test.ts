@@ -239,12 +239,25 @@ describe("updateNodes", () => {
     expect(shape(doc, p.id)).toMatchObject({ d: "M 0 0 L 10 0" });
   });
 
+  it("switches a Path's fillRule, and null restores nonzero", () => {
+    const { doc, p } = setup();
+    expect(shape(doc, p.id)).toMatchObject({ fillRule: "nonzero" });
+    updateNodes(doc, [{ nodeId: p.id, patch: { fillRule: "evenodd" } }]);
+    expect(shape(doc, p.id)).toMatchObject({ fillRule: "evenodd" });
+    updateNodes(doc, [{ nodeId: p.id, patch: { fillRule: null } }]);
+    expect(shape(doc, p.id)).toMatchObject({ fillRule: "nonzero" });
+    expect(
+      errorOf(() => updateNodes(doc, [{ nodeId: p.id, patch: { fillRule: "winding" } }])),
+    ).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.fillRule" });
+  });
+
   it.each([
     [{ transform: [1, 0, 0, 1, 0, 0] }, "transform", /node_transform/],
     [{ parentId: "x" }, "parentId", /reparent/i],
     [{ type: "ellipse" }, "type", /type/],
     [{ sides: 5 }, "sides", /x, y, width, height, radius/],
     [{ d: "M 0 0" }, "d", /parameters/],
+    [{ fillRule: "evenodd" }, "fillRule", /x, y, width/],
     [{ name: null }, "name", /null/],
     [{ width: -1 }, "width", /./],
     [{ constructor: 1 }, "constructor", /x, y, width/],
