@@ -35,8 +35,10 @@ export interface TxMessage {
   deletedIds: string[];
   /** The `id` of the browser command this Transaction answers. */
   commandId?: string;
-  /** An undo or redo: Nodes it skipped because they were deleted since (ADR-0011). */
+  /** An undo, redo or Replace: Nodes it skipped because they were deleted since (ADR-0011). */
   skippedIds?: string[];
+  /** Every Artboard, when the Transaction changed one (Replace). */
+  artboards?: Artboard[];
 }
 
 /** Sent only to the browser whose command changed nothing. */
@@ -73,5 +75,5 @@ export function applyBroadcast(doc: Document, msg: TxMessage): Document {
   const nodes = new Map(doc.nodes);
   for (const n of [...msg.created, ...msg.updated]) nodes.set(n.id, n);
   for (const id of msg.deletedIds) nodes.delete(id);
-  return { ...doc, rev: msg.rev, nodes };
+  return { ...doc, rev: msg.rev, nodes, artboards: msg.artboards ?? doc.artboards };
 }

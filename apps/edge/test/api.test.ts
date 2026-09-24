@@ -355,3 +355,23 @@ it("opens a file POSTed to /api/docs as the user, named after the file", async (
   expect(bad.status).toBe(400);
   expect(await bad.json()).toMatchObject({ code: "INVALID_DOCUMENT", hint: expect.any(String) });
 });
+
+it("replaces a Document from an edited file POSTed to /api/docs/:docId/replace, as the user", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const [id] = (await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] }))
+    .structuredContent.createdIds as string[];
+  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text as string;
+  const { received } = await subscribe(docId);
+  const post = (body: string) =>
+    exports.default.fetch(`http://zibel/api/docs/${docId}/replace`, { method: "POST", body });
+
+  const res = await post(svg.replace(/(id="z-[^"]+"[^>]*) fill="[^"]*"/, '$1 fill="#FF0000"'));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ updatedIds: [id] });
+  const [, tx] = await received(2);
+  expect(tx).toMatchObject({ type: "tx", actor: "user", updated: [{ id }] });
+
+  const refused = await post('<svg xmlns="http://www.w3.org/2000/svg"/>');
+  expect(refused.status).toBe(400);
+  expect(await refused.json()).toMatchObject({ code: "INVALID_DOCUMENT" });
+});

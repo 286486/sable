@@ -35,6 +35,7 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_doc_list",
     "zibel_doc_open",
     "zibel_doc_outline",
+    "zibel_doc_replace",
     "zibel_export",
     "zibel_node_create",
     "zibel_node_delete",
@@ -64,6 +65,10 @@ it("lists tools with annotations and an outputSchema", async () => {
     );
   }
   expect(inputKeys("zibel_doc_create")).toContain("intent");
+  expect(inputKeys("zibel_doc_replace").sort()).toEqual(
+    ["baseRev", "content", "docId", "ifRev", "intent"].sort(),
+  );
+  expect(byName.zibel_doc_replace?.annotations).toMatchObject({ destructiveHint: true });
   for (const name of [
     "zibel_node_get",
     "zibel_node_query",
@@ -1483,4 +1488,21 @@ describe("zibel_json", () => {
     });
     expect(await count()).toBe(before + 1);
   });
+});
+
+it("replaces a Document from its edited SVG export, and refuses any other file", async () => {
+  const doc = await newDoc();
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [{ type: "rect", parentId: doc.defaultLayerId, x: 0, y: 0, width: 10, height: 10 }],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  const svg = (await call("zibel_export", { docId: doc.docId, format: "svg" })).content[0].text;
+  const content = svg.replace(/(id="z-[^"]+"[^>]*) fill="[^"]*"/, '$1 fill="#FF0000"');
+  const replaced = await call("zibel_doc_replace", { docId: doc.docId, content });
+  expect(replaced.structuredContent).toMatchObject({ updatedIds: [id], warnings: [] });
+
+  const foreign = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="5" height="5"/></svg>';
+  const refused = await call("zibel_doc_replace", { docId: doc.docId, content: foreign });
+  expect(errorOf(refused)).toMatchObject({ code: "INVALID_DOCUMENT", path: "content" });
 });

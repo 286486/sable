@@ -395,6 +395,31 @@ it("keeps the latest 200 Transactions on the undo stack", async () => {
   expect(await x()).toBe(1);
 });
 
+it("keeps every rev's delta through undo and redo-clear, and prunes deltas older than 30 days", async () => {
+  const { s: doc, rectId: id } = await withRect("dl");
+  const move = () => doc.transformNodes({ nodeIds: [id], translate: { x: 1 } }, "agent-a");
+  ok(await move());
+  ok(await doc.undo("user"));
+  ok(await move()); // clears redo
+  const revs = () =>
+    runInDurableObject(doc, (_, state) =>
+      state.storage.sql
+        .exec<{ rev: number }>("SELECT DISTINCT rev FROM tx_delta ORDER BY rev")
+        .toArray()
+        .map((r) => r.rev),
+    );
+  expect(await revs()).toEqual([2, 3, 4, 5]);
+
+  await runInDurableObject(doc, (_, state) => {
+    state.storage.sql.exec("UPDATE tx_log SET at = at - ?", 31 * 86_400_000);
+  });
+  ok(await move());
+  expect(await revs()).toEqual([6]);
+  expect(ok(await doc.undo("user"))).toMatchObject({ updatedIds: [id] });
+  // The stack drops the revs whose deltas went, rather than undoing nothing.
+  expect(await doc.undo("user")).toMatchObject({ error: { code: "NOTHING_TO_UNDO" } });
+});
+
 it("writes each Node id into the SVG it hands the Worker to rasterise, with the ids overlay", async () => {
   const { defaultLayerId: parentId } = ok(
     await stub("ids").create({ docId: "ids", name: "Doc", artboards, actor: "agent-a" }),

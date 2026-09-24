@@ -57,6 +57,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - `zibel_export` with `format: "zibel_json"` returns the whole Document as `.zibel.json` text, the file to save.
 - `zibel_doc_open` with that text as `content` makes a new Document with its own docId; every Node and Artboard keeps its id. A file that fails validation creates nothing, and `INVALID_DOCUMENT` (or the usual colour, path or parent code) names the `path` inside the file.
 - `zibel_doc_open` also takes SVG text, told apart by content: Zibel's own `zibel_export` SVG, a file saved in Inkscape, or plain SVG 1.1, at most 5 MB (else `LIMIT_EXCEEDED`). Layers, pages, names, locks and `z-<id>` ids come back; units become pt, with px counting as pt. What Zibel cannot hold yet (gradients become their first colour; clipping, masks, filters, images and `<use>` are dropped) is listed once per kind in `warnings`; it never fails the open.
+- To bring an edited file back into the Document it came from, use `zibel_doc_replace`, not `zibel_doc_open`: it keeps the docId and merges only what the file changed since its export onto what others wrote meanwhile, as one undoable Transaction. An SVG from `zibel_export` knows its rev; for a `.zibel.json`, pass the rev you exported it at as `baseRev`. Guard it with `ifRev` like any write.
 
 ## Text
 

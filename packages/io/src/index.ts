@@ -1,9 +1,9 @@
 import { fontWarnings, parseDocument, ZibelError } from "@zibel/core";
-import { type OpenedFile, parseSvg, type Warning } from "./svg.ts";
+import { type OpenedFile, type Origin, parseSvg, type Warning } from "./svg.ts";
 
-export { MAX_DEPTH } from "./svg.ts";
+export { MAX_DEPTH, parseSvg } from "./svg.ts";
 
-export type { OpenedFile, Warning };
+export type { OpenedFile, Origin, Warning };
 
 /** The largest SVG Open reads, in UTF-16 code units (REQUIREMENTS §6.7). */
 export const SVG_LIMIT = 5 * 1024 * 1024;
@@ -12,7 +12,10 @@ export const SVG_LIMIT = 5 * 1024 * 1024;
  * Reads a file for Open (ADR-0017): `.zibel.json` or SVG, told apart by content. `name` is the
  * file name, used for an SVG that names no Document.
  */
-export function parseFile(content: string, { name }: { name?: string } = {}): OpenedFile {
+export function parseFile(
+  content: string,
+  { name }: { name?: string } = {},
+): OpenedFile & { format: "svg" | "zibel_json" } {
   const text = content.replace(/^﻿/, "").trimStart();
   let file: OpenedFile;
   if (text.startsWith("{")) file = { ...parseDocument(text), warnings: [] };
@@ -37,5 +40,6 @@ export function parseFile(content: string, { name }: { name?: string } = {}): Op
   // One per font, not per text: a file set in one missing font says so once.
   const fonts = new Map<string, Warning>();
   for (const w of fontWarnings(file.nodes)) if (!fonts.has(w.message)) fonts.set(w.message, w);
-  return { ...file, warnings: [...file.warnings, ...fonts.values()] };
+  const format = text.startsWith("<") ? "svg" : "zibel_json";
+  return { ...file, format, warnings: [...file.warnings, ...fonts.values()] };
 }

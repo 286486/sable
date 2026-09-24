@@ -170,6 +170,10 @@ _Avoid_: Operation、Action、Mutation
 Document 单调递增的版本序号，每提交一个 Transaction 加一。用来判断"我读过之后文档是否被别人改过"。
 _Avoid_: Version（保留给 schema 版本）、Etag、Snapshot
 
+**Delta Log（增量日志）**：
+每个已提交 Transaction 所改 Node 的前后副本，按 Revision 索引，保留 30 天，与撤销 / 重做栈无关；栈只记最近 200 个 rev，指向它。撤销和重做反转其中一条；Replace 用它把 Document 倒回导出时的 Revision（ADR-0017，取代 ADR-0011 的随栈丢弃）。
+_Avoid_: History（那是栈）、Changelog、Journal
+
 **WriteReceipt（写入回执）**：
 每个写工具的统一返回：`txId`、提交后的 `rev`、新增 / 修改 / 删除的 Node id、`clientKey` 到新 id 的 `keyMap`、受影响范围的 `bounds` 与 `warnings`。Agent 靠它确认改了什么，无需重读。`partial: true` 时另附 `failed`：每个未生效项的下标与错误。Transaction 内的写入，`rev` 仍是已提交的修订号，`tx_commit` 时才递增。
 _Avoid_: Result、Response、Ack

@@ -79,28 +79,43 @@ export interface DeltaRow {
 
 /**
  * Applies the inverse of a committed Transaction's delta to the Document as committed now, per
- * top-level key (ADR-0011). An update of a Node deleted since, or a recreate under a parent that is
- * gone (and not recreated here), is skipped and reported instead of failing the undo.
+ * top-level key (ADR-0011).
  */
 export function revert(
   doc: Document,
   delta: DeltaRow[],
 ): { created: Node[]; updated: Node[]; deletedIds: string[]; skipped: string[] } {
-  const recreates = new Map(delta.flatMap((r) => (r.before && !r.after ? [[r.id, r.before]] : [])));
+  return applyRows(
+    doc,
+    delta.map(({ id, before, after }) => ({ id, base: after, working: before })),
+  );
+}
+
+/**
+ * `commitTransaction` that skips instead of failing (delete beats edit, ADR-0004): an update of a
+ * Node deleted since, and a create or update whose parent is gone and not created here, are left
+ * out and reported in `skipped`.
+ */
+export function applyRows(
+  doc: Document,
+  rows: TxRow[],
+): { created: Node[]; updated: Node[]; deletedIds: string[]; skipped: string[] } {
+  const creates = new Map(rows.flatMap((r) => (!r.base && r.working ? [[r.id, r.working]] : [])));
   const placeable = (node: Node): boolean => {
     const parent = node.parentId;
     if (parent === null || doc.nodes.has(parent)) return true;
-    const p = recreates.get(parent);
+    const p = creates.get(parent);
     return !!p && placeable(p);
   };
   const skipped: string[] = [];
-  const rows: TxRow[] = [];
-  for (const { id, before, after } of delta) {
-    const gone = before && (after ? !doc.nodes.has(id) : !placeable(before));
+  const kept: TxRow[] = [];
+  for (const row of rows) {
+    const { id, base, working } = row;
+    const gone = working && ((base && !doc.nodes.has(id)) || !placeable(working));
     if (gone) skipped.push(id);
-    else rows.push({ id, base: after, working: before });
+    else kept.push(row);
   }
-  return { ...commitTransaction(doc, rows), skipped };
+  return { ...commitTransaction(doc, kept), skipped };
 }
 
 /** `current` with every top-level key where `working` differs from `base` taken from `working`. */
@@ -117,7 +132,7 @@ function merge(current: Node, base: Node, working: Node): Node {
 }
 
 /** Structural equality of JSON values; key order does not matter. */
-function same(a: unknown, b: unknown): boolean {
+export function same(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
