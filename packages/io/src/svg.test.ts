@@ -421,3 +421,49 @@ it("reads <text> as Point Type, one Node per Inkscape line, keeping the font nam
   expect(centred).toMatchObject({ x: 95.51, content: "Hi" });
   expect(file.warnings).toEqual([expect.objectContaining({ code: "FONT_MISSING", nodeId: a?.id })]);
 });
+
+it("opens a file with content Zibel cannot hold, with one warning per kind", () => {
+  const id = "z-01M38T29SBZ873XP2NBD2K6CYR";
+  const file = parseFile(
+    svg(
+      'width="100" height="100" xmlns:xlink="http://www.w3.org/1999/xlink"',
+      '<defs><symbol id="s"><rect width="1" height="1"/></symbol><filter id="f"/><clipPath id="c"><rect width="5" height="5"/></clipPath>' +
+        '<pattern id="p" width="2" height="2"/></defs>' +
+        '<use xlink:href="#s"/><use href="#s"/><image href="data:image/png;base64,AAAA" width="1" height="1"/>' +
+        "<flowRoot><flowPara>x</flowPara></flowRoot><foreignObject><div/></foreignObject>" +
+        "<script>alert(1)</script><svg/><foo/>" +
+        '<rect clip-path="url(#c)" mask="url(#m)" style="filter:url(#f)" width="2" height="2"/>' +
+        '<path inkscape:path-effect="#e" inkscape:original-d="M 0 0 L 9 9" d="M 0 0 L 1 1"/>' +
+        '<g sodipodi:type="inkscape:box3d"><path sodipodi:type="inkscape:box3dside" d="M 0 0 L 2 0 L 2 2 Z"/></g>' +
+        '<rect fill="url(#p)" width="1" height="1"/>' +
+        `<rect id="${id}" width="1" height="1"/><rect id="${id}" width="1" height="1"/>` +
+        '<path d="M 0 0 L 1 1 M 0 1 L 1 0 Z" fill-rule="evenodd" marker-end="url(#m)"/>' +
+        '<path d="M 0 0 X"/>',
+    ),
+  );
+  expect(leaves(file).map((n) => n.type)).toEqual([
+    "rect",
+    "path",
+    "path",
+    "rect",
+    "rect",
+    "rect",
+    "path",
+  ]);
+  expect(leaves(file)[1]).toMatchObject({ d: "M 0 0 L 1 1" });
+  const codes = file.warnings.map((w) => w.code);
+  expect(codes.filter((c) => c === "UNSUPPORTED_ELEMENT")).toHaveLength(7);
+  expect(new Set(codes)).toEqual(
+    new Set([
+      "UNSUPPORTED_ELEMENT",
+      "UNSUPPORTED_ATTRIBUTE",
+      "PATH_EFFECT_FLATTENED",
+      "BOX3D_AS_PATHS",
+      "UNSUPPORTED_PAINT",
+      "DUPLICATE_ID",
+      "INVALID_PATH",
+    ]),
+  );
+  expect(codes.filter((c) => c === "UNSUPPORTED_ATTRIBUTE")).toHaveLength(5);
+  for (const w of file.warnings) expect(w.message).not.toBe("");
+});

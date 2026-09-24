@@ -7,6 +7,10 @@ export type Style = Record<string, string>;
 const INHERITED = [
   "fill",
   "fill-opacity",
+  "fill-rule",
+  "marker-start",
+  "marker-mid",
+  "marker-end",
   "stroke",
   "stroke-width",
   "stroke-linecap",

@@ -114,6 +114,36 @@ const bakes = ([a, b, c, d]: Matrix) =>
 
 const ULID = /^z-([0-9A-HJKMNP-TV-Z]{26})$/;
 
+/** Elements that draw, and those that only define or describe and are skipped without a word. */
+const DRAWN = new Set([
+  "g",
+  "a",
+  "switch",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+  "path",
+  "text",
+]);
+const SILENT = new Set([
+  "defs",
+  "title",
+  "desc",
+  "metadata",
+  "style",
+  "symbol",
+  "linearGradient",
+  "radialGradient",
+  "pattern",
+  "clipPath",
+  "mask",
+  "filter",
+  "marker",
+]);
+
 /** Where the walk is: the Node children go into, and the matrix from here to the Document. */
 interface Context {
   /** A Layer or Group id; null at the root, where loose content goes into a Layer of its own. */
@@ -171,8 +201,15 @@ class Reader {
   }
 
   /** A `z-<ULID>` id comes back as that Node's; any other id is a new Node (ADR-0017). */
-  private id(e: Element | null) {
+  private id(e: Element | null, again = false) {
     const kept = ULID.exec(e?.getAttribute("id") ?? "")?.[1];
+    if (kept && this.ids.has(kept) && !again) {
+      this.warn(
+        "DUPLICATE_ID",
+        "",
+        `Two elements have the id z-${kept}; the second is a new Node.`,
+      );
+    }
     const id = kept && !this.ids.has(kept) ? kept : newId();
     this.ids.add(id);
     return id;
@@ -200,10 +237,16 @@ class Reader {
   }
 
   /** The properties every Node has, placed under `parentId`. */
-  base(e: Element | null, parentId: string | null, name?: string, style: Style = {}) {
+  base(
+    e: Element | null,
+    parentId: string | null,
+    name?: string,
+    style: Style = {},
+    again = false,
+  ) {
     const blend = BlendMode.safeParse(style["mix-blend-mode"]);
     return {
-      id: this.id(e),
+      id: this.id(e, again),
       name: name ?? e?.getAttributeNS(INKSCAPE_NS, "label") ?? "",
       parentId,
       index: this.index(parentId),
@@ -231,10 +274,22 @@ class Reader {
 
   walk(e: Element, ctx: Context) {
     if (e.namespaceURI !== SVG_NS && e.namespaceURI !== null) return;
+    if (SILENT.has(e.localName ?? "")) return;
+    if (!DRAWN.has(e.localName ?? "")) {
+      this.warn(
+        "UNSUPPORTED_ELEMENT",
+        e.localName ?? "",
+        `<${e.localName}> is not supported yet and was dropped.`,
+      );
+      return;
+    }
     const matrix = multiply(ctx.matrix, parseTransform(e.getAttribute("transform")));
     const style = computeStyle(e, ctx.style, this.rules);
     const tag = e.localName;
     const stack = e.getAttributeNS(ZIBEL_NS, "stack") === "true";
+    if (e.getAttributeNS(SODIPODI_NS, "type") === "inkscape:box3d") {
+      this.warn("BOX3D_AS_PATHS", "", "3D boxes import as a Group of their side Paths.");
+    }
     if ((tag === "g" && !stack) || tag === "a" || tag === "switch") {
       const layer = ctx.layerLevel && e.getAttributeNS(INKSCAPE_NS, "groupmode") === "layer";
       const parentId = layer ? ctx.parentId : this.parent(ctx);
@@ -284,12 +339,41 @@ class Reader {
       }));
     } else
       pieces = [{ shape: this.shape(e, matrix, style), appearance: this.appearance(style, k) }];
-    for (const { shape, appearance } of pieces) {
-      if (!shape) continue;
-      const base = this.base(e, this.parent(ctx), undefined, style);
+    pieces = pieces.filter((p) => p.shape);
+    if (pieces.length) this.unsupported(e, style);
+    pieces.forEach(({ shape, appearance }, i) => {
+      // A text's later lines are new Nodes, not duplicates of its id.
+      const base = this.base(e, this.parent(ctx), undefined, style, i > 0);
       // visibility inherits, unlike display, so it hides a leaf rather than its Group.
       if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
       this.add({ ...base, ...shape, appearance } as Node);
+    });
+  }
+
+  /** What a leaf's style asks for that Zibel draws without: warned, then left out. */
+  private unsupported(e: Element, style: Style) {
+    for (const p of ["clip-path", "mask", "filter", "marker-start", "marker-mid", "marker-end"]) {
+      if (style[p] && style[p] !== "none") {
+        this.warn(
+          "UNSUPPORTED_ATTRIBUTE",
+          p,
+          `${p} is not supported yet; the artwork imports without it.`,
+        );
+      }
+    }
+    if (style["fill-rule"] === "evenodd") {
+      this.warn(
+        "UNSUPPORTED_ATTRIBUTE",
+        "fill-rule",
+        "fill-rule evenodd is not supported until Compound Paths land (#30); nonzero is used.",
+      );
+    }
+    if (e.hasAttributeNS(INKSCAPE_NS, "path-effect")) {
+      this.warn(
+        "PATH_EFFECT_FLATTENED",
+        "",
+        "Live Path Effects import as the Path they draw; the effect is dropped.",
+      );
     }
   }
 
@@ -536,7 +620,15 @@ class Reader {
         return path(segments);
       }
       case "path": {
-        if (!star) return path(normalizePath(e.getAttribute("d") ?? "", "d"));
+        if (!star) {
+          try {
+            return path(normalizePath(e.getAttribute("d") ?? "", "d"));
+          } catch (error) {
+            if (!(error instanceof ZibelError)) throw error;
+            this.warn("INVALID_PATH", "", `A path was dropped: ${error.message}`);
+            return null;
+          }
+        }
         const { cx, cy, r1, r2, sides } = star;
         const centre = { cx: x(cx), cy: y(cy) };
         return star.flat
