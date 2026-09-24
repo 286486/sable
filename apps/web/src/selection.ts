@@ -108,7 +108,8 @@ function paintedAt(
   }
   const m = worldTransform(doc, n);
   const path = new Path2D(formatPath(transformSegments(shapeSegments(n), m)));
-  if (n.appearance.fills.length > 0 && ctx.isPointInPath(path, x, y)) return true;
+  const rule = n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : "nonzero";
+  if (n.appearance.fills.length > 0 && ctx.isPointInPath(path, x, y, rule)) return true;
   const widest = Math.max(0, ...n.appearance.strokes.map((s) => s.width)) * scaleOf(m);
   ctx.lineWidth = Math.max(widest, tolerance);
   return ctx.isPointInStroke(path, x, y);

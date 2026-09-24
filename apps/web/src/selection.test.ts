@@ -1,5 +1,5 @@
 import { createDocument, createNodes, type Node } from "@zibel/core";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   combine,
   editable,
@@ -133,6 +133,43 @@ describe("hitTest", () => {
     } as unknown as CanvasRenderingContext2D;
     expect(hitTest(ctx, doc, 15, 40, 1)).toBe(t?.id);
     expect(hitTest(ctx, doc, 22, 40, 1)).toBeNull();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("tests a Path's Fill with its fill rule, so a click in an evenodd hole misses", () => {
+    // workerd has no Path2D; the geometry is the browser's, the rule is ours to pass.
+    vi.stubGlobal("Path2D", class {});
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const d = "M 0 0 L 30 0 L 30 30 L 0 30 Z M 10 10 L 20 10 L 20 20 L 10 20 Z";
+    const [ring] = createNodes(doc, [
+      {
+        type: "path",
+        parentId,
+        d,
+        fillRule: "evenodd",
+        appearance: { fills: [{ color: "#000000" }] },
+      },
+    ]).nodes;
+    const rules: unknown[] = [];
+    const ctx = {
+      save() {},
+      restore() {},
+      setTransform() {},
+      isPointInPath: (_p: unknown, _x: number, _y: number, rule?: string) => {
+        rules.push(rule);
+        return rule !== "evenodd";
+      },
+      isPointInStroke: () => false,
+    } as unknown as CanvasRenderingContext2D;
+    expect(hitTest(ctx, doc, 15, 15, 1)).toBeNull();
+    if (ring) doc.nodes.set(ring.id, { ...ring, fillRule: "nonzero" } as Node);
+    expect(hitTest(ctx, doc, 15, 15, 1)).toBe(ring?.id);
+    expect(rules).toEqual(["evenodd", "nonzero"]);
   });
 });
 
