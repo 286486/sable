@@ -1,4 +1,4 @@
-import { ZibelError } from "@zibel/core";
+import { COLOR_PATTERN, ZibelError } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness } from "./harness.ts";
 
@@ -427,4 +427,99 @@ describe("render and export return an image, SVG text or file text", () => {
     expect(result).toEqual({ structuredContent: {}, content: [{ type: "text", text: "{}" }] });
     expect(service.file).toHaveBeenCalledWith("d", "t");
   });
+});
+
+it("publishes every tool with its annotations, input keys, outputSchema and description", async () => {
+  const { client } = await harness();
+  const tools = (await client.listTools()).tools as {
+    name: string;
+    annotations: object;
+    inputSchema: object;
+    outputSchema: object;
+  }[];
+  expect(tools.map((t) => t.name).sort()).toEqual([
+    "zibel_doc_changes",
+    "zibel_doc_create",
+    "zibel_doc_get_info",
+    "zibel_doc_list",
+    "zibel_doc_open",
+    "zibel_doc_outline",
+    "zibel_doc_replace",
+    "zibel_export",
+    "zibel_node_create",
+    "zibel_node_delete",
+    "zibel_node_get",
+    "zibel_node_query",
+    "zibel_node_transform",
+    "zibel_node_update",
+    "zibel_render",
+    "zibel_svg_import",
+    "zibel_tx_begin",
+    "zibel_tx_commit",
+    "zibel_tx_rollback",
+  ]);
+  const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+  const inputKeys = (name: string) => {
+    const tool = byName[name];
+    return tool ? Object.keys((tool.inputSchema as { properties: object }).properties) : [];
+  };
+  for (const [name, destructive] of [
+    ["zibel_node_create", false],
+    ["zibel_node_update", true],
+    ["zibel_node_delete", true],
+    ["zibel_node_transform", false],
+  ] as const) {
+    expect(byName[name]?.annotations).toMatchObject({ destructiveHint: destructive });
+    expect(inputKeys(name)).toEqual(
+      expect.arrayContaining(["docId", "intent", "txId", "ifRev", "partial"]),
+    );
+  }
+  expect(inputKeys("zibel_doc_create")).toContain("intent");
+  expect(inputKeys("zibel_doc_replace").sort()).toEqual(
+    ["baseRev", "content", "docId", "ifRev", "intent"].sort(),
+  );
+  expect(byName.zibel_doc_replace?.annotations).toMatchObject({ destructiveHint: true });
+  expect(inputKeys("zibel_svg_import").sort()).toEqual(
+    ["docId", "fit", "ifRev", "intent", "parentId", "position", "svg", "txId"].sort(),
+  );
+  expect(byName.zibel_svg_import?.annotations).toMatchObject({ destructiveHint: false });
+  for (const name of [
+    "zibel_node_get",
+    "zibel_node_query",
+    "zibel_doc_outline",
+    "zibel_render",
+    "zibel_export",
+  ]) {
+    expect(inputKeys(name)).toContain("txId");
+  }
+  expect(inputKeys("zibel_tx_commit")).toEqual(
+    expect.arrayContaining(["docId", "txId", "ifRev", "intent"]),
+  );
+  expect(byName.zibel_doc_changes?.annotations).toMatchObject({ readOnlyHint: true });
+  expect(byName.zibel_doc_get_info?.annotations).toMatchObject({ readOnlyHint: true });
+  expect(byName.zibel_doc_list?.annotations).toMatchObject({ readOnlyHint: true });
+  expect(byName.zibel_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
+  expect(byName.zibel_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
+  expect(JSON.stringify(tools)).not.toContain("no effect yet");
+  // Descriptions point at the Skill document instead of repeating its conventions.
+  const described = (name: string) => (byName[name] as { description?: string })?.description;
+  for (const name of ["zibel_doc_create", "zibel_node_create", "zibel_node_update"]) {
+    expect(described(name)).toContain("skill://zibel/drawing-conventions");
+  }
+  expect(described("zibel_node_create")).not.toContain("origin top-left");
+  expect(described("zibel_node_create")).toContain("text {");
+  for (const t of tools) {
+    expect(t.annotations, t.name).toEqual({
+      readOnlyHint: expect.any(Boolean),
+      destructiveHint: expect.any(Boolean),
+      idempotentHint: expect.any(Boolean),
+      openWorldHint: false,
+    });
+    expect(t.outputSchema, t.name).toMatchObject({ type: "object" });
+  }
+  // Core validates colours, but Agents still read the pattern from the published schema (§6.5).
+  const nodeCreate = tools.find((t) => t.name === "zibel_node_create");
+  expect(JSON.stringify(nodeCreate?.inputSchema)).toContain(
+    JSON.stringify({ type: "string", pattern: COLOR_PATTERN }).slice(1, -1),
+  );
 });
