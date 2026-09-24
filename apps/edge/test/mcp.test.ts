@@ -389,6 +389,52 @@ it("rejects more than 1000 Artboards or 2000 nodes in one call", async () => {
   });
 });
 
+it("cuts a hole with an evenodd Compound Path, which node_get reports and render draws", async () => {
+  const doc = await newDoc();
+  // Both subpaths wind the same way, so only evenodd makes the inner one a hole.
+  const d = "M 10 10 L 60 10 L 60 60 L 10 60 Z M 25 25 L 45 25 L 45 45 L 25 45 Z";
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "path",
+        parentId: doc.defaultLayerId,
+        d,
+        fillRule: "evenodd",
+        appearance: { fills: [{ color: "#000000" }] },
+      },
+    ],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  const get = async () =>
+    (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+      .structuredContent.nodes[0];
+  expect(await get()).toMatchObject({ type: "path", d, fillRule: "evenodd" });
+  const png = async () =>
+    (await call("zibel_render", { docId: doc.docId, background: "#FFFFFF" })).content[0].data;
+  const holed = await png();
+  await call("zibel_node_update", {
+    docId: doc.docId,
+    updates: [{ nodeId: id, patch: { fillRule: "nonzero" } }],
+  });
+  expect(await get()).toMatchObject({ fillRule: "nonzero" });
+  expect(await png()).not.toBe(holed);
+  const [rectId] = (
+    await call("zibel_node_create", {
+      docId: doc.docId,
+      nodes: [{ type: "rect", parentId: doc.defaultLayerId, x: 0, y: 0, width: 1, height: 1 }],
+    })
+  ).structuredContent.createdIds as string[];
+  expect(
+    errorOf(
+      await call("zibel_node_update", {
+        docId: doc.docId,
+        updates: [{ nodeId: rectId, patch: { fillRule: "evenodd" } }],
+      }),
+    ),
+  ).toMatchObject({ code: "INVALID_PATCH", message: "A rect has no fillRule." });
+});
+
 it("creates every M0 type with an Appearance and reads each back in full", async () => {
   const doc = await newDoc();
   const paint = (color: string) => ({

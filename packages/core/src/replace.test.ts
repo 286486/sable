@@ -63,6 +63,20 @@ describe("replaceMerge", () => {
     expect(doc.nodes.get(c.id)).toMatchObject({ name: "file" });
   });
 
+  it("applies a fill rule the file changed", () => {
+    const { doc, layer } = setup();
+    const [p] = createNodes(doc, [{ type: "path", parentId: layer, d: "M 0 0 L 9 0 L 9 9 Z" }])
+      .nodes as [ShapeNode];
+    const base = copy(doc);
+    const out = replaceMerge(
+      doc,
+      { base, current: base },
+      edit(fileOf(base), p.id, { fillRule: "evenodd" }),
+    );
+    expect(out.updated.map((n) => n.id)).toEqual([p.id]);
+    expect(doc.nodes.get(p.id)).toMatchObject({ fillRule: "evenodd" });
+  });
+
   it("takes the file's value where both sides changed the same property", () => {
     const { doc, a } = setup();
     const base = copy(doc);

@@ -34,7 +34,7 @@ export interface Canvas2D {
   bezierCurveTo(x1: number, y1: number, x2: number, y2: number, x: number, y: number): void;
   quadraticCurveTo(x1: number, y1: number, x: number, y: number): void;
   closePath(): void;
-  fill(): void;
+  fill(rule?: "nonzero" | "evenodd"): void;
   stroke(): void;
   fillText(text: string, x: number, y: number): void;
   strokeText(text: string, x: number, y: number): void;
@@ -82,6 +82,7 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
     for (const f of n.appearance.fills) {
       ctx.fillStyle = f.color;
       if (text) ctx.fillText(text.content, text.x, text.y);
+      else if (n.type === "path" && n.fillRule === "evenodd") ctx.fill("evenodd");
       else ctx.fill();
     }
     for (const s of n.appearance.strokes) {

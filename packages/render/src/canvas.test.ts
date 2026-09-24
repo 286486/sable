@@ -161,3 +161,24 @@ it("draws a font Zibel does not bundle in Source Sans 3, as render does", () => 
   drawDocument(ctx, doc);
   expect(log).toContain('font=12px "Source Sans 3"');
 });
+
+it("fills a Path with its fill rule", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const d = "M 0 0 L 30 0 L 30 30 Z M 10 5 L 20 5 L 20 15 Z";
+  createNodes(doc, [
+    {
+      type: "path",
+      parentId,
+      d,
+      fillRule: "evenodd",
+      appearance: { fills: [{ color: "#000000" }] },
+    },
+    { type: "path", parentId, d, appearance: { fills: [{ color: "#000000" }] } },
+  ]);
+  const { ctx, log } = recorder();
+  drawDocument(ctx, doc);
+  expect(log.filter((l) => l.startsWith("fill ") || l === "fill")).toEqual([
+    "fill evenodd",
+    "fill",
+  ]);
+});

@@ -422,6 +422,32 @@ it("reads <text> as Point Type, one Node per Inkscape line, keeping the font nam
   expect(file.warnings).toEqual([expect.objectContaining({ code: "FONT_MISSING", nodeId: a?.id })]);
 });
 
+it("keeps fill-rule on what becomes a Path, and drops it without a warning elsewhere", () => {
+  const d = "M 0 0 L 9 0 L 9 9 Z M 3 3 L 6 3 L 6 6 Z";
+  const file = parseFile(
+    svg(
+      'width="10" height="10"',
+      `<path d="${d}" fill-rule="evenodd"/><path d="${d}" style="fill-rule:evenodd"/>` +
+        '<g fill-rule="evenodd"><polygon points="0 0 9 0 9 9"/></g>' +
+        `<g zibel:stack="true" style="fill-rule:evenodd"><path d="${d}" fill="#FF0000"/><path d="${d}" fill="#0000FF"/></g>` +
+        `<path d="${d}"/><rect fill-rule="evenodd" width="1" height="1"/>` +
+        // Zibel's own export of a two-Fill evenodd Path: the rule on each paint.
+        `<g zibel:stack="true"><path d="${d}" fill-rule="evenodd" fill="#FF0000"/><path d="${d}" fill-rule="evenodd" fill="#0000FF"/></g>`,
+    ),
+  );
+  expect(leaves(file).map((n) => [n.type, "fillRule" in n ? n.fillRule : undefined])).toEqual([
+    ["path", "evenodd"],
+    ["path", "evenodd"],
+    ["path", "evenodd"],
+    ["path", "evenodd"],
+    ["path", "nonzero"],
+    ["rect", undefined],
+    ["path", "evenodd"],
+  ]);
+  expect(leaves(file)[3]).toMatchObject({ appearance: { fills: [{}, {}] } });
+  expect(file.warnings).toEqual([]);
+});
+
 it("opens a file with content Zibel cannot hold, with one warning per kind", () => {
   const id = "z-01M38T29SBZ873XP2NBD2K6CYR";
   const file = parseFile(
@@ -464,7 +490,7 @@ it("opens a file with content Zibel cannot hold, with one warning per kind", () 
       "INVALID_PATH",
     ]),
   );
-  expect(codes.filter((c) => c === "UNSUPPORTED_ATTRIBUTE")).toHaveLength(5);
+  expect(codes.filter((c) => c === "UNSUPPORTED_ATTRIBUTE")).toHaveLength(4);
   for (const w of file.warnings) expect(w.message).not.toBe("");
 });
 

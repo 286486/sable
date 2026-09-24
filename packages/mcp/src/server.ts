@@ -231,7 +231,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "line {x1, y1, x2, y2}.",
         "polygon {cx, cy, radius, sides}: radius is center to vertex.",
         "star {cx, cy, outerRadius, innerRadius, points}.",
-        "path {d}: SVG path data with absolute M, L, C, Q and Z only.",
+        "path {d, fillRule}: SVG path data with absolute M, L, C, Q and Z only. Several subpaths with fillRule evenodd cut holes (a Compound Path); default nonzero.",
         "text {x, y, content, fontSize}: Point Type; x, y is where the baseline of the first character starts. content is one line, no line breaks; fontSize is in pt, default 12. fontFamily is any font name, kept as written; only Source Sans 3 is bundled, so others render in it and the receipt warns FONT_MISSING.",
         "Live Shapes, paths and text take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}; omit it for a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke.",
         "Give each node a clientKey to find its new id in the receipt's keyMap.",

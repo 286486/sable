@@ -123,6 +123,12 @@ export const StarShape = z.object({
 export const PathShape = z.object({
   type: z.literal("path"),
   d: z.string().describe("SVG path data, absolute M, L, C, Q and Z only, e.g. M 0 0 L 10 0 Z."),
+  fillRule: z
+    .enum(["nonzero", "evenodd"])
+    .default("nonzero")
+    .describe(
+      "Several subpaths in one d make a Compound Path (ADR-0018): under evenodd every inner subpath is a hole; under nonzero only one that winds the other way.",
+    ),
 });
 export const SHAPES = {
   rect: RectShape,

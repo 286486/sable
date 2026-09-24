@@ -324,7 +324,11 @@ function shape(n: ShapeNode): string {
     }
     default:
       // The same outline node_get reports as d.
-      return `path d="${formatPath(shapeSegments(n))}"`;
+      return `path${attrs({
+        d: formatPath(shapeSegments(n)),
+        // nonzero is SVG's default, and a Path stored before ADR-0018 has no rule at all.
+        "fill-rule": n.fillRule === "evenodd" ? "evenodd" : undefined,
+      })}`;
   }
 }
 
