@@ -480,3 +480,25 @@ it("gives hidden Nodes and Nodes outside the scope no overlay, and outlines Artb
     '<rect x="0" y="0" width="200" height="100" fill="none" stroke="#00AEEF" stroke-width="0.25"/>',
   );
 });
+
+it("writes fill-rule evenodd on a Path and on each paint of its stack, and nothing for nonzero", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const d = "M 0 0 L 30 0 L 30 30 L 0 30 Z M 10 10 L 20 10 L 20 20 L 10 20 Z";
+  const [ring, , plain] = createNodes(doc, [
+    { type: "path", parentId, d, fillRule: "evenodd" },
+    {
+      type: "path",
+      parentId,
+      d,
+      fillRule: "evenodd",
+      appearance: { fills: [{ color: "#111111" }, { color: "#222222" }] },
+    },
+    { type: "path", parentId, d },
+  ]).nodes;
+  const svg = toSvg(doc);
+  expect(svg).toContain(`<path d="${d}" fill-rule="evenodd" id="z-${ring?.id}"`);
+  expect(svg).toContain(
+    `zibel:stack="true"><path d="${d}" fill-rule="evenodd" fill="#111111"/><path d="${d}" fill-rule="evenodd" fill="#222222"/></g>`,
+  );
+  expect(svg).toContain(`<path d="${d}" id="z-${plain?.id}"`);
+});

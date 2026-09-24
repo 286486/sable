@@ -62,6 +62,30 @@ it("draws a font Zibel does not bundle in Source Sans 3", async () => {
   expect(await ink(svg("'DejaVu Serif', serif"))).toEqual(bundled);
 });
 
+it("leaves an evenodd hole unpainted, and fills it under nonzero", async () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 70, height: 70, background: "#FFFFFF" }],
+  });
+  // Both subpaths wind the same way, so only evenodd makes the inner one a hole.
+  const d = "M 10 10 L 60 10 L 60 60 L 10 60 Z M 25 25 L 45 25 L 45 45 L 25 45 Z";
+  const [ring] = createNodes(doc, [
+    {
+      type: "path",
+      parentId,
+      d,
+      fillRule: "evenodd",
+      appearance: { fills: [{ color: "#000000" }] },
+    },
+  ]).nodes;
+  const inked = async () => (await ink(toSvg(doc))).map((p) => p.join());
+  expect(await inked()).toContain("15,35");
+  expect(await inked()).not.toContain("35,35");
+  if (ring) doc.nodes.set(ring.id, { ...ring, fillRule: "nonzero" } as typeof ring);
+  expect(await inked()).toContain("35,35");
+});
+
 it("rounds the pixel size to the nearest pixel and stretches the drawing to it", async () => {
   // Why fit() widens the rect to whole pixels: at 10.2 pt × 2 resvg draws 20 px, not 20.4.
   const size = async (width: number) =>
