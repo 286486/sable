@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { call } from "./mcp.ts";
 
@@ -24,7 +23,8 @@ test("the download button saves the .zibel.json that export returns and doc_open
     page.getByRole("button", { name: "Download" }).click(),
   ]);
   expect(download.suggestedFilename()).toBe("E2E.zibel.json");
-  const text = await readFile(await download.path(), "utf8");
+  let text = "";
+  for await (const chunk of await download.createReadStream()) text += chunk;
   const exported = await call(request, "zibel_export", { docId, format: "zibel_json" });
   expect(text).toBe(exported.content[0].text);
 
