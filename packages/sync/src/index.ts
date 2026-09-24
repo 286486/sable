@@ -96,6 +96,21 @@ export interface DocumentService {
     docId: string,
     input: { content: string; baseRev?: number; ifRev?: number; intent?: string },
   ): Promise<WriteReceipt>;
+  /**
+   * Place (ADR-0017): an SVG as one new Group under `parentId`, every id new, centred on
+   * `position` (default the parent's Artboard) after `fit` scales it to that Artboard. `name` is
+   * the file's name. `nodes` is the Group's outline to depth 2.
+   */
+  place(
+    docId: string,
+    input: {
+      svg: string;
+      parentId: string;
+      position?: { x: number; y: number };
+      fit?: boolean;
+      name?: string;
+    } & Pick<WriteOptions, "txId" | "ifRev" | "intent">,
+  ): Promise<WriteReceipt & { nodes: OutlineNode[] }>;
   /** Every Document, newest first. */
   list(): Promise<{ documents: DocSummary[] }>;
   info(docId: string): Promise<DocInfo>;

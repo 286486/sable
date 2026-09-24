@@ -28,6 +28,8 @@ export function documentService(env: Env, actor: string): DocumentService {
     },
     replace: async (docId, { content, baseRev, ifRev, intent }) =>
       unwrap(await doc(docId).replace(parseFile(content), actor, { baseRev, ifRev, intent })),
+    place: async (docId, { svg, name, ...opts }) =>
+      unwrap(await doc(docId).place(parseFile(svg, { name }), actor, opts)),
     list: async () => ({ documents: await listDocuments(env) }),
     info: async (docId) => unwrap(await doc(docId).info()),
     createNodes: async (docId, nodes, opts) =>

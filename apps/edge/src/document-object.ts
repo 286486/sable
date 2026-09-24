@@ -22,6 +22,7 @@ import {
   type OutlineOptions,
   outline,
   overlay,
+  placeNodes,
   queryNodes,
   type Rect,
   type RenderScope,
@@ -608,6 +609,37 @@ export class DocumentObject extends DurableObject<Env> {
         bounds: union(nodes.map((n) => bounds(doc, n))),
       };
     });
+  }
+
+  /**
+   * Place (ADR-0017): an SVG's Nodes as one new Group under `opts.parentId`, all with new ids, in
+   * one Transaction. `nodes` is the Group's outline to depth 2.
+   */
+  place(
+    file: OpenedFile & { format: "svg" | "zibel_json" },
+    actor: string,
+    opts: Options & { parentId: string; position?: { x: number; y: number }; fit?: boolean },
+  ): Result<WriteReceipt & { nodes: OutlineNode[] }> {
+    let nodes: OutlineNode[] = [];
+    const receipt = this.write(actor, opts, "Place", (doc) => {
+      if (file.format !== "svg") {
+        throw new ZibelError({
+          code: "INVALID_DOCUMENT",
+          message: "Place takes SVG; this is a .zibel.json file.",
+          hint: "Write its Nodes with zibel_node_create, or open it as a new Document with zibel_doc_open.",
+          path: "svg",
+        });
+      }
+      const { groupId, created } = placeNodes(doc, file, opts);
+      nodes = outline(doc, { rootId: groupId, depth: 2 });
+      return {
+        created,
+        warnings: file.warnings,
+        failed: [],
+        bounds: bounds(doc, created[0] as Node),
+      };
+    });
+    return "error" in receipt ? receipt : { ...receipt, nodes };
   }
 
   /**
