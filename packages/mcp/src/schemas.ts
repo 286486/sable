@@ -38,6 +38,14 @@ const OutlineNode = z.object({
   },
 });
 
+export const OpenedDocumentOutput = z.object({
+  docId: z.string(),
+  name: z.string(),
+  artboards: Artboards,
+  rev: z.number().int(),
+  nodes: z.array(OutlineNode),
+});
+
 export const OutlineOutput = z.object({ rev: z.number().int(), nodes: z.array(OutlineNode) });
 
 const Viewport = z.object({

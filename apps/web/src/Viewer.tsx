@@ -1,4 +1,4 @@
-import { bounds, type Document, type Rect, union } from "@zibel/core";
+import { bounds, type Document, type Rect, serializeDocument, union } from "@zibel/core";
 import { drawDocument } from "@zibel/render/canvas";
 import fontUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
 import { useEffect, useRef, useState } from "react";
@@ -35,6 +35,17 @@ const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, delta
 const font = new FontFace("Source Sans 3", `url(${fontUrl})`);
 document.fonts.add(font);
 const fontLoaded = font.load();
+
+/** Saves the Document as the browser holds it, the same text `export` returns (ADR-0016). */
+function download(doc: Document) {
+  const url = URL.createObjectURL(new Blob([serializeDocument(doc)], { type: "application/json" }));
+  const a = Object.assign(document.createElement("a"), {
+    href: url,
+    download: `${doc.name}.zibel.json`,
+  });
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const artboardsRect = (doc: Document) =>
   union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 100, height: 100 };
@@ -309,6 +320,9 @@ export function Viewer({ docId }: { docId: string }) {
         </button>{" "}
         <button type="button" onClick={select(inverse)}>
           Inverse
+        </button>{" "}
+        <button type="button" disabled={!doc} onClick={() => doc && download(doc)}>
+          Download
         </button>
         {notice && <div style={{ color: "#B00020" }}>{notice}</div>}
       </div>

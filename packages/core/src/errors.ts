@@ -7,6 +7,7 @@ export type ErrorCode =
   | "INVALID_COLOR"
   | "INVALID_PATH"
   | "INVALID_PATCH"
+  | "INVALID_DOCUMENT"
   | "LIMIT_EXCEEDED"
   | "PERMISSION_DENIED"
   | "REV_CONFLICT"

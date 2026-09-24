@@ -1,16 +1,5 @@
-import { type APIRequestContext, expect, test } from "@playwright/test";
-
-/** One stateless MCP `tools/call` as Agent `agent-a`; returns the CallToolResult. */
-async function call(request: APIRequestContext, name: string, args: object) {
-  const res = await request.post("/mcp", {
-    headers: {
-      accept: "application/json, text/event-stream",
-      authorization: "Bearer dev-token-a",
-    },
-    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
-  });
-  return (await res.json()).result;
-}
+import { expect, test } from "@playwright/test";
+import { call } from "./mcp.ts";
 
 // Seam 3 of #1: an Agent draws, a person drags it in the browser, the Agent reads the move back.
 test("a rectangle an Agent drew can be dragged, undone, redone and deleted in the browser", async ({

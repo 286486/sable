@@ -31,6 +31,7 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_doc_create",
     "zibel_doc_get_info",
     "zibel_doc_list",
+    "zibel_doc_open",
     "zibel_doc_outline",
     "zibel_export",
     "zibel_node_create",
@@ -1184,6 +1185,7 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       await call("zibel_tx_rollback", { docId, txId });
       return tool("zibel_tx_commit", { txId });
     },
+    INVALID_DOCUMENT: () => call("zibel_doc_open", { content: "{" }).then(errorOf),
     // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).
     NOTHING_TO_UNDO: null,
     NOTHING_TO_REDO: null,
@@ -1206,13 +1208,157 @@ it("serves skill://zibel/drawing-conventions as a resource and points at it on i
   expect(listed).toContainEqual(expect.objectContaining({ uri, mimeType: "text/markdown" }));
   const [doc] = (await rpc("resources/read", { uri })).body.result.contents;
   expect(doc).toMatchObject({ uri, mimeType: "text/markdown" });
-  for (const fact of ["#RRGGBB", "y down", "parentId", "ifRev", "zibel_doc_changes"]) {
+  for (const fact of [
+    "#RRGGBB",
+    "y down",
+    "parentId",
+    "ifRev",
+    "zibel_doc_changes",
+    "zibel_json",
+    "zibel_doc_open",
+    "INVALID_DOCUMENT",
+  ]) {
     expect(doc.text).toContain(fact);
   }
-  // Drift guard: the document names only tools that exist.
+  // Drift guard: the document names only tools that exist; zibel_json is an export format.
   const tools = new Set(
     (await rpc("tools/list")).body.result.tools.map((t: { name: string }) => t.name),
   );
-  for (const [name] of doc.text.matchAll(/zibel_[a-z_]+/g)) expect(tools).toContain(name);
+  for (const [name] of doc.text.matchAll(/zibel_(?!json\b)[a-z_]+/g)) expect(tools).toContain(name);
   expect((await rpc("resources/read", { uri: "skill://zibel/nope" })).body.error).toBeDefined();
+});
+
+describe("zibel_json", () => {
+  it("exports the whole Document as .zibel.json text, with a Transaction's edits under its txId", async () => {
+    const doc = await newDoc();
+    const { docId, defaultLayerId } = doc;
+    const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 };
+    const [rectId] = (await call("zibel_node_create", { docId, nodes: [rect] })).structuredContent
+      .createdIds;
+    const result = await call("zibel_export", { docId, format: "zibel_json" });
+    expect(result.structuredContent).toEqual({});
+    expect(result.content[0].type).toBe("text");
+    const text = result.content[0].text;
+    const file = JSON.parse(text);
+    expect(file).toMatchObject({ version: 1, name: "Doc", artboards: doc.artboards });
+    expect(file.nodes).toHaveLength(2);
+    const scoped = await call("zibel_export", {
+      docId,
+      format: "zibel_json",
+      scope: { nodeIds: [rectId] },
+    });
+    expect(scoped.content[0].text).toBe(text);
+    const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
+    await call("zibel_node_create", { docId, txId, nodes: [rect] });
+    const nodesOf = async (args: object) =>
+      JSON.parse(
+        (await call("zibel_export", { docId, format: "zibel_json", ...args })).content[0].text,
+      ).nodes;
+    expect(await nodesOf({ txId })).toHaveLength(3);
+    expect(await nodesOf({})).toHaveLength(2);
+  });
+
+  it("opens an exported file as a new Document that keeps its ids and exports the same text", async () => {
+    const doc = await newDoc();
+    const { docId, defaultLayerId: parentId } = doc;
+    const { keyMap } = (
+      await call("zibel_node_create", {
+        docId,
+        nodes: [
+          { type: "layer", name: "Top" },
+          {
+            type: "group",
+            parentId,
+            children: [{ type: "rect", clientKey: "rect", x: 1, y: 2, width: 3, height: 4 }],
+          },
+          { type: "ellipse", parentId, x: 0, y: 0, width: 5, height: 5 },
+          { type: "line", parentId, x1: 0, y1: 0, x2: 5, y2: 5 },
+          { type: "polygon", parentId, cx: 9, cy: 9, radius: 4, sides: 5 },
+          { type: "star", parentId, cx: 9, cy: 9, outerRadius: 4, innerRadius: 2, points: 5 },
+          { type: "path", parentId, d: "M 0 0 C 1 1 2 2 3 0 Q 4 4 0 0 Z" },
+          {
+            type: "text",
+            parentId,
+            clientKey: "text",
+            x: 0,
+            y: 20,
+            content: "Hi",
+            meta: { b: 1, a: [2] },
+          },
+        ],
+      })
+    ).structuredContent;
+    await call("zibel_node_transform", { docId, nodeIds: [keyMap.rect], rotate: 30 });
+    await call("zibel_node_update", {
+      docId,
+      updates: [{ nodeId: keyMap.text, patch: { name: "Title", tags: ["t"] } }],
+    });
+    const exportOf = async (id: string) =>
+      (await call("zibel_export", { docId: id, format: "zibel_json" })).content[0].text as string;
+    const text = await exportOf(docId);
+
+    const opened = await call("zibel_doc_open", { content: text, intent: "reopen" });
+    const { docId: newId, ...rest } = opened.structuredContent;
+    expect(newId).not.toBe(docId);
+    expect(rest).toEqual({
+      name: "Doc",
+      artboards: doc.artboards,
+      rev: 1,
+      nodes: [
+        expect.objectContaining({
+          id: parentId,
+          type: "layer",
+          childCount: 7,
+          bounds: expect.any(Object),
+        }),
+        expect.objectContaining({ type: "layer", name: "Top", childCount: 0, bounds: null }),
+      ],
+    });
+    expect(rest.nodes[0]).not.toHaveProperty("children");
+    expect(await exportOf(newId)).toBe(text);
+    const [rect] = (
+      await call("zibel_node_get", { docId: newId, nodeIds: [keyMap.rect], detail: "full" })
+    ).structuredContent.nodes;
+    expect(rect).toMatchObject({ id: keyMap.rect, type: "rect", width: 3 });
+    const { changes } = (await call("zibel_doc_changes", { docId: newId, sinceRev: 0 }))
+      .structuredContent;
+    expect(changes).toEqual([
+      expect.objectContaining({
+        rev: 1,
+        actor: "agent-a",
+        summary: 'Open Document "Doc"',
+        intent: "reopen",
+        createdIds: expect.arrayContaining([keyMap.rect, keyMap.text]),
+      }),
+    ]);
+    const { documents } = (await call("zibel_doc_list", {})).structuredContent;
+    expect(documents[0]).toEqual({ docId: newId, name: "Doc", createdAt: expect.any(String) });
+  });
+
+  it("returns a validation error with a path and creates nothing for a malformed file", async () => {
+    const count = async () => (await call("zibel_doc_list", {})).structuredContent.documents.length;
+    const before = await count();
+    const notJson = errorOf(await call("zibel_doc_open", { content: "{" }));
+    expect(notJson).toMatchObject({
+      code: "INVALID_DOCUMENT",
+      path: "content",
+      hint: expect.stringMatching(/\S/),
+    });
+    const { docId, defaultLayerId } = await newDoc();
+    await call("zibel_node_create", {
+      docId,
+      nodes: [{ type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 }],
+    });
+    const file = JSON.parse(
+      (await call("zibel_export", { docId, format: "zibel_json" })).content[0].text,
+    );
+    const i = file.nodes.findIndex((n: { type: string }) => n.type === "rect");
+    file.nodes[i].appearance.fills[0].color = "red";
+    const badColor = errorOf(await call("zibel_doc_open", { content: JSON.stringify(file) }));
+    expect(badColor).toMatchObject({
+      code: "INVALID_COLOR",
+      path: `nodes[${i}].appearance.fills[0].color`,
+    });
+    expect(await count()).toBe(before + 1);
+  });
 });

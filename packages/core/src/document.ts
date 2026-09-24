@@ -217,6 +217,8 @@ export function assertParent(
       "parentId must be a Layer or Group.",
     );
   }
+  // A file can carry a cycle above the parent that never reaches the child (ADR-0016).
+  const seen = new Set<string>();
   for (
     let p: Node | undefined = parent;
     p;
@@ -228,6 +230,13 @@ export function assertParent(
         "Choose a parent outside this Node's subtree.",
       );
     }
+    if (seen.has(p.id)) {
+      throw invalid(
+        `The parent's ancestors form a cycle through ${p.id}.`,
+        "Every chain of parentId must end at a top-level Layer.",
+      );
+    }
+    seen.add(p.id);
   }
 }
 

@@ -51,6 +51,11 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - `zibel_render` returns a PNG of the whole Document, one Artboard, some Nodes or a rect. It lowers the scale to fit `maxSize` (default 1600 px); `viewport` maps pixels back to document coordinates.
 - `zibel_export` with `format: "svg"` returns the drawing as SVG text when you need exact geometry.
 
+## Saving and opening
+
+- `zibel_export` with `format: "zibel_json"` returns the whole Document as `.zibel.json` text, the file to save.
+- `zibel_doc_open` with that text as `content` makes a new Document with its own docId; every Node and Artboard keeps its id. A file that fails validation creates nothing, and `INVALID_DOCUMENT` (or the usual colour, path or parent code) names the `path` inside the file.
+
 ## Reading a Document
 
 Go from coarse to fine: `zibel_doc_outline` for the Layer tree, `zibel_node_query` to find Nodes by type, name, tags, parent or area, and `zibel_node_get` for the properties of the few you will change.
