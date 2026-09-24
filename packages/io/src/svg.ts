@@ -36,6 +36,7 @@ export const SVG_NS = "http://www.w3.org/2000/svg";
 export const INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape";
 export const SODIPODI_NS = "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
+const ZIBEL_NS = "https://zibel.dev/ns/svg";
 
 const invalid = (message: string) =>
   new ZibelError({
@@ -146,12 +147,14 @@ class Reader {
   private readonly last = new Map<string | null, string | null>();
   private readonly ids = new Set<string>();
 
+  /** The Layer loose root content goes into, made at the first such element. */
+  private loose: string | undefined;
+
   constructor(
     private readonly rules: Rule[],
     private readonly byId: Map<string, Element>,
+    private readonly artboards: Artboard[],
   ) {}
-  /** The Layer loose root content goes into, made at the first such element. */
-  private loose: string | undefined;
 
   warn(code: string, key: string, message: string, nodeId?: string) {
     const id = `${code} ${key}`;
@@ -173,21 +176,42 @@ class Reader {
     return id;
   }
 
+  /** `zibel:tags` and `zibel:meta` as export writes them, or empty with a warning. */
+  private tagsAndMeta(e: Element | null) {
+    const read = (name: string, ok: (v: unknown) => boolean) => {
+      const raw = e?.getAttributeNS(ZIBEL_NS, name);
+      if (!raw) return undefined;
+      try {
+        const v = JSON.parse(raw);
+        if (ok(v)) return v;
+      } catch {}
+      this.warn(
+        "INVALID_TAGS_META",
+        "",
+        `zibel:${name} is not the JSON export writes; it was dropped.`,
+      );
+      return undefined;
+    };
+    const tags = read("tags", (v) => Array.isArray(v) && v.every((t) => typeof t === "string"));
+    const meta = read("meta", (v) => !!v && typeof v === "object" && !Array.isArray(v));
+    return { tags: (tags ?? []) as string[], meta: (meta ?? {}) as Record<string, unknown> };
+  }
+
   /** The properties every Node has, placed under `parentId`. */
-  base(e: Element | null, parentId: string | null, name = "", style: Style = {}) {
+  base(e: Element | null, parentId: string | null, name?: string, style: Style = {}) {
     const blend = BlendMode.safeParse(style["mix-blend-mode"]);
     return {
       id: this.id(e),
-      name,
+      name: name ?? e?.getAttributeNS(INKSCAPE_NS, "label") ?? "",
       parentId,
       index: this.index(parentId),
       visible: style.display !== "none",
-      locked: false,
+      // Inkscape writes "true", older files "1": any value locks.
+      locked: e?.hasAttributeNS(SODIPODI_NS, "insensitive") ?? false,
       opacity: alpha(style.opacity),
       blendMode: blend.success ? blend.data : ("normal" as const),
       transform: [...IDENTITY] as Matrix,
-      tags: [] as string[],
-      meta: {} as Record<string, unknown>,
+      ...this.tagsAndMeta(e),
     };
   }
 
@@ -208,11 +232,12 @@ class Reader {
     const matrix = multiply(ctx.matrix, parseTransform(e.getAttribute("transform")));
     const style = computeStyle(e, ctx.style, this.rules);
     const tag = e.localName;
-    if (tag === "g" || tag === "a" || tag === "switch") {
+    const stack = e.getAttributeNS(ZIBEL_NS, "stack") === "true";
+    if ((tag === "g" && !stack) || tag === "a" || tag === "switch") {
       const layer = ctx.layerLevel && e.getAttributeNS(INKSCAPE_NS, "groupmode") === "layer";
       const parentId = layer ? ctx.parentId : this.parent(ctx);
       const node = this.add({
-        ...this.base(e, parentId, "", style),
+        ...this.base(e, parentId, undefined, style),
         type: layer ? "layer" : "group",
       });
       for (const c of elements(e)) {
@@ -220,13 +245,39 @@ class Reader {
       }
       return;
     }
-    const shape = this.shape(e, matrix);
+    // An Artboard's background, or the export's background option: not artwork.
+    const artboardId = e.getAttributeNS(ZIBEL_NS, "artboard");
+    if (artboardId) {
+      const artboard = this.artboards.find((a) => a.id === artboardId);
+      const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"]);
+      if (artboard && fill) artboard.background = fill;
+      return;
+    }
+    if (e.getAttributeNS(ZIBEL_NS, "background")) return;
+    const k = bakes(matrix) ? matrix[0] : 1;
+    let shape: Record<string, unknown> | null;
+    let appearance: Appearance;
+    if (stack) {
+      // One Node painted several times: its geometry from the first paint, its Fills, then its
+      // Strokes, in order (ADR-0017).
+      const paints = elements(e).map((c) => ({
+        shape: this.shape(c, multiply(matrix, parseTransform(c.getAttribute("transform")))),
+        look: this.appearance(computeStyle(c, style, this.rules), k),
+      }));
+      shape = paints.find((p) => p.shape)?.shape ?? null;
+      appearance = {
+        fills: paints.flatMap((p) => p.look.fills),
+        strokes: paints.flatMap((p) => p.look.strokes),
+      };
+    } else {
+      shape = this.shape(e, matrix);
+      appearance = this.appearance(style, k);
+    }
     if (!shape) return;
-    const base = this.base(e, this.parent(ctx), "", style);
+    const base = this.base(e, this.parent(ctx), undefined, style);
     // visibility inherits, unlike display, so it hides a leaf rather than its Group.
     if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
-    const k = bakes(matrix) ? matrix[0] : 1;
-    this.add({ ...base, ...shape, appearance: this.appearance(style, k) } as Node);
+    this.add({ ...base, ...shape, appearance } as Node);
   }
 
   /** Fills and Strokes from resolved style, SVG's defaults where it says nothing. */
@@ -417,19 +468,30 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
   const byId = new Map(
     all.flatMap((e) => (e.getAttribute("id") ? [[e.getAttribute("id") as string, e]] : [])),
   );
-  const reader = new Reader(rules, byId);
+  // Inkscape's pages are in user units, like everything else; without any, the viewBox.
+  const pages = all.filter((e) => e.namespaceURI === INKSCAPE_NS && e.localName === "page");
+  const rect = (r: { x: number; y: number; width: number; height: number }) => ({
+    x: n3(r.x),
+    y: n3(r.y),
+    width: n3(r.width),
+    height: n3(r.height),
+  });
+  const artboards: Artboard[] = pages.length
+    ? pages.map((p, i) => {
+        const at = (name: string) => (length(p.getAttribute(name)) ?? 0) * scale;
+        return {
+          id: ULID.exec(p.getAttribute("id") ?? "")?.[1] ?? newId(),
+          name: p.getAttributeNS(INKSCAPE_NS, "label") || `Artboard ${i + 1}`,
+          frame: rect({ x: at("x"), y: at("y"), width: at("width"), height: at("height") }),
+        };
+      })
+    : [{ id: newId(), name: "Artboard 1", frame: rect(frame) }];
+  const reader = new Reader(rules, byId, artboards);
   const matrix: Matrix = [scale, 0, 0, scale, 0, 0];
   const ctx = { parentId: null, layerLevel: true, matrix, style: {} };
   for (const e of elements(root)) reader.walk(e, ctx);
   // parseDocument wants a Layer at the root, even for a file with nothing in it.
   if (!reader.nodes.some((n) => n.type === "layer" && n.parentId === null)) reader.parent(ctx);
-  const artboards: Artboard[] = [
-    {
-      id: newId(),
-      name: "Artboard 1",
-      frame: { x: n3(frame.x), y: n3(frame.y), width: n3(frame.width), height: n3(frame.height) },
-    },
-  ];
 
   const title = elements(root)
     .find((e) => e.localName === "title")

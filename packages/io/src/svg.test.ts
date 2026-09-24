@@ -245,3 +245,66 @@ it("scales Stroke widths and dashes with the user unit", () => {
     appearance: { strokes: [{ width: 1.417, dash: [5.669, 2.835] }] },
   });
 });
+
+it("reads Inkscape layers, labels, locks and pages, and Zibel's tags, meta, stacks and backgrounds", () => {
+  const kept = "01M38T29S8GTJN2S1004N4Q1BH";
+  const file = parseFile(
+    svg(
+      'width="100mm" height="50mm" viewBox="0 0 100 50" sodipodi:docname="two pages.svg"',
+      '<sodipodi:namedview inkscape:document-units="mm">' +
+        `<inkscape:page x="0" y="0" width="100" height="50" id="z-${kept}" inkscape:label="Front"/>` +
+        '<inkscape:page x="110" y="0" width="20" height="20" id="page2"/></sodipodi:namedview>' +
+        `<rect width="100" height="50" fill="#FFF4D6" zibel:artboard="${kept}" sodipodi:insensitive="true"/>` +
+        '<rect width="100" height="50" fill="#FFF4D6" zibel:artboard="01M38T29S9V6NZ3YY4ARKXBP1G"/>' +
+        '<rect width="100" height="50" fill="#000000" zibel:background="true"/>' +
+        '<g inkscape:groupmode="layer" inkscape:label="Top" transform="translate(5,5)" sodipodi:insensitive="1" style="display:none">' +
+        '<g inkscape:groupmode="layer" inkscape:label="Inner"><path d="M 0 0 L 1 0"/></g>' +
+        `<g zibel:stack="true" zibel:tags='["a"]' zibel:meta='{"k":1}' inkscape:label="Stack" style="opacity:0.5">` +
+        '<path d="M 0 0 L 1 1" fill="#FF0000"/><path d="M 0 0 L 1 1" fill="#00FF00"/>' +
+        '<path d="M 0 0 L 1 1" fill="none" stroke="#0000FF"/></g></g>',
+    ),
+  );
+  expect(file.name).toBe("two pages");
+  expect(file.artboards).toEqual([
+    {
+      id: kept,
+      name: "Front",
+      frame: { x: 0, y: 0, width: 283.465, height: 141.732 },
+      background: "#FFF4D6",
+    },
+    {
+      id: expect.not.stringMatching(/page2/),
+      name: "Artboard 2",
+      frame: { x: 311.811, y: 0, width: 56.693, height: 56.693 },
+    },
+  ]);
+  expect(file.nodes.filter((n) => n.type === "rect")).toEqual([]);
+  const [top, ...others] = byParent(file, null);
+  expect(others).toEqual([]);
+  expect(top).toMatchObject({ type: "layer", name: "Top", visible: false, locked: true });
+  const [inner, stack] = byParent(file, top?.id ?? "");
+  expect(inner).toMatchObject({ type: "layer", name: "Inner", visible: true, locked: false });
+  expect(byParent(file, inner?.id ?? "")[0]).toMatchObject({
+    d: "M 14.173 14.173 L 17.008 14.173",
+  });
+  expect(stack).toMatchObject({
+    type: "path",
+    name: "Stack",
+    opacity: 0.5,
+    tags: ["a"],
+    meta: { k: 1 },
+    d: "M 14.173 14.173 L 17.008 17.008",
+    appearance: {
+      fills: [{ color: "#FF0000" }, { color: "#00FF00" }],
+      strokes: [{ color: "#0000FF", width: 2.835 }],
+    },
+  });
+});
+
+it("warns about tags or meta that are not JSON, and drops them", () => {
+  const file = parseFile(
+    svg("", `<rect width="1" height="1" zibel:tags="nope" zibel:meta='[1]'/>`),
+  );
+  expect(leaves(file)[0]).toMatchObject({ tags: [], meta: {} });
+  expect(file.warnings.map((w) => w.code)).toEqual(["INVALID_TAGS_META"]);
+});
