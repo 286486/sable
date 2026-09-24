@@ -436,7 +436,7 @@
       "parentId": "01M38T29SHCQR622MY7HCBQ5M5",
       "radius": 0,
       "tags": [],
-      "transform": [0.8660254, 0.5, -0.5, 0.8660254, 40, -120],
+      "transform": [0.866025, 0.5, -0.5, 0.866025, 40, -120],
       "type": "rect",
       "visible": true,
       "width": 30,
