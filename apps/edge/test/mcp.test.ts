@@ -431,6 +431,7 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       return tool("zibel_tx_commit", { txId });
     },
     INVALID_DOCUMENT: () => call("zibel_doc_open", { content: "{" }).then(errorOf),
+    INVALID_MASK: null,
     // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).
     NOTHING_TO_UNDO: null,
     NOTHING_TO_REDO: null,
