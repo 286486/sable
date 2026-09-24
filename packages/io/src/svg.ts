@@ -88,10 +88,10 @@ export function parseTransform(list: string | null): Matrix {
     const [a = 0, b, c] = numbers(args ?? "");
     const rad = (a * Math.PI) / 180;
     const step: Record<string, () => Matrix> = {
-      matrix: () =>
-        numbers(args ?? "")
-          .concat(IDENTITY)
-          .slice(0, 6) as Matrix,
+      matrix: () => {
+        const m = numbers(args ?? "");
+        return (m.length === 6 ? m : Array(6).fill(Number.NaN)) as Matrix;
+      },
       translate: () => [1, 0, 0, 1, a, b ?? 0],
       scale: () => [a, 0, 0, b ?? a, 0, 0],
       rotate: () => {
@@ -152,7 +152,15 @@ interface Context {
   layerLevel: boolean;
   matrix: Matrix;
   style: Style;
+  /** How many Layers and Groups enclose it. */
+  depth: number;
 }
+
+/**
+ * The deepest Layer and Group nesting Open reads. Deeper files are refused: the walk, and core's
+ * walks after it, recurse (REQUIREMENTS §6.7).
+ */
+export const MAX_DEPTH = 256;
 
 /** An opacity from `0.5` or `50%`, 1 when missing or unreadable. */
 const alpha = (v: string | undefined) => {
@@ -283,7 +291,17 @@ class Reader {
       );
       return;
     }
-    const matrix = multiply(ctx.matrix, parseTransform(e.getAttribute("transform")));
+    let own = parseTransform(e.getAttribute("transform"));
+    // An unreadable transform is ignored, as SVG does; one that flattens the element to a line
+    // or point draws nothing, and a Node cannot carry it.
+    if (!own.every(Number.isFinite)) {
+      this.warn("INVALID_TRANSFORM", "nan", "An unreadable transform was ignored.");
+      own = [...IDENTITY] as Matrix;
+    } else if (Math.abs(own[0] * own[3] - own[1] * own[2]) < 1e-12) {
+      this.warn("INVALID_TRANSFORM", "flat", "An element scaled to nothing was dropped.");
+      return;
+    }
+    const matrix = multiply(ctx.matrix, own);
     const style = computeStyle(e, ctx.style, this.rules);
     const tag = e.localName;
     const stack = e.getAttributeNS(ZIBEL_NS, "stack") === "true";
@@ -291,6 +309,16 @@ class Reader {
       this.warn("BOX3D_AS_PATHS", "", "3D boxes import as a Group of their side Paths.");
     }
     if ((tag === "g" && !stack) || tag === "a" || tag === "switch") {
+      if (ctx.depth >= MAX_DEPTH) {
+        throw new ZibelError({
+          code: "LIMIT_EXCEEDED",
+          message: `Groups in the file nest deeper than ${MAX_DEPTH} levels.`,
+          hint: "Ungroup the innermost levels in the editor that made the file, then open it again.",
+          path: "content",
+        });
+      }
+      // A container's clipping, mask or filter is lost like a leaf's.
+      this.unsupported(e, style);
       const layer = ctx.layerLevel && e.getAttributeNS(INKSCAPE_NS, "groupmode") === "layer";
       const parentId = layer ? ctx.parentId : this.parent(ctx);
       const node = this.add({
@@ -298,7 +326,7 @@ class Reader {
         type: layer ? "layer" : "group",
       });
       for (const c of elements(e)) {
-        this.walk(c, { parentId: node.id, layerLevel: layer, matrix, style });
+        this.walk(c, { parentId: node.id, layerLevel: layer, matrix, style, depth: ctx.depth + 1 });
       }
       return;
     }
@@ -723,7 +751,7 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
     : [{ id: newId(), name: "Artboard 1", frame: rect(frame) }];
   const reader = new Reader(rules, byId, artboards);
   const matrix: Matrix = [scale, 0, 0, scale, 0, 0];
-  const ctx = { parentId: null, layerLevel: true, matrix, style: {} };
+  const ctx = { parentId: null, layerLevel: true, matrix, style: {}, depth: 0 };
   for (const e of elements(root)) reader.walk(e, ctx);
   // parseDocument wants a Layer at the root, even for a file with nothing in it.
   if (!reader.nodes.some((n) => n.type === "layer" && n.parentId === null)) reader.parent(ctx);

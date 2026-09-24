@@ -1449,6 +1449,11 @@ describe("zibel_json", () => {
       code: "INVALID_DOCUMENT",
       path: "content",
     });
+    const deep = `<svg xmlns="http://www.w3.org/2000/svg">${"<g>".repeat(5000)}${"</g>".repeat(5000)}</svg>`;
+    expect(errorOf(await call("zibel_doc_open", { content: deep }))).toMatchObject({
+      code: "LIMIT_EXCEEDED",
+      hint: expect.stringMatching(/\S/),
+    });
     expect(await count()).toBe(before);
   });
 

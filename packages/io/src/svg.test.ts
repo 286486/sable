@@ -1,6 +1,6 @@
 import { serializeDocument, ZibelError } from "@zibel/core";
 import { expect, it } from "vitest";
-import { parseFile, SVG_LIMIT } from "./index.ts";
+import { MAX_DEPTH, parseFile, SVG_LIMIT } from "./index.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -466,4 +466,39 @@ it("opens a file with content Zibel cannot hold, with one warning per kind", () 
   );
   expect(codes.filter((c) => c === "UNSUPPORTED_ATTRIBUTE")).toHaveLength(5);
   for (const w of file.warnings) expect(w.message).not.toBe("");
+});
+
+it("refuses Groups nested deeper than MAX_DEPTH with LIMIT_EXCEEDED", () => {
+  const deep = (n: number) =>
+    svg("", `${"<g>".repeat(n)}<rect width="1" height="1"/>${"</g>".repeat(n)}`);
+  expect(leaves(parseFile(deep(MAX_DEPTH - 1)))).toHaveLength(1);
+  expect(errorOf(() => parseFile(deep(5000)))).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    path: "content",
+  });
+});
+
+it("warns about clipping, masks and filters on a Group too", () => {
+  const file = parseFile(
+    svg(
+      "",
+      '<g clip-path="url(#c)" mask="url(#m)" filter="url(#f)"><rect width="1" height="1"/></g>',
+    ),
+  );
+  expect(file.warnings.map((w) => w.code)).toEqual([
+    "UNSUPPORTED_ATTRIBUTE",
+    "UNSUPPORTED_ATTRIBUTE",
+    "UNSUPPORTED_ATTRIBUTE",
+  ]);
+});
+
+it("ignores an unreadable transform and drops an element scaled to nothing", () => {
+  const file = parseFile(
+    svg(
+      "",
+      '<rect transform="matrix(1 0 0)" x="2" width="1" height="1"/><rect transform="scale(0)" width="1" height="1"/>',
+    ),
+  );
+  expect(leaves(file)).toMatchObject([{ x: 2, transform: [1, 0, 0, 1, 0, 0] }]);
+  expect(file.warnings.map((w) => w.code)).toEqual(["INVALID_TRANSFORM", "INVALID_TRANSFORM"]);
 });
