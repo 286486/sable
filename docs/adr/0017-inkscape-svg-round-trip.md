@@ -61,9 +61,7 @@ Inkscape keeps unknown-namespace attributes, `data-*` and existing ids on save, 
 3. **Apply only what the file changed** onto the current Document. Deletions are confined to the Nodes the scoped export of the base contained, so a file exported from one Artboard can never delete Nodes elsewhere. A property both sides changed takes the file's value; a Node deleted in the Document since the base stays deleted and is reported (ADR-0004: per-property last writer wins, delete beats edit). Artboards merge the same way once Artboard edits exist and are logged (F-VIEW-06); until then they are compared with the current Document.
 4. **Fallback.** No base (a `.zibel.json` without `baseRev`, or a log pruned past the base): compare the file with the current Document exported at the same scope, and warn that concurrent edits in that scope may be overwritten.
 
-Browser: Open, Replace and Place send the file over HTTP to the Worker, which parses it with the same code the MCP tools use and hands the Document model to the Durable Object, as `doc_open` already does (ADR-0016). They are not WebSocket Commands (ADR-0010): a 5 MB file does not belong in a gesture message. They run as the User Actor.
-
-Browser: the toolbar gets "Download SVG" beside the `.zibel.json` download and "Update from file…" (Replace); the Document list gets "Open file" (`.svg`, `.zibel.json`); dropping an SVG on the canvas or pasting SVG text is Place, at the viewport centre. Replace is only ever an explicit button.
+Browser: Open, Replace and Place send the file over HTTP to the Worker, which parses it with the same code the MCP tools use and hands the Document model to the Durable Object, as `doc_open` already does (ADR-0016). They are not WebSocket Commands (ADR-0010): a 5 MB file does not belong in a gesture message. They run as the User Actor. The toolbar gets "Download SVG" beside the `.zibel.json` download and "Update from file…" (Replace); the Document list gets "Open file" (`.svg`, `.zibel.json`); dropping an SVG on the canvas or pasting SVG text is Place, at the viewport centre. Replace is only ever an explicit button.
 
 ## Fonts
 
