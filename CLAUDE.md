@@ -53,7 +53,7 @@ When a task is done (gate 8 merged), end by recommending the next task to the us
 4. **Worktree.** Never switch branches in the main checkout. Create a worktree at `.claude/worktrees/<issue-number>-<slug>` on a new branch `<issue-number>-<slug>` from `origin/main` (`EnterWorktree`, or `git worktree add -b`), and run `pnpm install` in it. Gates 5–7 run inside it. When dispatching `implementer` or `reviewer`, pass the worktree path; do not use `isolation: "worktree"`, which creates a second one. Remove it after gate 8 merges the branch. Done: the worktree exists on the new branch.
 5. **Implement (Opus).** One unit at a time: test red, smallest change to green, `pnpm check`, commit. Use `/mattpocock-skills:tdd` when the unit has a cheap test target. Done: every unit green and committed.
 6. **Verify (Opus).** `pnpm check` (typecheck, Biome, Vitest in workerd via `@cloudflare/vitest-plugin`) plus the suites the change reaches:
-    - MCP tools, schemas or `skill://` docs: agent benchmarks in `fixtures/agent-benchmarks/`.
+    - MCP tools, schemas or `skill://` docs: agent benchmarks in `fixtures/agent-benchmarks/` (`pnpm bench`, local only).
     - `packages/io` or `packages/render`: SVG round-trip fixtures.
     - `packages/geometry`: boolean and offset regression fixtures.
 

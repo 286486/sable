@@ -888,13 +888,13 @@ zibel/
 - **团队**：一人 + Claude Code 重度使用，接近全职。估算按此给出；若投入变化，先砍 M1 范围而不是延长周期。
 - **Hero slice**：第一个端到端可交付的场景是**图表 / 图示**（数据或 Mermaid 进，可编辑矢量出）。插画在 M1 后半接上，手绘在 M2。
 - **主要客户端**：Claude Code，以 HTTP 连接本地 `wrangler dev`。skill 文档与基准任务按它编写；OAuth 随 M1 托管上线。
-- **Agent 基准测试**：`fixtures/agent-benchmarks/` 每个任务一个 Markdown（提示词 + 结构断言）；用 `claude -p` 非交互模式连本地 MCP 端点跑，TypeScript 断言检查 `doc_outline` / `validate` 结果与 SVG 导出；CI 每晚运行。M0 即搭最小版（3 个任务），它也是调整工具描述与粒度的评测工具。
+- **Agent 基准测试**：`fixtures/agent-benchmarks/` 每个任务一个 Markdown（提示词 + 结构断言说明）加同名 TypeScript 断言；`pnpm bench` 启动本地 `wrangler dev`，在空目录用 `claude -p` 非交互模式只连 zibel MCP 端点跑（不给 Bash / Write / Edit），断言自己通过 MCP 读回 Document，检查 `doc_outline`、节点属性与 SVG 导出，并报告每个任务的通过与否、工具调用数与耗时。只在本地运行：CI 不跑 Claude Code（2026-09-24 决定）。M0 即搭最小版（3 个任务），它也是调整工具描述与粒度的评测工具。
 
 ### 9.1 阶段
 
 | 阶段 | 周期（估） | 目标 | 退出标准 |
 |---|---|---|---|
-| **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.zibel.json` 导入导出；MCP（无状态 HTTP，本地 `wrangler dev`）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过；3 个 Agent 基准任务在 CI 跑通 |
+| **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.zibel.json` 导入导出；MCP（无状态 HTTP，本地 `wrangler dev`）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过；3 个 Agent 基准任务用 `pnpm bench` 在本地跑通 |
 | **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；SVG 导入；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接 |
 | **M2 手绘 + 插画深度** | 8 周 | 压感手绘管线、Blob Brush、Eraser、Shaper；Calligraphic / Art 画笔；Appearance 多重 fill / stroke + Graphic Styles + 基础 Effects（阴影 / 发光 / 模糊 / 圆角 / 偏移）；不透明度蒙版；Symbols；Repeat；Blend；Recolor；Image Trace；可变宽度描边；路径文字；Asset Export、PDF 导出；连接线绑定；`run_script` 沙箱 | 插画基准任务通过；触控笔设备实测 |
 | **M3 性能与协作** | 6–8 周 | CanvasKit 渲染后端（浏览器与 Worker）；10k 节点性能达标；多用户协作（光标 / 选区）；软锁与 Agent 意图展示；版本历史（R2 快照）；Queues 长任务；审计与配额；Docker 自托管镜像 | §7.1 性能表全部达标 |
@@ -960,7 +960,7 @@ zibel/
 | 25 | 域名与账号 | Cloudflare Registrar，首选 `zibel.dev`；M1 前出配置向导 | F-MCP-06d |
 | 26 | 仓库语言 | 代码、标识符、注释、提交信息、ADR、`CLAUDE.md` 用英文；需求文档与术语表现阶段中文，M1 对外宣布前译为英文 | `CLAUDE.md` |
 | 27 | ADR | 补记 0002–0006 | `docs/adr/` |
-| 28 | Agent 基准测试 | `claude -p` + 结构断言，CI 每晚，M0 起 3 个任务 | §9.0 |
+| 28 | Agent 基准测试 | `claude -p` + 结构断言，本地 `pnpm bench`（CI 不跑），M0 起 3 个任务 | §9.0 |
 | 29 | 工具链 | pnpm + Turborepo + Vite + tsup + Vitest + Biome + Changesets + wrangler，Node 22 | §8.2 |
 | 30 | MCP 形态 | **无状态、仅网络连接**：Streamable HTTP，无 `Mcp-Session-Id`，无 stdio | §6.1、ADR-0006 |
 | 31 | 本地模式 | 删除 stdio 与 Node 版 Document Service；本地与自托管跑同一 Worker 包 | §6.2 |
