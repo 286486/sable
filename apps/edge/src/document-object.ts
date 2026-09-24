@@ -403,7 +403,7 @@ export class DocumentObject extends DurableObject<Env> {
   private receipt(
     before: Document,
     after: Document,
-    change: Required<Omit<Change, "artboards">> & Pick<Change, "artboards">,
+    change: { created: Node[]; updated: Node[]; deletedIds: string[]; artboards?: Artboard[] },
     meta: {
       txId: string;
       rev: number;
