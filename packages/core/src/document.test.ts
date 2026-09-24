@@ -297,6 +297,21 @@ describe("tree rules (ADR-0005)", () => {
     expect(() => assertParent(t.doc, { type: "group", id: t.inner }, t.layer, "p")).not.toThrow();
   });
 
+  it("rejects a parent inside a cycle that does not include the child, as a file can carry", () => {
+    const { doc } = newDoc();
+    const [a, b] = createNodes(doc, [
+      { type: "group", parentId: [...doc.nodes.keys()][0] ?? "" },
+      { type: "group", parentId: [...doc.nodes.keys()][0] ?? "" },
+    ]).nodes;
+    if (!a || !b) throw new Error("expected two Groups");
+    a.parentId = b.id;
+    b.parentId = a.id;
+    expect(codeOf(() => assertParent(doc, { type: "rect", id: "c" }, a.id, "p"))).toMatchObject({
+      code: "INVALID_PARENT",
+      message: expect.stringMatching(/cycle/),
+    });
+  });
+
   it("rejects a Layer under a Group through node_create too, creating nothing", () => {
     const before = t.doc.nodes.size;
     expect(
