@@ -149,6 +149,41 @@ it("creates text whose bounds grow with its content by the font's advance widths
   expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
 });
 
+it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
+  const doc = await newDoc();
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "text",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 50,
+        content: "Hi",
+        fontFamily: "Helvetica",
+      },
+    ],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  expect(created.structuredContent.warnings).toEqual([
+    expect.objectContaining({ code: "FONT_MISSING", nodeId: id }),
+  ]);
+  const updated = await call("zibel_node_update", {
+    docId: doc.docId,
+    updates: [{ nodeId: id, patch: { content: "Ho" } }],
+  });
+  expect(updated.structuredContent.warnings).toEqual([
+    expect.objectContaining({ code: "FONT_MISSING", nodeId: id }),
+  ]);
+  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+    .structuredContent.nodes;
+  expect(full).toMatchObject({ fontFamily: "Helvetica" });
+  const svg = await call("zibel_export", { docId: doc.docId, format: "svg" });
+  expect(svg.content[0].text).toContain('font-family="Helvetica"');
+  const rendered = await call("zibel_render", { docId: doc.docId });
+  expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
+});
+
 it("creates a rect in the default Layer and reads it back from doc_outline", async () => {
   const doc = await newDoc();
   expect(doc).toMatchObject({

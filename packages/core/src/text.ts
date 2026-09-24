@@ -1,4 +1,4 @@
-import type { Rect } from "./schema.ts";
+import type { Node, Rect, WriteReceipt } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
 const advances: Record<number, number> = SOURCE_SANS_3.advances;
@@ -20,4 +20,22 @@ export function textBox(text: { x: number; y: number; content: string; fontSize:
     width: width * s,
     height: (ascender - descender) * s,
   };
+}
+
+/** The one font Zibel bundles (ADR-0013); every other `fontFamily` renders in it. */
+export const BUNDLED_FONT = "Source Sans 3";
+
+/** A `FONT_MISSING` warning for each text whose font is not bundled (ADR-0017). */
+export function fontWarnings(nodes: Pick<Node, "id" | "type">[]): WriteReceipt["warnings"] {
+  return nodes.flatMap((n) =>
+    "fontFamily" in n && n.fontFamily !== BUNDLED_FONT
+      ? [
+          {
+            code: "FONT_MISSING",
+            nodeId: n.id,
+            message: `${n.fontFamily} is not bundled, so it renders in ${BUNDLED_FONT}; the name is kept.`,
+          },
+        ]
+      : [],
+  );
 }

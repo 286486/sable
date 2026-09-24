@@ -415,8 +415,13 @@ describe("updateNodes on a text", () => {
     expect(width(doc, t.id)).toBeCloseTo(47.904);
   });
 
+  it("keeps any font name", () => {
+    const { doc, t } = setup();
+    updateNodes(doc, [{ nodeId: t.id, patch: { fontFamily: "Arial" } }]);
+    expect(doc.nodes.get(t.id)).toMatchObject({ fontFamily: "Arial" });
+  });
+
   it.each([
-    [{ fontFamily: "Arial" }, "fontFamily", /Source Sans 3/],
     [{ kind: "area" }, "kind", /x, y, content, fontFamily, fontSize/],
     [{ content: "a\nb" }, "content", /./],
     [{ d: "M 0 0" }, "d", /outline/i],

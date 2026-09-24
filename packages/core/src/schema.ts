@@ -136,7 +136,7 @@ const { rect, ...others } = SHAPES;
 export const Shape = z.discriminatedUnion("type", [rect, ...Object.values(others)]);
 export type Shape = z.output<typeof Shape>;
 
-/** Point Type (ADR-0013): one line from the baseline origin, in the one bundled font. */
+/** Point Type (ADR-0013): one line from the baseline origin, measured in the one bundled font. */
 export const TextShape = z.object({
   type: z.literal("text"),
   kind: z.literal("point").default("point"),
@@ -152,9 +152,12 @@ export const TextShape = z.object({
       "One line of printable characters: a hard return or tab is not laid out yet; create one text per line.",
     ),
   fontFamily: z
-    .literal("Source Sans 3")
+    .string()
+    .min(1)
     .default("Source Sans 3")
-    .describe("The only font bundled so far."),
+    .describe(
+      "Any font name, kept as written; only Source Sans 3 is bundled, and others render in it.",
+    ),
   fontSize: z.number().positive().default(12).describe("In pt."),
 });
 export type TextShape = z.output<typeof TextShape>;

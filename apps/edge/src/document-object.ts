@@ -12,6 +12,7 @@ import {
   type ErrorData,
   type Failed,
   type FullView,
+  fontWarnings,
   type Node,
   type NodeInput,
   type NodeQuery,
@@ -293,14 +294,25 @@ export class DocumentObject extends DurableObject<Env> {
   createNodes(inputs: NodeInput[], actor: string, opts: WriteOptions = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Create", (doc) => {
       const { nodes, keyMap, failed } = createNodes(doc, inputs, opts);
-      return { created: nodes, keyMap, failed, bounds: union(nodes.map((n) => bounds(doc, n))) };
+      return {
+        created: nodes,
+        keyMap,
+        warnings: fontWarnings(nodes),
+        failed,
+        bounds: union(nodes.map((n) => bounds(doc, n))),
+      };
     });
   }
 
   updateNodes(updates: UpdateInput[], actor: string, opts: Options = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Update", (doc) => {
       const { nodes, failed } = updateNodes(doc, updates, opts);
-      return { updated: nodes, failed, bounds: union(nodes.map((n) => bounds(doc, n))) };
+      return {
+        updated: nodes,
+        warnings: fontWarnings(nodes),
+        failed,
+        bounds: union(nodes.map((n) => bounds(doc, n))),
+      };
     });
   }
 
