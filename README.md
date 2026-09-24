@@ -2,6 +2,10 @@
 
 A vector drawing tool that runs in the browser, built so AI agents can read and write the document through MCP while a person edits the same file in a normal Illustrator-style canvas.
 
+![A night landscape with its ridge path's anchors and handles, an Agent → Document ← Person diagram, and a stacked bar chart](docs/images/readme-hero.png)
+
+An Agent drew this over MCP: Live Shapes, Bezier paths and text in two Layers, with each label centred from the bounds the server measured, then exported to PNG with `zibel_export`.
+
 Zibel is a short form of Zobel / zibeline, the sable marten whose hair makes the finest illustration brushes.
 
 ## Status
