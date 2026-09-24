@@ -9,6 +9,7 @@ import { type OpenedFile, type Origin, parseSvg, type Warning } from "./read.ts"
 import { toSvg } from "./write.ts";
 
 export { MAX_DEPTH, parseSvg } from "./read.ts";
+export { replaceMerge } from "./replace.ts";
 export { docRect, type SvgOptions, scopeRect, svgRect, toSvg } from "./write.ts";
 
 export type { OpenedFile, Origin, Warning };

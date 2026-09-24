@@ -6,7 +6,6 @@ export * from "./file.ts";
 export * from "./matrix.ts";
 export * from "./path.ts";
 export * from "./place.ts";
-export * from "./replace.ts";
 export * from "./schema.ts";
 export * from "./text.ts";
 export * from "./tx.ts";

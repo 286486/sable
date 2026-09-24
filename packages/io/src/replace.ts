@@ -1,6 +1,13 @@
+import {
+  type Artboard,
+  applyRows,
+  type Document,
+  type Node,
+  type RenderScope,
+  same,
+  type TxRow,
+} from "@zibel/core";
 import { generateNKeysBetween } from "fractional-indexing";
-import type { Artboard, Document, Node, RenderScope } from "./schema.ts";
-import { applyRows, same, type TxRow } from "./tx.ts";
 
 /** A file's contents as the importer read it. */
 export interface ReplaceFile {

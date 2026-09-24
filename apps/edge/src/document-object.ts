@@ -25,7 +25,6 @@ import {
   placeNodes,
   queryNodes,
   type Rect,
-  replaceMerge,
   revert,
   serializeDocument,
   type TransformInput,
@@ -37,7 +36,7 @@ import {
   type WriteReceipt,
   ZibelError,
 } from "@zibel/core";
-import { normalise, type OpenedFile, scopeRect, svgRect, toSvg } from "@zibel/io";
+import { normalise, type OpenedFile, replaceMerge, scopeRect, svgRect, toSvg } from "@zibel/io";
 import { fit, renderSvg } from "@zibel/render";
 import {
   type ChangeEntry,
