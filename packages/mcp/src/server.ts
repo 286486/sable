@@ -398,6 +398,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Export",
       description: [
         "Export the artwork of part of the Document, returned inline: svg as text content with docRect, its viewBox; png as image content with viewport, as zibel_render returns it.",
+        "svg is Inkscape SVG. Without a scope its viewBox is one Artboard, the one at (0, 0) or else the first, which Inkscape uses as its viewport page; every Artboard is still written, the others as pages outside the viewBox.",
         scopes,
         "No overlays and no maxSize: a png is scale pixels per point, at most 4096 px on its longer side.",
         "zibel_json is the whole Document as a .zibel.json file in text content, which zibel_doc_open reads back; scope, scale and background do not apply to it.",

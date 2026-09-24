@@ -224,8 +224,16 @@ it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape p
         `<rect x="300" y="0" width="50" height="50" fill="#FFEEDD" zibel:artboard="${two.id}" sodipodi:insensitive="true"/><g`,
     ),
   );
-  // Inkscape resizes the page at (0,0) to the viewBox: the export's viewBox is its first page.
+  // Inkscape resizes the page at (0,0) to the viewBox: the export's viewBox is that page, else
+  // the first.
   expect(svgRect(doc)).toEqual(one.frame);
+  const moved = { ...doc, artboards: [{ ...one, frame: { ...one.frame, x: 100, y: 50 } }, two] };
+  expect(svgRect(moved)).toEqual(moved.artboards[0]?.frame);
+  const swapped = {
+    ...moved,
+    artboards: [moved.artboards[0], { ...two, frame: { ...two.frame, x: 0 } }],
+  };
+  expect(svgRect(swapped as typeof doc)).toEqual({ x: 0, y: 0, width: 50, height: 50 });
   expect(svgRect(doc, { artboardId: two.id })).toEqual(two.frame);
   const second = toSvg(doc, svgRect(doc, { artboardId: two.id }), {
     scope: { artboardId: two.id },

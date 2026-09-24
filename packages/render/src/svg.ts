@@ -109,12 +109,14 @@ export function fit(rect: Rect, scale: number, maxSize?: number) {
 }
 
 /**
- * The rect an SVG `export` of `scope` covers: the scope's, but at doc scope the first Artboard.
- * Inkscape binds the page at (0,0) to the viewBox and resizes it on save, so the viewBox is the
- * file's first page and the other Artboards are pages outside it (ADR-0017).
+ * The rect an SVG `export` of `scope` covers: the scope's, but at doc scope one Artboard. Inkscape
+ * binds the page at (0,0) to the viewBox and resizes it on save, so the viewBox is that Artboard,
+ * else the first, and the other Artboards are pages outside it (ADR-0017).
  */
 export function svgRect(doc: Document, scope?: RenderScope): Rect {
-  return scope ? scopeRect(doc, scope) : (doc.artboards[0]?.frame ?? docRect(doc));
+  if (scope) return scopeRect(doc, scope);
+  const origin = doc.artboards.find((a) => a.frame.x === 0 && a.frame.y === 0);
+  return (origin ?? doc.artboards[0])?.frame ?? docRect(doc);
 }
 
 export interface SvgOptions {
@@ -151,7 +153,7 @@ const scopeName = (scope?: RenderScope) =>
       ? `artboard:${scope.artboardId}`
       : "nodeIds" in scope
         ? `nodes:${scope.nodeIds.join(",")}`
-        : `rect:${[scope.rect.x, scope.rect.y, scope.rect.width, scope.rect.height].join(",")}`;
+        : `rect:${[scope.rect.x, scope.rect.y, scope.rect.width, scope.rect.height].map(formatNumber).join(",")}`;
 
 /**
  * SVG of `rect` in document coordinates, in Inkscape's dialect (ADR-0017): `render` and `export`
@@ -172,7 +174,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
     ? `<sodipodi:namedview inkscape:document-units="pt">${pages
         .map(
           (a) =>
-            `<inkscape:page${attrs({ ...a.frame, id: `z-${a.id}`, "inkscape:label": a.name })}/>`,
+            `<inkscape:page${attrs({ ...num(a.frame), id: `z-${a.id}`, "inkscape:label": a.name })}/>`,
         )
         .join("")}</sodipodi:namedview>`
     : `<sodipodi:namedview inkscape:document-units="pt"/>`;
@@ -182,7 +184,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
       .filter((a) => a.background)
       .map(
         (a) =>
-          `<rect${attrs({ ...a.frame, fill: a.background, "zibel:artboard": a.id, "sodipodi:insensitive": "true" })}/>`,
+          `<rect${attrs({ ...num(a.frame), fill: a.background, "zibel:artboard": a.id, "sodipodi:insensitive": "true" })}/>`,
       ),
   ].join("");
   const drawn: Node[] = [];
@@ -261,10 +263,9 @@ const stroke = (s: Appearance["strokes"][number]): Attrs => ({
   "stroke-dasharray": s.dash.length > 0 ? s.dash.join(" ") : undefined,
 });
 
+/** Numbers at export precision. */
 const num = (a: Record<string, number>) =>
-  Object.entries(a)
-    .map(([k, v]) => ` ${k}="${formatNumber(v)}"`)
-    .join("");
+  Object.fromEntries(Object.entries(a).map(([k, v]) => [k, formatNumber(v)]));
 
 /** The element and geometry of a shape, as the Inkscape tool that draws it writes them. */
 function shape(n: ShapeNode): string {
@@ -272,15 +273,17 @@ function shape(n: ShapeNode): string {
     case "rect": {
       const r = Math.min(n.radius, n.width / 2, n.height / 2);
       const { x, y, width, height } = n;
-      return `rect${num({ x, y, width, height, ...(r > 0 && { rx: r, ry: r }) })}`;
+      return `rect${attrs(num({ x, y, width, height, ...(r > 0 && { rx: r, ry: r }) }))}`;
     }
     case "ellipse": {
       const [rx, ry] = [n.width / 2, n.height / 2];
       const [cx, cy] = [n.x + rx, n.y + ry];
-      return rx === ry ? `circle${num({ cx, cy, r: rx })}` : `ellipse${num({ cx, cy, rx, ry })}`;
+      return rx === ry
+        ? `circle${attrs(num({ cx, cy, r: rx }))}`
+        : `ellipse${attrs(num({ cx, cy, rx, ry }))}`;
     }
     case "line":
-      return `line${num({ x1: n.x1, y1: n.y1, x2: n.x2, y2: n.y2 })}`;
+      return `line${attrs(num({ x1: n.x1, y1: n.y1, x2: n.x2, y2: n.y2 }))}`;
     case "polygon":
     case "star": {
       // Inkscape's star tool rebuilds the outline from these on load, so d is the same vertices:

@@ -44,3 +44,6 @@ pnpm-debug.log*
 # Playwright
 test-results/
 playwright-report/
+
+# crash dumps
+core.[0-9]*
