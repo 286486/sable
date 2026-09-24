@@ -133,6 +133,19 @@ describe("makeMask", () => {
     expect([...s.doc.nodes.values()]).toEqual(before);
   });
 
+  it("refuses a Clipping Path as content, which would give a Group two", () => {
+    const s = scene();
+    const { group } = makeMask(s.doc, { clipNodeId: s.clip.id, contentIds: [s.a.id] });
+    const [c2] = createNodes(s.doc, [
+      { type: "rect", parentId: group.id, x: 0, y: 0, width: 5, height: 5 },
+    ]).nodes as [Node];
+    const before = [...s.doc.nodes.values()];
+    expect(
+      errorOf(() => makeMask(s.doc, { clipNodeId: c2.id, contentIds: [s.a.id, s.clip.id] })),
+    ).toMatchObject({ code: "INVALID_MASK", path: "contentIds[1]" });
+    expect([...s.doc.nodes.values()]).toEqual(before);
+  });
+
   it("refuses a clip that already clips", () => {
     const s = scene();
     makeMask(s.doc, { clipNodeId: s.clip.id, contentIds: [s.a.id] });

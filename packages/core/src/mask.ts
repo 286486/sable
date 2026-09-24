@@ -63,6 +63,13 @@ export function makeMask(
         "Clip the Layer's Nodes instead.",
       );
     }
+    if (n.type !== "group" && n.type !== "text" && n.clipping) {
+      throw invalid(
+        at,
+        "The Node is a Clipping Path: a Group has at most one.",
+        "Release its Clipping Mask with mask_release first.",
+      );
+    }
     if (n.parentId !== clip.parentId) {
       throw invalid(
         at,
@@ -98,7 +105,7 @@ export function releaseMask(doc: Document, nodeIds: string[], { partial = false 
     throw invalid(
       `nodeIds[${i}]`,
       `The ${n.type} is not a Clipping Mask or its Clipping Path.`,
-      "List Groups made by mask_make, or their Clipping Paths; doc_outline shows them.",
+      "List Groups made by mask_make, or their Clipping Paths: node_get with detail full shows clipping: true on one.",
     );
   });
   const nodes = [...new Map(ok.map((c) => [c.id, c])).values()].map((c) => {
