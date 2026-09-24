@@ -375,3 +375,34 @@ it("replaces a Document from an edited file POSTed to /api/docs/:docId/replace, 
   expect(refused.status).toBe(400);
   expect(await refused.json()).toMatchObject({ code: "INVALID_DOCUMENT" });
 });
+
+it("places an SVG POSTed to /api/docs/:docId/place at the given centre, as the user", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { received } = await subscribe(docId);
+  const post = (query: string, body: string) =>
+    exports.default.fetch(`http://zibel/api/docs/${docId}/place?${query}`, {
+      method: "POST",
+      body,
+    });
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="20" height="10"/></svg>';
+
+  const res = await post(`parentId=${defaultLayerId}&x=50&y=40&name=Logo.svg`, svg);
+  expect(res.status).toBe(200);
+  const receipt = (await res.json()) as { createdIds: string[]; bounds: object; nodes: unknown[] };
+  expect(receipt.bounds).toEqual({ x: 40, y: 35, width: 20, height: 10 });
+  expect(receipt.nodes).toHaveLength(1);
+  const [, tx] = await received(2);
+  expect(tx).toMatchObject({ type: "tx", actor: "user" });
+  const { created } = tx as { created: object[] };
+  expect(created).toHaveLength(3);
+  expect(created[0]).toMatchObject({
+    id: receipt.createdIds[0],
+    type: "group",
+    name: "Logo",
+    parentId: defaultLayerId,
+  });
+
+  const refused = await post("x=0&y=0", svg);
+  expect(refused.status).toBe(400);
+  expect(await refused.json()).toMatchObject({ code: "NODE_NOT_FOUND" });
+});

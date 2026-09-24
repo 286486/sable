@@ -19,6 +19,8 @@ export default {
         documentService(env, "user").replace(replace, { content: await request.text() }),
       );
     }
+    const place = url.pathname.match(/^\/api\/docs\/([^/]+)\/place$/)?.[1];
+    if (place && request.method === "POST") return placeFile(place, request, env);
     if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
     if (url.pathname !== "/mcp") return new Response("not found", { status: 404 });
     const actor = actorFor(request, env.DEV_TOKENS);
@@ -52,6 +54,24 @@ async function openFile(request: Request, env: Env): Promise<Response> {
     });
     return { docId, warnings };
   });
+}
+
+/**
+ * The browser's paste or drop of an SVG (Place, ADR-0017): the SVG as the body; `parentId`, the
+ * centre `x`, `y` and the file's `name` in the query. By the user, like Open and Replace.
+ */
+async function placeFile(docId: string, request: Request, env: Env): Promise<Response> {
+  const q = new URL(request.url).searchParams;
+  const x = q.get("x");
+  const y = q.get("y");
+  return answer(async () =>
+    documentService(env, "user").place(docId, {
+      svg: await request.text(),
+      parentId: q.get("parentId") ?? "",
+      ...(x !== null && y !== null && { position: { x: Number(x), y: Number(y) } }),
+      name: q.get("name") ?? undefined,
+    }),
+  );
 }
 
 /** `fn`'s result as JSON, or its ZibelError as a 400. */
