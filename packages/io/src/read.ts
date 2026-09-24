@@ -23,6 +23,19 @@ import {
   ZibelError,
 } from "@zibel/core";
 import { generateKeyBetween } from "fractional-indexing";
+import {
+  alpha,
+  idOf,
+  MITER_LIMIT,
+  NS,
+  numbers,
+  SVG_STROKE,
+  scopeOf,
+  starOf,
+  withAlpha,
+  xmlId,
+  type ZibelAttr,
+} from "./dialect.ts";
 import { computeStyle, type Rule, type Style, stylesheet } from "./style.ts";
 
 export type Warning = WriteReceipt["warnings"][number];
@@ -45,11 +58,7 @@ export interface Origin {
   scope?: RenderScope;
 }
 
-export const SVG_NS = "http://www.w3.org/2000/svg";
-export const INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape";
-export const SODIPODI_NS = "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
-const ZIBEL_NS = "https://zibel.dev/ns/svg";
 
 const invalid = (message: string) =>
   new ZibelError({
@@ -80,12 +89,6 @@ export function length(value: string | null | undefined): number | undefined {
 
 /** At most 3 decimals and no -0, as the Document stores numbers (REQUIREMENTS §6.5). */
 export const n3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
-
-const numbers = (s: string | null) =>
-  (s ?? "")
-    .split(/[\s,]+/)
-    .filter(Boolean)
-    .map(Number);
 
 const elements = (e: Element) =>
   [...(e.childNodes as unknown as Iterable<{ nodeType: number }>)].filter(
@@ -122,8 +125,6 @@ export function parseTransform(list: string | null): Matrix {
 /** A move and a uniform scale, which Live Shape parameters can absorb (ADR-0017). */
 const bakes = ([a, b, c, d]: Matrix) =>
   Math.abs(b) < 1e-9 && Math.abs(c) < 1e-9 && a > 0 && Math.abs(a - d) < 1e-9;
-
-const ULID = /^z-([0-9A-HJKMNP-TV-Z]{26})$/;
 
 /** Elements that draw, and those that only define or describe and are skipped without a word. */
 const DRAWN = new Set([
@@ -173,20 +174,7 @@ interface Context {
  */
 export const MAX_DEPTH = 256;
 
-/** An opacity from `0.5` or `50%`, 1 when missing or unreadable. */
-const alpha = (v: string | undefined) => {
-  const n = v?.trim().endsWith("%") ? Number.parseFloat(v) / 100 : Number(v ?? 1);
-  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
-};
-
-/** `hex` with its own alpha times `a`, as #RRGGBB when opaque. */
-function withAlpha(hex: string, a: number): string {
-  const own = hex.length === 9 ? Number.parseInt(hex.slice(7), 16) / 255 : 1;
-  const byte = Math.round(own * a * 255);
-  return byte >= 255
-    ? hex.slice(0, 7)
-    : `${hex.slice(0, 7)}${byte.toString(16).padStart(2, "0").toUpperCase()}`;
-}
+const zibelAttr = (e: Element, name: ZibelAttr) => e.getAttributeNS(NS.zibel, name);
 
 const CAPS = ["butt", "round", "square"];
 const JOINS = ["miter", "round", "bevel"];
@@ -221,12 +209,12 @@ class Reader {
 
   /** A `z-<ULID>` id comes back as that Node's; any other id is a new Node (ADR-0017). */
   private id(e: Element | null, again = false) {
-    const kept = ULID.exec(e?.getAttribute("id") ?? "")?.[1];
+    const kept = idOf(e?.getAttribute("id"));
     if (kept && this.ids.has(kept) && !again) {
       this.warn(
         "DUPLICATE_ID",
         "",
-        `Two elements have the id z-${kept}; the second is a new Node.`,
+        `Two elements have the id ${xmlId(kept)}; the second is a new Node.`,
       );
     }
     const id = kept && !this.ids.has(kept) ? kept : newId();
@@ -236,8 +224,8 @@ class Reader {
 
   /** `zibel:tags` and `zibel:meta` as export writes them, or empty with a warning. */
   private tagsAndMeta(e: Element | null) {
-    const read = (name: string, ok: (v: unknown) => boolean) => {
-      const raw = e?.getAttributeNS(ZIBEL_NS, name);
+    const read = (name: "tags" | "meta", ok: (v: unknown) => boolean) => {
+      const raw = e && zibelAttr(e, name);
       if (!raw) return undefined;
       try {
         const v = JSON.parse(raw);
@@ -266,12 +254,12 @@ class Reader {
     const blend = BlendMode.safeParse(style["mix-blend-mode"]);
     return {
       id: this.id(e, again),
-      name: name ?? e?.getAttributeNS(INKSCAPE_NS, "label") ?? "",
+      name: name ?? e?.getAttributeNS(NS.inkscape, "label") ?? "",
       parentId,
       index: this.index(parentId),
       visible: style.display !== "none",
       // Inkscape writes "true", older files "1": any value locks.
-      locked: e?.hasAttributeNS(SODIPODI_NS, "insensitive") ?? false,
+      locked: e?.hasAttributeNS(NS.sodipodi, "insensitive") ?? false,
       opacity: alpha(style.opacity),
       blendMode: blend.success ? blend.data : ("normal" as const),
       transform: [...IDENTITY] as Matrix,
@@ -292,7 +280,7 @@ class Reader {
   }
 
   walk(e: Element, ctx: Context) {
-    if (e.namespaceURI !== SVG_NS && e.namespaceURI !== null) return;
+    if (e.namespaceURI !== NS.svg && e.namespaceURI !== null) return;
     if (SILENT.has(e.localName ?? "")) return;
     if (!DRAWN.has(e.localName ?? "")) {
       this.warn(
@@ -315,8 +303,8 @@ class Reader {
     const matrix = multiply(ctx.matrix, own);
     const style = computeStyle(e, ctx.style, this.rules);
     const tag = e.localName;
-    const stack = e.getAttributeNS(ZIBEL_NS, "stack") === "true";
-    if (e.getAttributeNS(SODIPODI_NS, "type") === "inkscape:box3d") {
+    const stack = zibelAttr(e, "stack") === "true";
+    if (e.getAttributeNS(NS.sodipodi, "type") === "inkscape:box3d") {
       this.warn("BOX3D_AS_PATHS", "", "3D boxes import as a Group of their side Paths.");
     }
     if ((tag === "g" && !stack) || tag === "a" || tag === "switch") {
@@ -330,7 +318,7 @@ class Reader {
       }
       // A container's clipping, mask or filter is lost like a leaf's.
       this.unsupported(e, style);
-      const layer = ctx.layerLevel && e.getAttributeNS(INKSCAPE_NS, "groupmode") === "layer";
+      const layer = ctx.layerLevel && e.getAttributeNS(NS.inkscape, "groupmode") === "layer";
       const parentId = layer ? ctx.parentId : this.parent(ctx);
       const node = this.add({
         ...this.base(e, parentId, undefined, style),
@@ -342,14 +330,14 @@ class Reader {
       return;
     }
     // An Artboard's background, or the export's background option: not artwork.
-    const artboardId = e.getAttributeNS(ZIBEL_NS, "artboard");
+    const artboardId = zibelAttr(e, "artboard");
     if (artboardId) {
       const artboard = this.artboards.find((a) => a.id === artboardId);
       const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"]);
       if (artboard && fill) artboard.background = fill;
       return;
     }
-    if (e.getAttributeNS(ZIBEL_NS, "background")) return;
+    if (zibelAttr(e, "background")) return;
     /** What Stroke widths scale by: the leaf's scale when it bakes into the parameters. */
     const scaleOf = (m: Matrix) => (bakes(m) ? m[0] : 1);
     type Piece = { shape: Record<string, unknown> | null; appearance: Appearance };
@@ -403,7 +391,7 @@ class Reader {
         );
       }
     }
-    if (e.hasAttributeNS(INKSCAPE_NS, "path-effect")) {
+    if (e.hasAttributeNS(NS.inkscape, "path-effect")) {
       this.warn(
         "PATH_EFFECT_FLATTENED",
         "",
@@ -420,7 +408,7 @@ class Reader {
     const first = (el: Element, name: string) => numbers(el.getAttribute(name))[0];
     const [x = 0, y = 0] = [first(e, "x"), first(e, "y")];
     const tspans = elements(e).filter(
-      (c) => c.localName === "tspan" && c.getAttributeNS(SODIPODI_NS, "role") === "line",
+      (c) => c.localName === "tspan" && c.getAttributeNS(NS.sodipodi, "role") === "line",
     );
     const lines = tspans.length
       ? tspans.map((t) => ({
@@ -468,7 +456,7 @@ class Reader {
     const width = n3((length(style["stroke-width"]) ?? 1) * k);
     const join = JOINS.includes(style["stroke-linejoin"] ?? "")
       ? style["stroke-linejoin"]
-      : "miter";
+      : SVG_STROKE.join;
     const limit = Number(style["stroke-miterlimit"]);
     let dash = (style["stroke-dasharray"] ?? "none")
       .split(/[\s,]+/)
@@ -487,10 +475,14 @@ class Reader {
                 width,
                 cap: (CAPS.includes(style["stroke-linecap"] ?? "")
                   ? style["stroke-linecap"]
-                  : "butt") as "butt",
+                  : SVG_STROKE.cap) as "butt",
                 join: join as "miter",
-                // SVG's default limit is 4, where it shows; for other joins, Zibel's 10.
-                miterLimit: limit >= 1 ? Math.min(limit, 500) : join === "miter" ? 4 : 10,
+                miterLimit:
+                  limit >= 1
+                    ? Math.min(limit, 500)
+                    : join === SVG_STROKE.join
+                      ? SVG_STROKE.miterLimit
+                      : MITER_LIMIT,
                 dash: dash.map((v) => n3(v * k)),
               },
             ]
@@ -539,7 +531,7 @@ class Reader {
    * of its first vertex away from straight up. Anything else reads as the Path its d draws.
    */
   private star(e: Element) {
-    const type = e.getAttributeNS(SODIPODI_NS, "type");
+    const type = e.getAttributeNS(NS.sodipodi, "type");
     if (type === "arc") {
       this.warn(
         "ARC_AS_PATH",
@@ -548,24 +540,30 @@ class Reader {
       );
     }
     if (type !== "star") return undefined;
-    const at = (name: string) => Number(e.getAttributeNS(SODIPODI_NS, name));
-    const sides = at("sides");
-    const [arg1, arg2] = [at("arg1"), at("arg2")];
-    const flat = e.getAttributeNS(INKSCAPE_NS, "flatsided") === "true";
+    const at = (name: string) => Number(e.getAttributeNS(NS.sodipodi, name));
+    const params = { cx: at("cx"), cy: at("cy") };
+    const { shape, turn, twisted } = starOf({
+      sides: at("sides"),
+      r1: at("r1"),
+      r2: at("r2"),
+      arg1: at("arg1"),
+      arg2: at("arg2"),
+      flat: e.getAttributeNS(NS.inkscape, "flatsided") === "true",
+    });
+    const sides = shape.type === "polygon" ? shape.sides : shape.points;
     const shaped =
-      Number(e.getAttributeNS(INKSCAPE_NS, "rounded") || 0) !== 0 ||
-      Number(e.getAttributeNS(INKSCAPE_NS, "randomized") || 0) !== 0 ||
-      (!flat && Math.abs(arg2 - arg1 - Math.PI / sides) > 1e-6);
-    const params = { cx: at("cx"), cy: at("cy"), r1: at("r1"), r2: at("r2") };
+      Number(e.getAttributeNS(NS.inkscape, "rounded") || 0) !== 0 ||
+      Number(e.getAttributeNS(NS.inkscape, "randomized") || 0) !== 0 ||
+      twisted;
     const valid =
       Number.isInteger(sides) &&
       sides >= 3 &&
       sides <= 1000 &&
-      Number.isFinite(arg1) &&
+      Number.isFinite(turn) &&
       Number.isFinite(params.cx) &&
       Number.isFinite(params.cy) &&
-      params.r1 >= 0 &&
-      params.r2 >= 0;
+      at("r1") >= 0 &&
+      at("r2") >= 0;
     if (shaped || !valid) {
       this.warn(
         "STAR_AS_PATH",
@@ -574,11 +572,9 @@ class Reader {
       );
       return undefined;
     }
-    const turn = arg1 + Math.PI / 2;
     return {
       ...params,
-      sides,
-      flat,
+      shape,
       turn:
         Math.abs(turn) < 1e-6
           ? ([...IDENTITY] as Matrix)
@@ -672,16 +668,15 @@ class Reader {
             return null;
           }
         }
-        const { cx, cy, r1, r2, sides } = star;
+        const { cx, cy, shape } = star;
         const centre = { cx: x(cx), cy: y(cy) };
-        return star.flat
-          ? { type: "polygon", ...centre, radius: size(r1), sides, transform }
+        return shape.type === "polygon"
+          ? { ...shape, ...centre, radius: size(shape.radius), transform }
           : {
-              type: "star",
+              ...shape,
               ...centre,
-              outerRadius: size(r1),
-              innerRadius: size(r2),
-              points: sides,
+              outerRadius: size(shape.outerRadius),
+              innerRadius: size(shape.innerRadius),
               transform,
             };
       }
@@ -738,7 +733,7 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
     all.flatMap((e) => (e.getAttribute("id") ? [[e.getAttribute("id") as string, e]] : [])),
   );
   // Inkscape's pages are in user units, like everything else; without any, the viewBox.
-  const pages = all.filter((e) => e.namespaceURI === INKSCAPE_NS && e.localName === "page");
+  const pages = all.filter((e) => e.namespaceURI === NS.inkscape && e.localName === "page");
   const rect = (r: { x: number; y: number; width: number; height: number }) => ({
     x: n3(r.x),
     y: n3(r.y),
@@ -749,8 +744,8 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
     ? pages.map((p, i) => {
         const at = (name: string) => (length(p.getAttribute(name)) ?? 0) * scale;
         return {
-          id: ULID.exec(p.getAttribute("id") ?? "")?.[1] ?? newId(),
-          name: p.getAttributeNS(INKSCAPE_NS, "label") || `Artboard ${i + 1}`,
+          id: idOf(p.getAttribute("id")) ?? newId(),
+          name: p.getAttributeNS(NS.inkscape, "label") || `Artboard ${i + 1}`,
           frame: rect({ x: at("x"), y: at("y"), width: at("width"), height: at("height") }),
         };
       })
@@ -765,7 +760,7 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
   const title = elements(root)
     .find((e) => e.localName === "title")
     ?.textContent?.trim();
-  const docname = root.getAttributeNS(SODIPODI_NS, "docname")?.replace(/\.svg$/i, "");
+  const docname = root.getAttributeNS(NS.sodipodi, "docname")?.replace(/\.svg$/i, "");
   const hint = nameHint?.replace(/\.(svg|zibel\.json)$/i, "");
   const name = hint || docname || title || "Untitled";
 
@@ -774,23 +769,14 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
   const file = parseDocument(
     JSON.stringify({ version: MIGRATIONS.length + 1, name, artboards, nodes: reader.nodes }),
   );
-  const docId = root.getAttributeNS(ZIBEL_NS, "doc");
+  const docId = zibelAttr(root, "doc");
   const origin = docId ? readOrigin(docId, root) : undefined;
   return { ...file, warnings: [...reader.warnings.values()], ...(origin && { origin }) };
 }
 
 /** The inverse of the `zibel:rev` and `zibel:scope` that `toSvg` writes. */
 function readOrigin(docId: string, root: Element): Origin {
-  const rev = Number(root.getAttributeNS(ZIBEL_NS, "rev") || Number.NaN);
-  const [kind, value = ""] = (root.getAttributeNS(ZIBEL_NS, "scope") ?? "").split(/:(.*)/s);
-  const [x = 0, y = 0, width = 0, height = 0] = numbers(value);
-  const scope: RenderScope | undefined =
-    kind === "artboard"
-      ? { artboardId: value }
-      : kind === "nodes"
-        ? { nodeIds: value.split(",") }
-        : kind === "rect"
-          ? { rect: { x, y, width, height } }
-          : undefined;
+  const rev = Number(zibelAttr(root, "rev") || Number.NaN);
+  const scope = scopeOf(zibelAttr(root, "scope"));
   return { docId, ...(Number.isInteger(rev) && { rev }), ...(scope && { scope }) };
 }

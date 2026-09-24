@@ -17,6 +17,7 @@ import {
   visibleBounds,
   ZibelError,
 } from "@zibel/core";
+import { paintAttrs, SVG_STROKE, scopeAttr, starAttrs, XMLNS, xmlId, zibel } from "./dialect.ts";
 
 // Whitespace as references too: an XML parser turns a raw newline in an attribute into a space.
 export const esc = (s: string) => s.replace(/[&<>"\t\n\r]/g, (c) => ESCAPES[c] ?? c);
@@ -37,13 +38,6 @@ export const attrs = (a: Attrs) =>
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => ` ${k}="${esc(String(v))}"`)
     .join("");
-
-/** A colour as `fill` or `stroke` plus its alpha as `-opacity`: Inkscape 1.2 draws #RRGGBBAA black. */
-const paint = (name: "fill" | "stroke", color: string): Attrs => ({
-  [name]: color.slice(0, 7),
-  [`${name}-opacity`]:
-    color.length === 9 ? formatNumber(Number.parseInt(color.slice(7), 16) / 255) : undefined,
-});
 
 /** The area a doc-scope render covers: every Artboard. */
 export function docRect(doc: Document): Rect {
@@ -106,22 +100,6 @@ interface Walk {
   drawn: Node[];
 }
 
-const NS = {
-  xmlns: "http://www.w3.org/2000/svg",
-  "xmlns:inkscape": "http://www.inkscape.org/namespaces/inkscape",
-  "xmlns:sodipodi": "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd",
-  "xmlns:zibel": "https://zibel.dev/ns/svg",
-};
-
-const scopeName = (scope?: RenderScope) =>
-  !scope
-    ? "doc"
-    : "artboardId" in scope
-      ? `artboard:${scope.artboardId}`
-      : "nodeIds" in scope
-        ? `nodes:${scope.nodeIds.join(",")}`
-        : `rect:${[scope.rect.x, scope.rect.y, scope.rect.width, scope.rect.height].map(formatNumber).join(",")}`;
-
 /**
  * SVG of `rect` in document coordinates, in Inkscape's dialect (ADR-0017): `render` and `export`
  * both write it. The default rect is what an SVG `export` of the scope covers.
@@ -141,20 +119,20 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
     ? `<sodipodi:namedview inkscape:document-units="pt">${pages
         .map(
           (a) =>
-            `<inkscape:page${attrs({ ...num(a.frame), id: `z-${a.id}`, "inkscape:label": a.name })}/>`,
+            `<inkscape:page${attrs({ ...num(a.frame), id: xmlId(a.id), "inkscape:label": a.name })}/>`,
         )
         .join("")}</sodipodi:namedview>`
     : `<sodipodi:namedview inkscape:document-units="pt"/>`;
   const background = [
     // Marked, so importing the file does not make it a Node.
     opts.background
-      ? `<rect${attrs({ x, y, width, height, ...paint("fill", opts.background), "zibel:background": "true" })}/>`
+      ? `<rect${attrs({ x, y, width, height, ...paintAttrs("fill", opts.background), [zibel("background")]: "true" })}/>`
       : "",
     ...(nodeIds ? [] : doc.artboards)
       .filter((a): a is Artboard & { background: string } => !!a.background)
       .map(
         (a) =>
-          `<rect${attrs({ ...num(a.frame), ...paint("fill", a.background), "zibel:artboard": a.id, "sodipodi:insensitive": "true" })}/>`,
+          `<rect${attrs({ ...num(a.frame), ...paintAttrs("fill", a.background), [zibel("artboard")]: a.id, "sodipodi:insensitive": "true" })}/>`,
       ),
   ].join("");
   const drawn: Node[] = [];
@@ -163,13 +141,13 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
     .join("");
   const trailer = opts.trailer?.(drawn) ?? "";
   const root = attrs({
-    ...NS,
+    ...XMLNS,
     width: `${width}pt`,
     height: `${height}pt`,
     viewBox: `${x} ${y} ${width} ${height}`,
-    "zibel:doc": doc.id,
-    "zibel:rev": doc.rev,
-    "zibel:scope": scopeName(scope),
+    [zibel("doc")]: doc.id,
+    [zibel("rev")]: doc.rev,
+    [zibel("scope")]: scopeAttr(scope),
     // Inkscape shows it as the file name, and import reads the Document name back from it.
     "sodipodi:docname": `${doc.name}.svg`,
   });
@@ -177,12 +155,11 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
 }
 
 const stroke = (s: Appearance["strokes"][number]): Attrs => ({
-  ...paint("stroke", s.color),
+  ...paintAttrs("stroke", s.color),
   "stroke-width": s.width,
-  "stroke-linecap": s.cap === "butt" ? undefined : s.cap,
-  "stroke-linejoin": s.join === "miter" ? undefined : s.join,
-  // SVG's default miter limit is 4, Illustrator's is 10: always write it for miter joins.
-  "stroke-miterlimit": s.join === "miter" ? s.miterLimit : undefined,
+  "stroke-linecap": s.cap === SVG_STROKE.cap ? undefined : s.cap,
+  "stroke-linejoin": s.join === SVG_STROKE.join ? undefined : s.join,
+  "stroke-miterlimit": s.join === SVG_STROKE.join ? s.miterLimit : undefined,
   "stroke-dasharray": s.dash.length > 0 ? s.dash.join(" ") : undefined,
 });
 
@@ -209,13 +186,8 @@ function shape(n: ShapeNode): string {
       return `line${attrs(num({ x1: n.x1, y1: n.y1, x2: n.x2, y2: n.y2 }))}`;
     case "polygon":
     case "star": {
-      // Inkscape's star tool rebuilds the outline from these on load, so d is the same vertices:
-      // the first straight up (arg1, radians), the inner ones half a step clockwise (arg2).
-      const [sides, r1, r2] =
-        n.type === "polygon"
-          ? [n.sides, n.radius, n.radius * Math.cos(Math.PI / n.sides)]
-          : [n.points, n.outerRadius, n.innerRadius];
-      const arg1 = -Math.PI / 2;
+      // Inkscape's star tool rebuilds the outline from these on load, so d is the same vertices.
+      const { sides, r1, r2, arg1, arg2, flat } = starAttrs(n);
       return `path${attrs({
         "sodipodi:type": "star",
         "sodipodi:sides": sides,
@@ -224,8 +196,8 @@ function shape(n: ShapeNode): string {
         "sodipodi:r1": formatNumber(r1),
         "sodipodi:r2": formatNumber(r2),
         "sodipodi:arg1": arg1,
-        "sodipodi:arg2": arg1 + Math.PI / sides,
-        "inkscape:flatsided": String(n.type === "polygon"),
+        "sodipodi:arg2": arg2,
+        "inkscape:flatsided": String(flat),
         "inkscape:rounded": 0,
         "inkscape:randomized": 0,
         d: formatPath(shapeSegments(n)),
@@ -249,11 +221,11 @@ function node(doc: Document, n: Node, walk: Walk): string {
   const inside = walk.inside || walk.scope?.has(n.id) === true;
   if (inside && !hidden && n.type !== "layer") walk.drawn.push(n);
   const own = {
-    id: `z-${n.id}`,
+    id: xmlId(n.id),
     "inkscape:label": n.name || undefined,
     "sodipodi:insensitive": n.locked ? "true" : undefined,
-    "zibel:tags": n.tags.length > 0 ? JSON.stringify(n.tags) : undefined,
-    "zibel:meta": Object.keys(n.meta).length > 0 ? JSON.stringify(n.meta) : undefined,
+    [zibel("tags")]: n.tags.length > 0 ? JSON.stringify(n.tags) : undefined,
+    [zibel("meta")]: Object.keys(n.meta).length > 0 ? JSON.stringify(n.meta) : undefined,
     transform: n.transform.every((v, i) => v === IDENTITY[i])
       ? undefined
       : // At the precision it is stored in, so the file opens with the same matrix.
@@ -298,13 +270,13 @@ function node(doc: Document, n: Node, walk: Walk): string {
     const [f] = fills;
     const [s] = strokes;
     return element(
-      { ...own, ...(f ? paint("fill", f.color) : { fill: "none" }), ...(s && stroke(s)) },
+      { ...own, ...(f ? paintAttrs("fill", f.color) : { fill: "none" }), ...(s && stroke(s)) },
       [...looks],
     );
   }
   const paints = [
-    ...fills.map((f) => element(paint("fill", f.color))),
+    ...fills.map((f) => element(paintAttrs("fill", f.color))),
     ...strokes.map((s) => element({ fill: "none", ...stroke(s) })),
   ].join("");
-  return `<g${attrs({ ...own, "zibel:stack": "true", style: style(...looks) })}>${paints}</g>`;
+  return `<g${attrs({ ...own, [zibel("stack")]: "true", style: style(...looks) })}>${paints}</g>`;
 }
