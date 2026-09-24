@@ -117,3 +117,19 @@ export function fontWarnings(nodes: Pick<Node, "id" | "type">[]): WriteReceipt["
       : [],
   );
 }
+
+/** A `TEXT_OVERFLOW` warning for each Area Type whose content does not all fit (ADR-0022). */
+export function overflowWarnings(nodes: Node[]): WriteReceipt["warnings"] {
+  return nodes.flatMap((n) => {
+    const overflow = n.type === "text" ? layoutText(n).overflow : "";
+    return overflow
+      ? [
+          {
+            code: "TEXT_OVERFLOW",
+            nodeId: n.id,
+            message: `${[...overflow].length} characters do not fit the frame and are not drawn; enlarge the frame or shorten the content.`,
+          },
+        ]
+      : [];
+  });
+}

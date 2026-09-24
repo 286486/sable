@@ -23,6 +23,7 @@ import {
   type OutlineNode,
   type OutlineOptions,
   outline,
+  overflowWarnings,
   overlay,
   placeNodes,
   queryNodes,
@@ -314,7 +315,7 @@ export class DocumentObject extends DurableObject<Env> {
       return {
         created: nodes,
         keyMap,
-        warnings: fontWarnings(nodes),
+        warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
         failed,
       };
     });
@@ -325,7 +326,7 @@ export class DocumentObject extends DurableObject<Env> {
       const { nodes, failed } = updateNodes(doc, updates, opts);
       return {
         updated: nodes,
-        warnings: fontWarnings(nodes),
+        warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
         failed,
       };
     });

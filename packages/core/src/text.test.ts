@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
-import { fontWarnings, layoutText, textBox } from "./text.ts";
+import { fontWarnings, layoutText, overflowWarnings, textBox } from "./text.ts";
 
 // Read straight from SourceSans3-Regular.ttf, not from the generated table: unitsPerEm 1000,
 // hhea ascender 1000 and descender -326; advances H 652, i 246, space 200, .notdef 653.
@@ -110,4 +110,33 @@ it("overflows a word wider than the frame and everything after it, as Inkscape d
 it("measures Area Type as its frame", () => {
   const frame = { x: 150, y: 20, width: 100, height: 40 };
   expect(textBox({ kind: "area", ...frame, content: "one", fontSize: 12 })).toEqual(frame);
+});
+
+it("warns TEXT_OVERFLOW for each Area Type whose content does not all fit", () => {
+  const text = (id: string, kind: "point" | "area", height: number) =>
+    ({
+      id,
+      type: "text",
+      kind,
+      x: 0,
+      y: 0,
+      width: 100,
+      height,
+      content: "one\ntwo",
+      fontSize: 12,
+    }) as Parameters<typeof overflowWarnings>[0][number];
+  expect(
+    overflowWarnings([
+      text("fits", "area", 40),
+      text("over", "area", 20),
+      text("point", "point", 1),
+    ]),
+  ).toEqual([
+    {
+      code: "TEXT_OVERFLOW",
+      nodeId: "over",
+      message:
+        "3 characters do not fit the frame and are not drawn; enlarge the frame or shorten the content.",
+    },
+  ]);
 });
