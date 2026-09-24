@@ -33,6 +33,7 @@ export function parseFile(content: string, { name }: { name?: string } = {}): Op
     });
   }
   // One per font, not per text: a file set in one missing font says so once.
-  const fonts = new Map(fontWarnings(file.nodes).map((w) => [w.message, w]));
+  const fonts = new Map<string, Warning>();
+  for (const w of fontWarnings(file.nodes)) if (!fonts.has(w.message)) fonts.set(w.message, w);
   return { ...file, warnings: [...file.warnings, ...fonts.values()] };
 }

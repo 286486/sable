@@ -380,3 +380,44 @@ it("reads a star with missing parameters as its Path", () => {
   const file = parseFile(svg("", star({ "sodipodi:r2": "x" })));
   expect(leaves(file)[0]?.type).toBe("path");
 });
+
+it("reads <text> as Point Type, one Node per Inkscape line, keeping the font name", () => {
+  const file = parseFile(
+    svg(
+      'width="300" height="300"',
+      '<text x="20" y="195" font-family="Source Sans 3" font-size="14" style="font-kerning:none" xml:space="preserve">Round &amp;  trip</text>' +
+        `<text id="z-01M38T29SBZ873XP2NBD2K6CYR" style="font-size:4.2mm;font-family:'DejaVu Sans', sans-serif;fill:#ff0000">` +
+        '<tspan sodipodi:role="line" x="10" y="20">  a\n</tspan>' +
+        '<tspan sodipodi:role="line" x="10" y="30">b<tspan style="font-weight:bold">c</tspan></tspan>' +
+        '<tspan sodipodi:role="line" x="10" y="40"/></text>' +
+        '<text x="100" y="10" text-anchor="middle" font-size="10">Hi</text>' +
+        '<text x="0" y="0">   </text>',
+    ),
+  );
+  const [plain, a, bc, centred, ...rest] = leaves(file);
+  expect(rest).toEqual([]);
+  expect(plain).toMatchObject({
+    type: "text",
+    kind: "point",
+    x: 20,
+    y: 195,
+    content: "Round &  trip",
+    fontFamily: "Source Sans 3",
+    fontSize: 14,
+    appearance: { fills: [{ color: "#000000" }], strokes: [] },
+  });
+  expect(a).toMatchObject({
+    id: "01M38T29SBZ873XP2NBD2K6CYR",
+    x: 10,
+    y: 20,
+    content: "a",
+    fontFamily: "DejaVu Sans",
+    fontSize: 11.906,
+    appearance: { fills: [{ color: "#FF0000" }] },
+  });
+  expect(bc).toMatchObject({ x: 10, y: 30, content: "bc", fontFamily: "DejaVu Sans" });
+  expect(bc?.id).not.toBe(a?.id);
+  // Half of "Hi"'s advances at 10 pt: (652 + 246) × 10 / 1000 / 2.
+  expect(centred).toMatchObject({ x: 95.51, content: "Hi" });
+  expect(file.warnings).toEqual([expect.objectContaining({ code: "FONT_MISSING", nodeId: a?.id })]);
+});

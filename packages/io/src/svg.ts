@@ -3,6 +3,7 @@ import {
   type Appearance,
   type Artboard,
   BlendMode,
+  BUNDLED_FONT,
   cssColor,
   formatPath,
   IDENTITY,
@@ -15,6 +16,7 @@ import {
   parseDocument,
   round,
   type Segment,
+  textBox,
   transformSegments,
   type WriteReceipt,
   ZibelError,
@@ -255,29 +257,89 @@ class Reader {
     }
     if (e.getAttributeNS(ZIBEL_NS, "background")) return;
     const k = bakes(matrix) ? matrix[0] : 1;
-    let shape: Record<string, unknown> | null;
-    let appearance: Appearance;
+    type Piece = { shape: Record<string, unknown> | null; appearance: Appearance };
+    let pieces: Piece[];
     if (stack) {
       // One Node painted several times: its geometry from the first paint, its Fills, then its
       // Strokes, in order (ADR-0017).
-      const paints = elements(e).map((c) => ({
-        shape: this.shape(c, multiply(matrix, parseTransform(c.getAttribute("transform")))),
-        look: this.appearance(computeStyle(c, style, this.rules), k),
+      const paints = elements(e).map((c) => {
+        const s = computeStyle(c, style, this.rules);
+        const m = multiply(matrix, parseTransform(c.getAttribute("transform")));
+        return { shape: this.shape(c, m, s), look: this.appearance(s, k) };
+      });
+      pieces = [
+        {
+          shape: paints.find((p) => p.shape)?.shape ?? null,
+          appearance: {
+            fills: paints.flatMap((p) => p.look.fills),
+            strokes: paints.flatMap((p) => p.look.strokes),
+          },
+        },
+      ];
+    } else if (tag === "text") {
+      // Point Type is one line, so each Inkscape line is a Node of its own.
+      pieces = this.lines(e, style).map((line) => ({
+        shape: this.text(line, line.style, matrix),
+        appearance: this.appearance(line.style, k),
       }));
-      shape = paints.find((p) => p.shape)?.shape ?? null;
-      appearance = {
-        fills: paints.flatMap((p) => p.look.fills),
-        strokes: paints.flatMap((p) => p.look.strokes),
-      };
-    } else {
-      shape = this.shape(e, matrix);
-      appearance = this.appearance(style, k);
+    } else
+      pieces = [{ shape: this.shape(e, matrix, style), appearance: this.appearance(style, k) }];
+    for (const { shape, appearance } of pieces) {
+      if (!shape) continue;
+      const base = this.base(e, this.parent(ctx), undefined, style);
+      // visibility inherits, unlike display, so it hides a leaf rather than its Group.
+      if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
+      this.add({ ...base, ...shape, appearance } as Node);
     }
-    if (!shape) return;
-    const base = this.base(e, this.parent(ctx), undefined, style);
-    // visibility inherits, unlike display, so it hides a leaf rather than its Group.
-    if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
-    this.add({ ...base, ...shape, appearance } as Node);
+  }
+
+  /** The lines of a <text>: Inkscape's line tspans, else the whole text as one. */
+  private lines(e: Element, style: Style) {
+    const preserve = e.getAttribute("xml:space") === "preserve";
+    const clean = (t: string) =>
+      preserve ? t.replace(/[\t\n\r]/g, " ") : t.replace(/\s+/g, " ").trim();
+    const first = (el: Element, name: string) => numbers(el.getAttribute(name))[0];
+    const [x = 0, y = 0] = [first(e, "x"), first(e, "y")];
+    const tspans = elements(e).filter(
+      (c) => c.localName === "tspan" && c.getAttributeNS(SODIPODI_NS, "role") === "line",
+    );
+    const lines = tspans.length
+      ? tspans.map((t) => ({
+          x: first(t, "x") ?? x,
+          y: first(t, "y") ?? y,
+          content: clean(t.textContent ?? ""),
+          style: computeStyle(t, style, this.rules),
+        }))
+      : [{ x, y, content: clean(e.textContent ?? ""), style }];
+    return lines.filter((l) => l.content);
+  }
+
+  /** One line of Point Type, its start moved for text-anchor by its measured width. */
+  private text(line: { x: number; y: number; content: string }, style: Style, m: Matrix) {
+    const bake = bakes(m);
+    const [k, , , , tx, ty] = bake ? m : IDENTITY;
+    const fontSize = n3((length(style["font-size"]) ?? 12) * k);
+    const family = style["font-family"]
+      ?.split(",")[0]
+      ?.trim()
+      .replace(/^['"]|['"]$/g, "");
+    const { content } = line;
+    let x = k * line.x + tx;
+    const anchor = style["text-anchor"];
+    if (anchor === "middle" || anchor === "end") {
+      const width = textBox({ x: 0, y: 0, content, fontSize }).width;
+      x -= anchor === "middle" ? width / 2 : width;
+    }
+    return {
+      type: "text",
+      kind: "point",
+      x: n3(x),
+      y: n3(k * line.y + ty),
+      content,
+      fontFamily: family || BUNDLED_FONT,
+      fontSize,
+      transform: bake ? [...IDENTITY] : round(m),
+    };
   }
 
   /** Fills and Strokes from resolved style, SVG's defaults where it says nothing. */
@@ -406,7 +468,11 @@ class Reader {
   }
 
   /** A shape element's parameters in document coordinates, with the transform it keeps. */
-  private shape(e: Element, outer: Matrix): Record<string, unknown> | null {
+  private shape(e: Element, outer: Matrix, style: Style): Record<string, unknown> | null {
+    if (e.localName === "text") {
+      const [line] = this.lines(e, style);
+      return line ? this.text(line, line.style, outer) : null;
+    }
     const star = e.localName === "path" ? this.star(e) : undefined;
     // A star turned in Inkscape keeps its turn as a matrix about its centre, as Zibel writes it.
     const m = star ? multiply(outer, star.turn) : outer;
