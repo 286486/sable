@@ -36,3 +36,16 @@ it("applies a tx message as a new Document: created and updated replace, deleted
   expect(doc.nodes.has(b.id)).toBe(true);
   expect(doc.nodes.get(a.id)?.name).not.toBe("A");
 });
+
+it("takes the Artboards a tx message carries, and keeps them when it carries none", () => {
+  const { doc } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100 }],
+  });
+  const tx = { type: "tx", rev: 2, txId: "t", actor: "user", intent: null } as const;
+  const empty = { ...tx, created: [], updated: [], deletedIds: [] };
+  const artboards = doc.artboards.map((a) => ({ ...a, name: "Cover" }));
+  expect(applyBroadcast(doc, { ...empty, artboards }).artboards).toEqual(artboards);
+  expect(applyBroadcast(doc, empty).artboards).toBe(doc.artboards);
+});

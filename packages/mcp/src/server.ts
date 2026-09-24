@@ -191,7 +191,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Update a Document from a file exported from it and edited since, such as the SVG of zibel_export saved in Inkscape, or its .zibel.json. Pass the file's content, not a path.",
         "It merges three-way from the rev the file was exported at (baseRev, default the SVG's zibel:rev): only what the file changed is applied, the file winning a property both sides changed, so edits made meanwhile to other properties and Nodes stay. appearance counts as one property. It deletes only Nodes the export contained, never Nodes created since or outside its scope; a Node deleted since stays deleted with a DELETED_SINCE warning. The Document's name is not changed.",
-        "One Transaction, undoable in one step. A .zibel.json without baseRev, or a base older than 30 days, is compared with the Document as it is now and warns NO_BASE. A file from another Document is INVALID_DOCUMENT: open it with zibel_doc_open instead.",
+        "One Transaction, undoable in one step, except for Artboard name, frame or background changes from the file, which undo does not restore yet. A .zibel.json without baseRev, or a base older than 30 days, is compared with the Document as it is now and warns NO_BASE. A file from another Document is INVALID_DOCUMENT: open it with zibel_doc_open instead.",
         `See ${CONVENTIONS}.`,
       ].join(" "),
       inputSchema: {

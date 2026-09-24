@@ -90,6 +90,16 @@ it("lands a moved Node where the file says, not moved twice by a baked transform
   expect(await xOf(s, a)).toBe(15);
 });
 
+it("merges one Node both sides edited: the Agent's move and the file's colour", async () => {
+  const { s, a } = await setup("r2b");
+  ok(await s.transformNodes({ nodeIds: [a], translate: { x: 5 } }, "agent-a"));
+  const svg = await svgOf(s);
+  ok(await s.transformNodes({ nodeIds: [a], translate: { x: 7 } }, "agent-a"));
+  ok(await replace(s, recolour(svg, a, "#FF0000")));
+  expect(await xOf(s, a)).toBe(12);
+  expect(await fillOf(s, a)).toBe("#FF0000");
+});
+
 it("lets the file win a property both sides changed, and keeps a Node deleted since deleted", async () => {
   const { s, a, b } = await setup("r3");
   const svg = await svgOf(s);

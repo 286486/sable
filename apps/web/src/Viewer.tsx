@@ -61,7 +61,7 @@ async function replaceFrom(docId: string, file: File) {
       warnings?: { message: string }[];
     };
     if (!res.ok) notice(`Could not update from ${file.name}: ${body.message} ${body.hint ?? ""}`);
-    else if (body.warnings?.length) notice(body.warnings.map((w) => w.message).join(" "));
+    else useStore.setState({ notice: body.warnings?.map((w) => w.message).join(" ") || null });
   } catch (e) {
     notice(`Could not update from ${file.name}: ${String(e)}`);
   }

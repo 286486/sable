@@ -23,6 +23,8 @@ export interface ReplaceFile {
  *
  * Nodes missing from the file are deleted only when the base export contained them: at nodeIds
  * scope, the listed Nodes and what they contain, not the containers written as the way to them.
+ * ponytail: an element the importer drops (INVALID_PATH, INVALID_TRANSFORM) is missing too, so
+ * its Node is deleted; have the importer report dropped ids if Inkscape ever writes such files.
  * Artboards are compared with `norm.current` until Artboard edits are logged (F-VIEW-06), and only
  * those whose id the Document has are updated.
  */

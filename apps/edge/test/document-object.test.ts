@@ -416,6 +416,8 @@ it("keeps every rev's delta through undo and redo-clear, and prunes deltas older
   ok(await move());
   expect(await revs()).toEqual([6]);
   expect(ok(await doc.undo("user"))).toMatchObject({ updatedIds: [id] });
+  // The stack drops the revs whose deltas went, rather than undoing nothing.
+  expect(await doc.undo("user")).toMatchObject({ error: { code: "NOTHING_TO_UNDO" } });
 });
 
 it("writes each Node id into the SVG it hands the Worker to rasterise, with the ids overlay", async () => {

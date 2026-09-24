@@ -131,6 +131,8 @@ export class DocumentObject extends DurableObject<Env> {
     const cols = this.sql.exec<{ name: string }>("PRAGMA table_info(tx_log)").toArray();
     if (!cols.some((c) => c.name === "at"))
       this.sql.exec("ALTER TABLE tx_log ADD COLUMN at INTEGER");
+    // Every commit prunes by age.
+    this.sql.exec("CREATE INDEX IF NOT EXISTS tx_log_at ON tx_log (at)");
   }
 
   create(input: {
@@ -930,10 +932,11 @@ export class DocumentObject extends DurableObject<Env> {
       intent ?? null,
       now,
     );
-    this.sql.exec(
-      "DELETE FROM tx_delta WHERE rev IN (SELECT rev FROM tx_log WHERE at < ?)",
-      now - DELTA_DAYS * 86_400_000,
-    );
+    const old = now - DELTA_DAYS * 86_400_000;
+    // The stacks drop what they can no longer invert, so undo says NOTHING_TO_UNDO, not a no-op.
+    for (const table of ["tx_delta", "history"]) {
+      this.sql.exec(`DELETE FROM ${table} WHERE rev IN (SELECT rev FROM tx_log WHERE at < ?)`, old);
+    }
     if (step) this.push(rev, step);
     return { txId, rev };
   }
