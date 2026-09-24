@@ -126,9 +126,9 @@ it("draws the fixture Document with known pixels", async () => {
   // moved 28 of its antialiased edge pixels at 2x by up to 10/255.
   // The whole Document again, by #27: the fixture gained a Sublayer, a multiply rect, a two-Stroke
   // path with a translucent Stroke and a hidden ellipse. Writing alpha as fill-opacity did not
-  // move a pixel.
+  // move a pixel. Again by #30: the fixture gained an evenodd ring.
   expect(await hash(toSvg(doc, docRect(doc)))).toBe(
-    "f2418d38129e4f6dba2d26b0d6ae23759069c3cb4bb106e33212ad70ed7bed85",
+    "662688059d5c42595eb229711d65ff00566cac0b654df88d9344a0d4ba5bad13",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

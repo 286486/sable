@@ -179,6 +179,7 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     'inkscape:flatsided="false"',
     `${z("SFMVZ9S4MNJSJD618Z")} fill="#66CCAA" stroke="#004433"`,
     `<g ${z("SF5XG8X1F6BB53G505")} zibel:stack="true"><path d="M 330 110 L 410 110 L 370 150 Z" fill="#FF0000" fill-opacity="0.502"/>`,
+    `<path d="M 150 155 L 215 155 L 215 195 L 150 195 Z M 170 165 L 195 165 L 195 185 L 170 185 Z" fill-rule="evenodd" ${z("SK0MP0VNDPATH0RVNG")}`,
     '<text x="20" y="195" font-family="Source Sans 3" font-size="14"',
     'zibel:tags="[&quot;badge&quot;,&quot;export&quot;]" zibel:meta="{&quot;quote\\&quot;d&quot;:[1,2],&quot;source&quot;:&quot;fixture&quot;}"',
   ]) {

@@ -575,6 +575,40 @@
       "width": 20,
       "x": 230,
       "y": 90
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#3366CC",
+            "type": "solid"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#000000",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 1
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "d": "M 150 155 L 215 155 L 215 195 L 150 195 Z M 170 165 L 195 165 L 195 185 L 170 185 Z",
+      "fillRule": "evenodd",
+      "id": "01M38T29SK0MP0VNDPATH0RVNG",
+      "index": "aF",
+      "locked": false,
+      "meta": {},
+      "name": "Ring",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "path",
+      "visible": true
     }
   ]
 }
