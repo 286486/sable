@@ -156,7 +156,13 @@ it("rejects a write whose ifRev is stale with REV_CONFLICT, changing nothing", a
   expect(
     await stub("d4").updateNodes([{ nodeId: id, patch: { name: "x" } }], "agent-b", { ifRev: 1 }),
   ).toMatchObject({
-    error: { code: "REV_CONFLICT", rev: 2, nodeIds: [id], path: "ifRev", hint: expect.any(String) },
+    error: {
+      code: "REV_CONFLICT",
+      rev: 2,
+      nodeIds: [id],
+      path: "ifRev",
+      hint: expect.stringContaining("zibel_doc_changes"),
+    },
   });
   expect(await stub("d4").info()).toMatchObject({ rev: 2 });
   expect(await stub("d4").get([id], "full", "agent-a")).toMatchObject({ nodes: [{ name: "" }] });
@@ -208,8 +214,8 @@ it("keeps a Transaction's edits in an overlay until commit, across a restart", a
   ok(await s.deleteNodes([b], "agent-a", { txId }));
   expect(await layerChildren(s, txId)).toEqual([rectId, a]);
   expect(await layerChildren(s)).toEqual([rectId]);
-  expect(await s.get([a], "concise", "agent-a")).toMatchObject({
-    error: { code: "NODE_NOT_FOUND" },
+  expect(await s.get([rectId, a], "concise", "agent-a")).toMatchObject({
+    error: { code: "NODE_NOT_FOUND", path: "nodeIds[1]" },
   });
   expect(await s.info()).toMatchObject({ rev: 2 });
 
@@ -321,7 +327,9 @@ it("expires a Transaction idle for 5 minutes through the alarm", async () => {
   expect(await ended(b)).toBeNull();
   expect(
     await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId: a }),
-  ).toMatchObject({ error: { code: "TX_EXPIRED", hint: expect.stringContaining("idle") } });
+  ).toMatchObject({
+    error: { code: "TX_EXPIRED", path: "txId", hint: expect.stringContaining("idle") },
+  });
   expect(await layerChildren(s)).toEqual([rectId]);
   ok(await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a", { txId: b }));
   vi.setSystemTime(t0 + 11 * 60_000);

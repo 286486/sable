@@ -344,7 +344,7 @@ describe("nodeView", () => {
               ],
             },
           },
-          { type: "path", d: "M 0 0 L 10 0 L 10 10" },
+          { type: "path", d: "M 0 0 L 10 0 L 10 10", fillRule: "evenodd" },
         ],
       },
     ]).nodes;
@@ -375,7 +375,11 @@ describe("nodeView", () => {
 
   it("full: a Path returns its stored d", () => {
     const { doc, path } = setup();
-    expect(nodeView(doc, path, "full")).toMatchObject({ d: "M 0 0 L 10 0 L 10 10", closed: false });
+    expect(nodeView(doc, path, "full")).toMatchObject({
+      d: "M 0 0 L 10 0 L 10 10",
+      closed: false,
+      fillRule: "evenodd",
+    });
   });
 
   it("concise: identity, structure and geometric bounds only", () => {
