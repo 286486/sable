@@ -39,6 +39,7 @@ export function documentService(env: Env, actor: string): DocumentService {
       return { png, viewport };
     },
     svg: async (docId, req) => unwrap(await doc(docId).svg(actor, req)),
+    file: async (docId, txId) => unwrap(await doc(docId).file(actor, txId)),
   };
 }
 

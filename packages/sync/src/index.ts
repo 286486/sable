@@ -102,6 +102,8 @@ export interface DocumentService {
   render(docId: string, req: RasterRequest): Promise<{ png: Uint8Array; viewport: Viewport }>;
   /** The SVG of the scope, the artwork only. */
   svg(docId: string, req: RenderRequest): Promise<{ svg: string; docRect: Rect }>;
+  /** The whole Document as `.zibel.json` text (ADR-0016). */
+  file(docId: string, txId?: string): Promise<{ text: string }>;
   begin(docId: string, label?: string): Promise<{ txId: string; rev: number }>;
   commitTx(
     docId: string,

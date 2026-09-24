@@ -375,10 +375,11 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Export the artwork of part of the Document, returned inline: svg as text content with docRect, its viewBox; png as image content with viewport, as zibel_render returns it.",
         scopes,
         "No overlays and no maxSize: a png is scale pixels per point, at most 4096 px on its longer side.",
+        "zibel_json is the whole Document as a .zibel.json file in text content, which zibel_doc_open reads back; scope, scale and background do not apply to it.",
       ].join(" "),
       inputSchema: {
         docId,
-        format: z.enum(["svg", "png"]),
+        format: z.enum(["svg", "png", "zibel_json"]),
         scope,
         scale: scale.describe("png only: pixels per point."),
         background,
@@ -389,6 +390,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     },
     ({ docId, format, scale, background, ...req }) =>
       run("zibel_export", async () => {
+        if (format === "zibel_json") {
+          const { text } = await service.file(docId, req.txId);
+          return { structuredContent: {}, content: [{ type: "text", text }] };
+        }
         const opts = { ...req, background: color(background) };
         if (format === "png") {
           const { png, viewport } = await service.render(docId, { ...opts, scale });

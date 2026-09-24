@@ -23,6 +23,7 @@ import {
   queryNodes,
   type Rect,
   revert,
+  serializeDocument,
   type TransformInput,
   type TxRow,
   transformNodes,
@@ -404,6 +405,11 @@ export class DocumentObject extends DurableObject<Env> {
       const { doc, rect, nodeIds } = this.scene(actor, req);
       return { svg: toSvg(doc, rect, { nodeIds, background: req.background }), docRect: rect };
     });
+  }
+
+  /** The whole Document as `.zibel.json` text, as `export` returns it (ADR-0016). */
+  file(actor: string, txId?: string): Result<{ text: string }> {
+    return guard(() => ({ text: serializeDocument(this.view(this.load(), actor, txId)) }));
   }
 
   /**

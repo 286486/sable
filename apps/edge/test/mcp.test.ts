@@ -1216,3 +1216,34 @@ it("serves skill://zibel/drawing-conventions as a resource and points at it on i
   for (const [name] of doc.text.matchAll(/zibel_[a-z_]+/g)) expect(tools).toContain(name);
   expect((await rpc("resources/read", { uri: "skill://zibel/nope" })).body.error).toBeDefined();
 });
+
+describe("zibel_json", () => {
+  it("exports the whole Document as .zibel.json text, with a Transaction's edits under its txId", async () => {
+    const doc = await newDoc();
+    const { docId, defaultLayerId } = doc;
+    const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 };
+    const [rectId] = (await call("zibel_node_create", { docId, nodes: [rect] })).structuredContent
+      .createdIds;
+    const result = await call("zibel_export", { docId, format: "zibel_json" });
+    expect(result.structuredContent).toEqual({});
+    expect(result.content[0].type).toBe("text");
+    const text = result.content[0].text;
+    const file = JSON.parse(text);
+    expect(file).toMatchObject({ version: 1, name: "Doc", artboards: doc.artboards });
+    expect(file.nodes).toHaveLength(2);
+    const scoped = await call("zibel_export", {
+      docId,
+      format: "zibel_json",
+      scope: { nodeIds: [rectId] },
+    });
+    expect(scoped.content[0].text).toBe(text);
+    const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
+    await call("zibel_node_create", { docId, txId, nodes: [rect] });
+    const nodesOf = async (args: object) =>
+      JSON.parse(
+        (await call("zibel_export", { docId, format: "zibel_json", ...args })).content[0].text,
+      ).nodes;
+    expect(await nodesOf({ txId })).toHaveLength(3);
+    expect(await nodesOf({})).toHaveLength(2);
+  });
+});
