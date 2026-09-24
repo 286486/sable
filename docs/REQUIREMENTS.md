@@ -490,7 +490,7 @@ flowchart LR
 ```
 
 - **F-MCP-01 传输**：仅无状态 Streamable HTTP。托管地址 `https://mcp.<domain>/mcp`，OAuth 2.1 授权（MCP authorization 规范），**首发仅 GitHub 作为身份提供方**，每个 MCP 客户端一个 token（即一个 Agent Actor）。本地 `wrangler dev` 默认关闭鉴权或使用固定开发 token。M0 即走 HTTP（localhost），M1 上线托管与 OAuth。（P0）
-- **F-MCP-02 Headless 渲染**：`render` / `export` 在 Node 端或 Worker 端用 resvg-wasm（SVG → PNG，小体积，P0）完成；需要与浏览器像素一致的效果（混合模式、效果栈）时用 CanvasKit WASM（P1）。渲染输入统一是 core 的 SVG 序列化结果，保证三端一致。（P0）
+- **F-MCP-02 Headless 渲染**：`render` / `export` 在 Node 端或 Worker 端用 resvg-wasm（SVG → PNG，小体积，P0）完成；需要与浏览器像素一致的效果（混合模式、效果栈）时用 CanvasKit WASM（P1）。渲染输入统一是 io 的 SVG 序列化结果（ADR-0019），保证三端一致。（P0）
 - **F-MCP-03 UI 附着**：浏览器经 WebSocket 连接 Document DO 实时看到变更；Agent 的每次工具调用由无状态 Worker 转发到同一个 DO；`render` 可选 `source: "ui" | "headless"`。（P0）
 - **F-MCP-04 多文档**：每个文档一个 Durable Object，天然隔离与水平扩展；本地 `wrangler dev` 同样如此。（P0）
 - **F-MCP-05 无会话**：不存在 MCP 会话。事务以 `txId` 标识、存于 DO、5 分钟无活动超时回滚；软锁挂在 `txId` 上随事务释放；变更感知用 `rev` + `doc_changes` 拉取，写工具可带 `ifRev` 做乐观并发检查。（P0）
@@ -796,8 +796,8 @@ flowchart TD
   GEO[packages/geometry<br/>贝塞尔 · 布尔 · 偏移 · 拟合 · 命中]
   TEXT[packages/text<br/>字体加载 · HarfBuzz 整形 · 轮廓]
   CHART[packages/chart<br/>图表 · 图示 → 节点]
-  RENDER[packages/render<br/>Canvas2D · CanvasKit · SVG 序列化]
-  IO[packages/io<br/>SVG / PDF / 位图 导入导出]
+  RENDER[packages/render<br/>Canvas2D · CanvasKit · 栅格化]
+  IO[packages/io<br/>SVG 方言（序列化与解析）· PDF / 位图 导入导出]
   SYNC[packages/sync<br/>Document Service 抽象 · 协议 · 权限]
   EDGE[apps/edge<br/>Cloudflare Worker + Durable Object]
   UI --> CORE
@@ -860,8 +860,8 @@ zibel/
   packages/geometry/   # 贝塞尔、布尔（PathOps WASM）、偏移、拟合、rbush
   packages/text/       # 字体加载、HarfBuzz、轮廓
   packages/chart/      # 图表与图示生成
-  packages/render/     # Canvas2D / CanvasKit 渲染器、SVG 序列化
-  packages/io/         # SVG / PDF / 位图 导入导出
+  packages/render/     # Canvas2D / CanvasKit 渲染器、栅格化（SVG 由 io 序列化，ADR-0019）
+  packages/io/         # SVG 方言的序列化与解析、PDF / 位图 导入导出
   packages/sync/       # Document Service 接口、线协议、权限模型（实现在 apps/edge）
   packages/mcp/        # 无状态 MCP 工具与资源定义、skills（由 apps/edge 挂载到 /mcp）
   packages/cli/        # headless 导出、批处理
