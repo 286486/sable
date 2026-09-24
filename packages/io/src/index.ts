@@ -1,15 +1,8 @@
-import {
-  type Document,
-  fontWarnings,
-  parseDocument,
-  type RenderScope,
-  ZibelError,
-} from "@zibel/core";
+import { fontWarnings, parseDocument, ZibelError } from "@zibel/core";
 import { type OpenedFile, type Origin, parseSvg, type Warning } from "./read.ts";
-import { toSvg } from "./write.ts";
 
 export { MAX_DEPTH, parseSvg } from "./read.ts";
-export { replaceMerge } from "./replace.ts";
+export { normalise, replaceFile } from "./replace.ts";
 export { docRect, type SvgOptions, scopeRect, svgRect, toSvg } from "./write.ts";
 
 export type { OpenedFile, Origin, Warning };
@@ -51,20 +44,4 @@ export function parseFile(
   for (const w of fontWarnings(file.nodes)) if (!fonts.has(w.message)) fonts.set(w.message, w);
   const format = text.startsWith("<") ? "svg" : "zibel_json";
   return { ...file, format, warnings: [...file.warnings, ...fonts.values()] };
-}
-
-/**
- * `doc` passed through the export and import a file of `scope` took, so that rounding and the
- * importer's baking count the same on both sides of Replace's diff (ADR-0017). A nodeIds scope
- * keeps the ids `doc` still has.
- */
-export function normalise(doc: Document, scope: RenderScope | undefined): Document {
-  let s = scope;
-  if (s && "nodeIds" in s) {
-    const nodeIds = s.nodeIds.filter((id) => doc.nodes.has(id));
-    if (nodeIds.length === 0) return { ...doc, nodes: new Map() };
-    s = { nodeIds };
-  }
-  const { artboards, nodes } = parseSvg(toSvg(doc, undefined, { scope: s }));
-  return { ...doc, artboards, nodes: new Map(nodes.map((n) => [n.id, n])) };
 }

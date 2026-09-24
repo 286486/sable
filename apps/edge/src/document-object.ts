@@ -36,7 +36,7 @@ import {
   type WriteReceipt,
   ZibelError,
 } from "@zibel/core";
-import { normalise, type OpenedFile, replaceMerge, scopeRect, svgRect, toSvg } from "@zibel/io";
+import { type OpenedFile, replaceFile, scopeRect, svgRect, toSvg } from "@zibel/io";
 import { fit, renderSvg } from "@zibel/render";
 import {
   type ChangeEntry,
@@ -552,60 +552,12 @@ export class DocumentObject extends DurableObject<Env> {
     opts: Options & { baseRev?: number } = {},
   ): Result<WriteReceipt> {
     return this.write(actor, opts, "Replace", (doc) => {
-      const svg = file.format === "svg";
-      if (svg ? file.origin?.docId !== doc.id : !file.nodes.some((n) => doc.nodes.has(n.id))) {
-        throw new ZibelError({
-          code: "INVALID_DOCUMENT",
-          message: svg
-            ? `This SVG was not exported from Document ${doc.id}: its zibel:doc is ${file.origin?.docId ?? "missing"}.`
-            : `This .zibel.json has no Node of Document ${doc.id}.`,
-          hint: "Replace takes a file exported from this Document. Open any other file as a new Document with zibel_doc_open.",
-          path: "content",
-        });
-      }
-      const baseRev = opts.baseRev ?? file.origin?.rev;
-      if (baseRev !== undefined && baseRev > doc.rev) {
-        throw new ZibelError({
-          code: "REV_CONFLICT",
-          message: `The Document is at rev ${doc.rev}, before the file's base rev ${baseRev}.`,
-          hint: "Pass the rev the file was exported at, or leave baseRev out for an SVG.",
-          path: "baseRev",
-          rev: doc.rev,
-        });
-      }
-      const { scope } = file.origin ?? {};
-      const norm = (d: Document) => (svg ? normalise(d, scope) : { ...d, nodes: new Map(d.nodes) });
-      const current = norm(doc);
-      const base = baseRev === undefined ? null : this.rebuild(doc, baseRev);
-      const warnings = [...file.warnings];
-      if (!base) {
-        warnings.push({
-          code: "NO_BASE",
-          message:
-            "No base to merge from, so the file was compared with the Document as it is now: edits made since the export in its scope may be overwritten.",
-        });
-      }
-      const { skipped, ...change } = replaceMerge(
-        doc,
-        { base: base ? norm(base) : current, current },
-        file,
-        scope,
-      );
-      for (const nodeId of skipped) {
-        warnings.push({
-          code: "DELETED_SINCE",
-          nodeId,
-          message: `${nodeId}, or the parent the file puts it in, was deleted after the export; the file's edits to it were not applied.`,
-        });
-      }
+      const change = replaceFile(doc, file, {
+        baseRev: opts.baseRev,
+        rebuild: (rev) => this.rebuild(doc, rev),
+      });
       const nodes = [...change.created, ...change.updated];
-      return {
-        ...change,
-        skipped,
-        warnings,
-        failed: [],
-        bounds: union(nodes.map((n) => bounds(doc, n))),
-      };
+      return { ...change, failed: [], bounds: union(nodes.map((n) => bounds(doc, n))) };
     });
   }
 
