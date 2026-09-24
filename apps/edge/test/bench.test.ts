@@ -21,9 +21,16 @@ const layer = async (docId: string, name: string) =>
     .createdIds[0] as string;
 
 describe("grid", () => {
-  const draw = async (count: number) => {
+  const draw = async (count: number, inGroup = false) => {
     const { docId } = await newDoc(600, 600);
-    const parentId = await layer(docId, "Grid");
+    let parentId = await layer(docId, "Grid");
+    if (inGroup)
+      parentId = (
+        await call("zibel_node_create", {
+          docId,
+          nodes: [{ type: "group", parentId, name: "Cells" }],
+        })
+      ).structuredContent.createdIds[0];
     const nodes = Array.from({ length: count }, (_, k) => ({
       type: "rect",
       parentId,
@@ -39,6 +46,10 @@ describe("grid", () => {
 
   it("accepts 100 rects in the Grid Layer", async () => {
     await expect(grid(call, await draw(100), [])).resolves.toBeUndefined();
+  });
+
+  it("accepts the rects inside a Group in the Grid Layer", async () => {
+    await expect(grid(call, await draw(100, true), [])).resolves.toBeUndefined();
   });
 
   it("rejects 99 rects", async () => {

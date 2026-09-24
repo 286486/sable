@@ -8,10 +8,14 @@ const check: Check = async (call, docId) => {
 
   const { nodes: all } = (await call("zibel_node_query", { docId, limit: 1000 }))
     .structuredContent as {
-    nodes: { id: string; type: string; parentId: string; geometricBounds: Bounds }[];
+    nodes: { id: string; type: string; parentId: string | null; geometricBounds: Bounds }[];
   };
+  const parent = new Map(all.map((n) => [n.id, n.parentId]));
+  // Groups inside the Layer are fine: the Skill document asks for them.
+  const inGrid = (id: string | null | undefined): boolean =>
+    id === layer.id || (id != null && inGrid(parent.get(id)));
   const shapes = all.filter((n) => n.type !== "layer" && n.type !== "group");
-  const rects = shapes.filter((n) => n.type === "rect" && n.parentId === layer.id);
+  const rects = shapes.filter((n) => n.type === "rect" && inGrid(n.parentId));
   assert(
     rects.length === 100 && shapes.length === 100,
     `${rects.length} rects in Grid, ${shapes.length} shapes in the Document; want 100 and 100`,
