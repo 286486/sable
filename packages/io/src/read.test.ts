@@ -516,6 +516,15 @@ it("warns when Area Type cannot flow as written, and keeps its text", () => {
   );
   const [circle, missing, centred, area] = leaves(file);
   expect(area).toMatchObject({ kind: "area", x: 0, y: 0, content: "centred" });
+  // Warnings come once per kind, so the centred Area Type is checked on its own.
+  const alone = parseFile(
+    svg(
+      "",
+      '<defs><rect id="r" width="50" height="50"/></defs><text style="shape-inside:url(#r);text-anchor:end">a</text>',
+    ),
+  );
+  expect(alone.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
+  expect(alone.warnings[0]?.message).toMatch(/^text-anchor/);
   expect(circle).toMatchObject({
     kind: "area",
     x: 10,

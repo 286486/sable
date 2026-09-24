@@ -133,7 +133,7 @@ const bakes = ([a, b, c, d]: Matrix) =>
 /** A text element's characters: its text and its tspans', not a `<title>` or `<desc>` inside it. */
 const characters = (e: Element): string =>
   Array.from(e.childNodes, (c) =>
-    c.nodeType === c.TEXT_NODE || c.nodeType === c.CDATA_SECTION_NODE
+    c.nodeType === 3 || c.nodeType === 4
       ? (c.nodeValue ?? "")
       : (c as Element).localName === "tspan"
         ? characters(c as Element)
