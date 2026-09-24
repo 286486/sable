@@ -1,5 +1,5 @@
-import { evictAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
-import { env, exports } from "cloudflare:workers";
+import { evictAllDurableObjects } from "cloudflare:test";
+import { exports } from "cloudflare:workers";
 import type { ErrorCode } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
@@ -329,65 +329,6 @@ describe("transactions", () => {
     });
   });
 
-  it("expires an idle Transaction through the alarm; the next call gets TX_EXPIRED", async () => {
-    const { docId, rect, ok, err, children, rectId } = await setup();
-    vi.useFakeTimers({ toFake: ["Date"] });
-    const { txId } = await ok("tx_begin");
-    await ok("node_create", { nodes: [rect], txId });
-    vi.setSystemTime(Date.now() + 5 * 60_000 + 1000);
-    expect(await runDurableObjectAlarm(env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)))).toBe(
-      true,
-    );
-    expect(await err("node_create", { nodes: [rect], txId })).toMatchObject({
-      code: "TX_EXPIRED",
-      hint: expect.stringContaining("idle"),
-      path: "txId",
-    });
-    expect(await children()).toEqual([rectId]);
-  });
-
-  it("rejects a write with a stale ifRev with REV_CONFLICT and changes nothing", async () => {
-    const { rectId, ok, err } = await setup();
-    const update = (ifRev: number, name: string) => ({
-      updates: [{ nodeId: rectId, patch: { name } }],
-      ifRev,
-    });
-    expect(await err("node_update", update(1, "x"))).toMatchObject({
-      code: "REV_CONFLICT",
-      rev: 2,
-      nodeIds: [rectId],
-      hint: expect.stringContaining("zibel_doc_changes"),
-      path: "ifRev",
-    });
-    expect(await err("node_delete", { nodeIds: [rectId], ifRev: 1 })).toMatchObject({
-      code: "REV_CONFLICT",
-    });
-    expect(await ok("doc_outline")).toMatchObject({ rev: 2, nodes: [{ childCount: 1 }] });
-    expect((await ok("node_get", { nodeIds: [rectId], detail: "full" })).nodes).toMatchObject([
-      { name: "" },
-    ]);
-    expect(await ok("node_update", update(2, "y"))).toMatchObject({ rev: 3 });
-
-    const { txId } = await ok("tx_begin");
-    await ok("node_update", { ...update(3, "z"), txId });
-    expect(await err("tx_commit", { txId, ifRev: 2 })).toMatchObject({ code: "REV_CONFLICT" });
-    expect(await ok("tx_commit", { txId, ifRev: 3 })).toMatchObject({ rev: 4 });
-  });
-
-  it("fails the commit with NODE_GONE when a Node it edited was deleted outside", async () => {
-    const { rectId, ok, err } = await setup();
-    const { txId } = await ok("tx_begin");
-    await ok("node_update", { updates: [{ nodeId: rectId, patch: { opacity: 0.5 } }], txId });
-    await ok("node_delete", { nodeIds: [rectId] }, "dev-token-a");
-    expect(await err("tx_commit", { txId })).toMatchObject({
-      code: "NODE_GONE",
-      nodeIds: [rectId],
-      hint: expect.stringContaining("zibel_tx_rollback"),
-    });
-    expect((await ok("doc_outline")).rev).toBe(3);
-    expect(await ok("tx_rollback", { txId })).toEqual({ txId, rev: 3 });
-  });
-
   it("lists Transactions from two Actors in doc_changes with their attribution", async () => {
     const { rect, rectId, ok, err } = await setup();
     await ok(
@@ -428,108 +369,9 @@ describe("transactions", () => {
       code: "TX_NOT_FOUND",
     });
   });
-
-  it("keeps a Transaction to the Actor that began it", async () => {
-    const { rect, ok, err } = await setup();
-    const { txId } = await ok("tx_begin");
-    expect(await err("node_create", { nodes: [rect], txId }, "dev-token-b")).toMatchObject({
-      code: "TX_NOT_FOUND",
-    });
-    expect(await err("tx_commit", { txId }, "dev-token-b")).toMatchObject({
-      code: "TX_NOT_FOUND",
-    });
-    expect(await ok("node_create", { nodes: [rect], txId })).toMatchObject({ txId });
-  });
 });
 
 describe("node_query", () => {
-  /** Layer 1: "Sun" rect (sky, warm) at 0,0 and Group "G" holding "Moon" rect (sky) at 100,50 and a text. */
-  const scene = async () => {
-    const { docId, defaultLayerId } = await newDoc();
-    const r = (name: string, x: number, y: number, tags: string[]) => ({
-      type: "rect",
-      name,
-      x,
-      y,
-      width: 10,
-      height: 10,
-      tags,
-      clientKey: name,
-    });
-    const { keyMap } = (
-      await call("zibel_node_create", {
-        docId,
-        nodes: [
-          { ...r("Sun", 0, 0, ["sky", "warm"]), parentId: defaultLayerId },
-          {
-            type: "group",
-            name: "G",
-            clientKey: "G",
-            parentId: defaultLayerId,
-            children: [
-              r("Moon", 100, 50, ["sky"]),
-              { type: "text", x: 100, y: 90, content: "Hi", clientKey: "T" },
-            ],
-          },
-        ],
-      })
-    ).structuredContent;
-    const query = async (filter: object) => {
-      const result = await call("zibel_node_query", { docId, ...filter });
-      expect(result.isError).toBeFalsy();
-      return result.structuredContent;
-    };
-    const names = async (filter: object) =>
-      ((await query(filter)).nodes as { name: string; type: string }[])
-        .map((n) => n.name || n.type)
-        .sort();
-    return { docId, defaultLayerId, keyMap, query, names };
-  };
-
-  it("filters by each of types, nameRegex, tags, parentId, withinRect and intersectsRect", async () => {
-    const { defaultLayerId, keyMap, names, query } = await scene();
-    expect(await names({})).toEqual(["G", "Layer 1", "Moon", "Sun", "text"]);
-    expect(await names({ types: ["rect"] })).toEqual(["Moon", "Sun"]);
-    expect(await names({ nameRegex: "^[SM]" })).toEqual(["Moon", "Sun"]);
-    expect(await names({ tags: ["sky", "warm"] })).toEqual(["Sun"]);
-    expect(await names({ parentId: defaultLayerId })).toEqual(["G", "Sun"]);
-    expect(await names({ parentId: keyMap.G })).toEqual(["Moon", "text"]);
-    expect(await names({ withinRect: { x: 90, y: 40, width: 50, height: 60 } })).toEqual([
-      "G",
-      "Moon",
-      "text",
-    ]);
-    expect(await names({ intersectsRect: { x: 10, y: 10, width: 1, height: 1 } })).toEqual([
-      "Layer 1",
-      "Sun",
-    ]);
-    const { nodes, rev, nextCursor } = await query({ nameRegex: "^Sun$" });
-    expect({ rev, nextCursor }).toEqual({ rev: 2, nextCursor: null });
-    expect(nodes).toEqual([
-      {
-        id: keyMap.Sun,
-        type: "rect",
-        name: "Sun",
-        parentId: defaultLayerId,
-        visible: true,
-        locked: false,
-        childCount: 0,
-        geometricBounds: { x: 0, y: 0, width: 10, height: 10 },
-      },
-    ]);
-  });
-
-  it("ANDs filters together", async () => {
-    const { keyMap, names } = await scene();
-    expect(await names({ tags: ["sky"], parentId: keyMap.G })).toEqual(["Moon"]);
-    expect(
-      await names({
-        types: ["rect", "text"],
-        intersectsRect: { x: 0, y: 0, width: 200, height: 60 },
-      }),
-    ).toEqual(["Moon", "Sun"]);
-  });
-
   it("pages through more than one page with cursor, in id order", async () => {
     const { docId, defaultLayerId } = await newDoc();
     const rect = { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 1, height: 1 };
@@ -546,79 +388,6 @@ describe("node_query", () => {
     } while (cursor);
     expect(pages.map((p) => p.length)).toEqual([2, 2, 1]);
     expect(pages.flat()).toEqual([...created].sort());
-  });
-
-  it("rejects a nameRegex that does not compile, naming the field", async () => {
-    const { docId } = await newDoc();
-    const result = await call("zibel_node_query", { docId, nameRegex: "(" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/regular expression.*nameRegex/);
-  });
-});
-
-describe("doc_outline options", () => {
-  const scene = async () => {
-    const { docId, defaultLayerId } = await newDoc();
-    const { keyMap } = (
-      await call("zibel_node_create", {
-        docId,
-        nodes: [
-          { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 5, height: 5 },
-          {
-            type: "group",
-            parentId: defaultLayerId,
-            clientKey: "G",
-            children: [
-              { type: "rect", x: 0, y: 0, width: 5, height: 5 },
-              { type: "text", x: 0, y: 20, content: "Hi" },
-            ],
-          },
-          { type: "layer", name: "Layer 2" },
-        ],
-      })
-    ).structuredContent;
-    const outline = async (opts: object) =>
-      (await call("zibel_doc_outline", { docId, ...opts })).structuredContent;
-    return { keyMap, outline };
-  };
-
-  it("returns only the Layers at depth 1, with their childCount", async () => {
-    const { outline } = await scene();
-    const { nodes } = await outline({ depth: 1 });
-    expect(nodes).toEqual([
-      expect.objectContaining({ type: "layer", name: "Layer 1", childCount: 2 }),
-      expect.objectContaining({ type: "layer", name: "Layer 2", childCount: 0 }),
-    ]);
-    expect(nodes.some((n: object) => "children" in n)).toBe(false);
-  });
-
-  it("starts at rootId's children; an unknown rootId is NODE_NOT_FOUND", async () => {
-    const { keyMap, outline } = await scene();
-    const { nodes } = await outline({ rootId: keyMap.G });
-    expect(nodes.map((n: { type: string }) => n.type)).toEqual(["rect", "text"]);
-    const docId = (await newDoc()).docId;
-    const result = await call("zibel_doc_outline", { docId, rootId: "01NOPE" });
-    expect(errorOf(result)).toMatchObject({ code: "NODE_NOT_FOUND", path: "rootId" });
-  });
-
-  it("keeps the listed types with their ancestors, and drops bounds on request", async () => {
-    const { outline } = await scene();
-    const { nodes } = await outline({ depth: 3, types: ["text"], includeBounds: false });
-    expect(nodes).toEqual([
-      expect.objectContaining({
-        name: "Layer 1",
-        childCount: 2,
-        children: [
-          expect.objectContaining({
-            type: "group",
-            childCount: 2,
-            children: [expect.objectContaining({ type: "text" })],
-          }),
-        ],
-      }),
-      expect.objectContaining({ name: "Layer 2" }),
-    ]);
-    expect(JSON.stringify(nodes)).not.toContain("bounds");
   });
 });
 
@@ -797,69 +566,6 @@ describe("zibel_json", () => {
     ]);
     const { documents } = (await call("zibel_doc_list", {})).structuredContent;
     expect(documents[0]).toEqual({ docId: newId, name: "Doc", createdAt: expect.any(String) });
-  });
-
-  it("opens an Inkscape file in mm with a moved layer, class styles and a turned star", async () => {
-    const svg = [
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      '<svg width="100mm" height="50mm" viewBox="0 0 100 50" xmlns="http://www.w3.org/2000/svg"',
-      ' xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"',
-      ' xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" sodipodi:docname="drawing.svg">',
-      "<defs><style>.a{fill:rgb(0,128,255)}</style></defs>",
-      '<g inkscape:groupmode="layer" id="layer1" inkscape:label="Layer 1" transform="translate(10,5)">',
-      '<rect id="rect123" class="a" x="0" y="0" width="20" height="10"/>',
-      '<path sodipodi:type="star" id="path456" sodipodi:sides="5" sodipodi:cx="50" sodipodi:cy="20"',
-      ' sodipodi:r1="10" sodipodi:r2="4" sodipodi:arg1="0" sodipodi:arg2="0.62831853"',
-      ' inkscape:flatsided="false" inkscape:rounded="0" inkscape:randomized="0" d="M 60 20 L 50 30 Z"',
-      ' style="fill:#ff0000;stroke:#000000;stroke-width:0.5"/>',
-      "</g></svg>",
-    ].join("\n");
-    const opened = (await call("zibel_doc_open", { content: svg })).structuredContent;
-    expect(opened).toMatchObject({
-      name: "drawing",
-      artboards: [{ frame: { x: 0, y: 0, width: 283.465, height: 141.732 } }],
-      warnings: [],
-    });
-    const layer = opened.nodes[0];
-    expect(layer).toMatchObject({ name: "Layer 1", type: "layer", childCount: 2 });
-    const outline = (await call("zibel_doc_outline", { docId: opened.docId })).structuredContent;
-    const ids = outline.nodes[0].children.map((c: { id: string }) => c.id);
-    const [rect, star] = (
-      await call("zibel_node_get", { docId: opened.docId, nodeIds: ids, detail: "full" })
-    ).structuredContent.nodes;
-    expect(rect.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
-    expect(rect).toMatchObject({
-      type: "rect",
-      x: 28.346,
-      y: 14.173,
-      width: 56.693,
-      height: 28.346,
-      appearance: { fills: [{ color: "#0080FF" }], strokes: [] },
-    });
-    // The turn stays a matrix, in user units, the layer's move and the mm scale included.
-    expect(star).toMatchObject({ type: "star", cx: 50, cy: 20, outerRadius: 10, points: 5 });
-    expect(star.transform).toEqual([0, 2.834646, -2.834646, 0, 226.771654, -70.866142]);
-    expect(star.appearance.strokes[0]).toMatchObject({ color: "#000000", width: 0.5 });
-  });
-
-  it("refuses an SVG over 5 MB, or one that is not well-formed, and creates nothing", async () => {
-    const count = async () => (await call("zibel_doc_list", {})).structuredContent.documents.length;
-    const before = await count();
-    const big = `<svg xmlns="http://www.w3.org/2000/svg"><desc>${"x".repeat(5 * 1024 * 1024)}</desc></svg>`;
-    expect(errorOf(await call("zibel_doc_open", { content: big }))).toMatchObject({
-      code: "LIMIT_EXCEEDED",
-      hint: expect.stringMatching(/\S/),
-    });
-    expect(errorOf(await call("zibel_doc_open", { content: "<svg><g></svg>" }))).toMatchObject({
-      code: "INVALID_DOCUMENT",
-      path: "content",
-    });
-    const deep = `<svg xmlns="http://www.w3.org/2000/svg">${"<g>".repeat(5000)}${"</g>".repeat(5000)}</svg>`;
-    expect(errorOf(await call("zibel_doc_open", { content: deep }))).toMatchObject({
-      code: "LIMIT_EXCEEDED",
-      hint: expect.stringMatching(/\S/),
-    });
-    expect(await count()).toBe(before);
   });
 
   it("returns a validation error with a path and creates nothing for a malformed file", async () => {

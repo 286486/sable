@@ -156,7 +156,13 @@ it("rejects a write whose ifRev is stale with REV_CONFLICT, changing nothing", a
   expect(
     await stub("d4").updateNodes([{ nodeId: id, patch: { name: "x" } }], "agent-b", { ifRev: 1 }),
   ).toMatchObject({
-    error: { code: "REV_CONFLICT", rev: 2, nodeIds: [id], path: "ifRev", hint: expect.any(String) },
+    error: {
+      code: "REV_CONFLICT",
+      rev: 2,
+      nodeIds: [id],
+      path: "ifRev",
+      hint: expect.stringContaining("zibel_doc_changes"),
+    },
   });
   expect(await stub("d4").info()).toMatchObject({ rev: 2 });
   expect(await stub("d4").get([id], "full", "agent-a")).toMatchObject({ nodes: [{ name: "" }] });
