@@ -44,6 +44,29 @@ function download(text: string, type: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Replace (ADR-0017): the Worker merges the file into the Document as the user, and the canvas
+ * follows the `tx` broadcast like any other write. Failures and warnings show as the notice.
+ */
+async function replaceFrom(docId: string, file: File) {
+  const notice = (text: string) => useStore.setState({ notice: text });
+  try {
+    const res = await fetch(`/api/docs/${docId}/replace`, {
+      method: "POST",
+      body: await file.text(),
+    });
+    const body = (await res.json()) as {
+      message?: string;
+      hint?: string;
+      warnings?: { message: string }[];
+    };
+    if (!res.ok) notice(`Could not update from ${file.name}: ${body.message} ${body.hint ?? ""}`);
+    else if (body.warnings?.length) notice(body.warnings.map((w) => w.message).join(" "));
+  } catch (e) {
+    notice(`Could not update from ${file.name}: ${String(e)}`);
+  }
+}
+
 const artboardsRect = (doc: Document) =>
   union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 100, height: 100 };
 
@@ -333,7 +356,19 @@ export function Viewer({ docId }: { docId: string }) {
           onClick={() => doc && download(toSvg(doc), "image/svg+xml", `${doc.name}.svg`)}
         >
           Download SVG
-        </button>
+        </button>{" "}
+        <label>
+          Update from file…{" "}
+          <input
+            type="file"
+            accept=".svg,.json,image/svg+xml,application/json"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) replaceFrom(docId, file);
+            }}
+          />
+        </label>
         {notice && <div style={{ color: "#B00020" }}>{notice}</div>}
       </div>
       <Layers />
