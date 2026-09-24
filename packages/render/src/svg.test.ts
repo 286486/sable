@@ -120,5 +120,9 @@ it("gives hidden Nodes and Nodes outside the scope no overlay, and outlines Artb
   expect(svg).not.toContain(b.id);
   expect(svg).toContain(
     '<rect x="0" y="0" width="200" height="100" fill="none" stroke="#00AEEF" stroke-width="0.25"/>',
+  ); // Nothing drawn, nothing appended.
+  const rect = { x: 0, y: 0, width: 10, height: 10 };
+  expect(renderSvg(doc, rect, { scope: { nodeIds: [inA.id] }, overlays: ["ids"] })).toMatch(
+    /<\/g><\/g><\/svg>$/,
   );
 });
