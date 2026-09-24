@@ -79,7 +79,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 2. **三大场景可交付**：图表 / 信息图、插画 / 图标 / Logo、自由手绘 / 速写。
 3. **MCP 优先**：每一个人能在 UI 里完成的编辑，Agent 都能通过 MCP 完成，且能拿到视觉与结构两种反馈。
 4. **人机同一文档**：人类在浏览器中打开的文档与 Agent 正在编辑的文档是同一份实时状态，变更双向可见。
-5. **开放格式**：原生文件为可读 JSON，SVG 无损往返，PDF 导出。
+5. **开放格式**：原生文件为可读 JSON，SVG 无损往返，PDF 导出。**编辑往返以 Inkscape 为目标**：Zibel → Inkscape 编辑 → Zibel 不丢失 Document 能表达的任何结构（ADR-0017）。
 6. **开源**：全部代码以 Apache-2.0 发布（见 §8.4），任何人可自托管；官方托管版跑在 Cloudflare 上。
 7. **托管即服务**：官方托管版基于 Cloudflare（Workers、Durable Objects、R2、D1），全球边缘低延迟，文档在边缘节点上权威存储与同步。
 
@@ -87,7 +87,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 - 印刷生产工作流：ICC 色彩管理、专色、叠印、陷印、出血与裁切标记。（参照 Illustrator 保留 **CMYK 文档模式的数值与近似预览**，列为 P2；不承诺印刷准确性。）
 - 3D and Materials、Perspective Grid、Gradient Mesh、Liquify 七件套、Puppet Warp。
-- `.ai` 私有格式的高保真读写（只做 PDF 兼容层的基本导入）。
+- `.ai` 私有格式的高保真读写。PDF 兼容的 `.ai` 经 Inkscape 打开、另存 SVG 进入 Zibel（ADR-0017）。
 - 栅格图像编辑（只做置入、裁切、描摹）。
 - 原生桌面客户端（第一阶段只做 Web，PWA 可离线是加分项）。
 - 非 Cloudflare 的官方托管形态（自托管用户运行同一 Worker 包于 workerd，见 §6.2）。
@@ -266,9 +266,9 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 ### 5.4 绘图工具
 
 **基本形状（P0）**
-- **F-DRAW-01** Rectangle（M）、Rounded Rectangle、Ellipse（L）、Polygon（3–1000 边）、Star（3–1000 角，内外半径）、Line Segment（\）、Arc、Spiral、Rectangular Grid、Polar Grid。均为 Live Shape，保留参数。拖拽时 Shift 约束比例 / 角度、Alt 从中心、Space 移动、方向键改边数 / 圆角（Illustrator 惯例）。
+- **F-DRAW-01** Rectangle（M）、Rounded Rectangle、Ellipse（L）、Polygon（3–1000 边）、Star（3–1000 角，内外半径）、Line Segment（\）、Arc、Spiral、Rectangular Grid、Polar Grid。均为 Live Shape，保留参数。Polygon / Star 另有 Inkscape 的 `rounded`、`randomized` 与扭角（Star 内顶点角度偏移），Spiral 参数覆盖 Inkscape 螺旋，保证 Inkscape 往返无损（ADR-0017）。拖拽时 Shift 约束比例 / 角度、Alt 从中心、Space 移动、方向键改边数 / 圆角（Illustrator 惯例）。
 - **F-DRAW-02** 圆角控件：矩形 / 多边形每个角独立圆角半径与圆角类型（round / inverted round / chamfer）。（P1）
-- **F-DRAW-03** 椭圆饼图控件（起止角）。（P1）
+- **F-DRAW-03** 椭圆饼图控件（起止角）；弧类型 slice / chord / open，对应 Inkscape `sodipodi:type="arc"`（ADR-0017）。（P1）
 
 **路径绘制（P0）**
 - **F-DRAW-04** Pen（P）：点击加角点、拖拽出手柄成平滑点、Alt 拖拽断开手柄、点击已有端点续画、点击起点闭合、悬停路径 ± 增删锚点、Shift 约束 45°。橡皮筋预览。
@@ -340,7 +340,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-TEXT-08** 字符 / 段落样式。（P1）
 - **F-TEXT-09** 整形引擎：使用 HarfBuzz（WASM）做整形与字形定位，保证 CJK、阿拉伯语、天城文正确；渲染与导出用同一套字形轮廓，保证 WYSIWYG。（P0）
 - **F-TEXT-10** 文本绕排（Text Wrap）。（P2）
-- **F-TEXT-11** 字体缺失处理：提示替换、记录原字体名、导出时可选转曲或嵌入子集。（P0）
+- **F-TEXT-11** 字体缺失处理：提示替换、记录原字体名、导出时可选转曲或嵌入子集。`fontFamily` 接受任意字体名并原样保存与导出，缺失时用内置字体渲染并警告（ADR-0017）。（P0）
 
 ### 5.10 遮罩
 
@@ -406,14 +406,14 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 ### 5.16 导入与导出
 
 **导入**
-- **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；不支持的元素（filter、foreignObject、animate）保留为原始 XML 片段并提示。SVG `<text>` 尽力映射到文本对象，字体缺失按 F-TEXT-11 处理。
+- **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt。Zibel 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Zibel 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。三种入口：打开（`doc_open`，新 Document）、替换（`doc_replace`，三方合并回原 Document）、置入（`svg_import`，一个 Group）。
 - **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）
-- **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）
-- **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator 复制出来的 SVG、位图。（P0 SVG 与位图）
-- **F-IO-05** 原生 `.zibel.json` 打开与拖入。（P0）
+- **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）在此之前 `.ai` 经 Inkscape 另存 SVG 进入（ADR-0017）。
+- **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心。（P0 SVG 与位图）
+- **F-IO-05** 原生 `.zibel.json` 与 `.svg` 打开（文档列表页"打开文件"）；文档页工具栏"从文件更新…"走替换。（P0）
 
 **导出**
-- **F-IO-06** SVG 导出（P0）：范围（文档 / 画板 / 选中对象）、精度（小数位 1–7）、样式写法（presentation attributes / inline style / `<style>` 类）、文字处理（保留 `<text>` / 转曲 / 嵌入字体子集 P1）、是否包含 `id` 与 `data-*`、是否压缩（SVGO）、是否响应式（去 width/height 留 viewBox）。实时对象展开导出；效果映射到 SVG filter 或栅格化。
+- **F-IO-06** SVG 导出（P0）：范围（文档 / 画板 / 选中对象）、精度（小数位 1–7）、样式写法（presentation attributes / inline style / `<style>` 类）、文字处理（保留 `<text>` / 转曲 / 嵌入字体子集 P1）、是否包含 `id` 与 `data-*`、是否压缩（SVGO）、是否响应式（去 width/height 留 viewBox）。默认输出 Inkscape 方言、可编辑：`render` 与 `export` 共用一个序列化器；Layer / 锁定 / 隐藏 / 名称 / Artboard（`<inkscape:page>`）/ `tags` / `meta` 都写入；一个 Fill 加一个 Stroke 的叶子写成一个元素；矩形、椭圆、线写原生元素，多边形与星形写 Inkscape 星形对象；文字保留 `<text>` 与原字体名（映射表见 ADR-0017）。其余实时对象展开导出；效果映射到 SVG filter 或栅格化。
 - **F-IO-07** PNG / JPG / WebP 导出：范围、倍率（1x / 2x / 3x / 自定义 DPI）、背景透明 / 颜色、裁切到画板或到对象 bounds 加边距。（P0）
 - **F-IO-08** PDF 导出：矢量保留、字体嵌入、多画板多页。（P1）
 - **F-IO-09** Export for Screens 式批量导出：多画板 × 多格式 × 多倍率一次导出为 zip。（P1）
@@ -556,7 +556,8 @@ flowchart LR
 |---|---|---|---|
 | `doc_list` | — | 文档摘要列表 | R |
 | `doc_create` | `name`, `artboards[]`（预设名或 w/h）, `template?` | `docId`, 大纲 | |
-| `doc_open` | `path` 或 `docId` 或 `url` | 大纲 | |
+| `doc_open` | `content`（`.zibel.json` 或 SVG 文本，按内容识别） | 新 `docId`、大纲 | ADR-0016、ADR-0017 |
+| `doc_replace` | `docId`, `content`（SVG 或 `.zibel.json`）, `baseRev?`, `ifRev?`, `intent?` | 回执；相对基准修订号三方合并，一个可撤销的 Transaction | ADR-0017 |
 | `doc_save` | `docId`, `path?` | 保存位置 | I |
 | `doc_close` | `docId`, `discardChanges?` | — | D |
 | `doc_get_info` | `docId` | 名称、画板、节点计数、资源计数、当前 `rev`、在线浏览器连接数 | R |
@@ -581,7 +582,7 @@ flowchart LR
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
 | `node_create` | `docId`, `nodes[]`：每项含 `type`、`parentId`（**必填**，某个 `layer` 或 `group` 的 id；`doc_create` 的回执含默认图层 id，Agent 永远有可用父级；不接受 artboardId）、`index?`、类型专属几何（rect: x/y/w/h/radius；ellipse；polygon；star；line；path: `d`；text: content/kind/box；image: src；group: children[] 内联嵌套）、`appearance`、`name`、`tags`、`meta` | `WriteReceipt`（含每个输入项对应的新 id，顺序一致） | 批量，一次可建数百节点 |
-| `svg_import` | `docId`, `svg`（文本）, `parentId`, `position?`, `fit?` | 生成节点树的回执与大纲 | |
+| `svg_import` | `docId`, `svg`（文本）, `parentId`, `position?`, `fit?` | 生成节点树的回执与大纲 | 置入：整体一个 Group，SVG 图层变 Group，页面忽略，全部新 id（ADR-0017） |
 | `image_place` | `docId`, `src`（data URL / http URL / 本地路径）, `parentId`, `frame?`, `embed`, `asTemplate?` | 回执 | openWorldHint 若为 URL |
 | `freehand_stroke` | `docId`, `parentId`, `points[]`（x, y, pressure?）, `tool`（pencil / brush / blob）, `fidelity`, `width`, `appearance` | 生成路径回执 | |
 | `text_create` | 归入 `node_create` type=text；此处保留别名，便于发现 | | |
@@ -741,7 +742,8 @@ flowchart LR
 
 - 几何计算 float64；导出 SVG 默认 3 位小数，可配 1–7。
 - 布尔 / 偏移 / 描边轮廓有回归测试集（≥ 200 例，含 Paper.js 已知失败案例、自相交、近重合点、共线）。
-- SVG 往返测试：W3C SVG 1.1 测试套件静态子集 + Illustrator 导出的 100 个样例，像素 diff < 1%。
+- SVG 往返测试：W3C SVG 1.1 测试套件静态子集 + Illustrator 导出的 100 个样例 + Inkscape 绘制的样例，像素 diff < 1%。
+- Inkscape 往返（`pnpm roundtrip`，ADR-0017）：每个 fixture 文档导出 SVG → `inkscape --export-type=svg` 另存（Inkscape ≥ 1.2）→ 导入，结构（大纲、类型、参数、名称、显隐、锁定、画板）相等，resvg 与 Inkscape 渲染像素 diff < 1%。本地运行（无 Inkscape 时跳过）并有独立 CI job，不进 `pnpm check`。每个新节点类型或外观功能都带自己的 fixture。
 - 文本：同一字体在编辑器、`render`、SVG 转曲、PDF 三处字形位置一致（误差 < 0.1 pt）。
 
 ### 7.3 兼容性
@@ -895,7 +897,7 @@ zibel/
 | 阶段 | 周期（估） | 目标 | 退出标准 |
 |---|---|---|---|
 | **M0 基础骨架（headless-first）** | 4–6 周 | `core` 文档模型 + 命令 + 事务 + 历史；Canvas2D 渲染；**浏览器端只是查看器**：打开文档、缩放平移、选择、移动、删除、图层面板，不含绘图工具；`.zibel.json` 导入导出；MCP（无状态 HTTP，本地 `wrangler dev`）：`doc_*`、`doc_outline`、`node_get/query`、`node_create/update/delete/transform`、`render`、`export(svg/png)`、`tx_*`；Agent 是 M0 唯一的画图者 | Claude Code 能创建 100 个矩形 / 文字并截图；浏览器能看到并拖动它们；撤销正常；core 测试在 workerd 中通过；3 个 Agent 基准任务用 `pnpm bench` 在本地跑通 |
-| **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；SVG 导入；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接 |
+| **M1 MVP（Illustrator 第一梯队 + 图表 + 托管）** | 10–12 周 | 钢笔 / 曲率 / 铅笔；路径编辑与 `Object > Path` 主要命令；布尔（live + expand）与 Shape Builder；对齐分布、智能参考线；填充 / 描边 / 线性径向渐变 / 色板；文字（点 / 区域、HarfBuzz、转曲）；剪切蒙版；画板；**Inkscape 往返：可编辑 SVG 导出、SVG 导入（打开 / 替换 / 置入）、`pnpm roundtrip`**（ADR-0017）；9 个 `chart_create_*`（Illustrator 同款）+ `chart_update/expand` + `diagram_create`（Mermaid flowchart）；`validate`、`scene_describe`、skills；**Cloudflare 托管上线**：Worker + Document DO + R2 + D1、OAuth、Streamable HTTP MCP、resvg 渲染；Apache-2.0 公开仓库 | 成功指标表 §1.5 中的 Agent 基准任务 ≥ 80% 一次通过；SVG 往返 diff < 1%；托管版可被 Claude Desktop 远程连接；Inkscape 往返检查通过 |
 | **M2 手绘 + 插画深度** | 8 周 | 压感手绘管线、Blob Brush、Eraser、Shaper；Calligraphic / Art 画笔；Appearance 多重 fill / stroke + Graphic Styles + 基础 Effects（阴影 / 发光 / 模糊 / 圆角 / 偏移）；不透明度蒙版；Symbols；Repeat；Blend；Recolor；Image Trace；可变宽度描边；路径文字；Asset Export、PDF 导出；连接线绑定；`run_script` 沙箱 | 插画基准任务通过；触控笔设备实测 |
 | **M3 性能与协作** | 6–8 周 | CanvasKit 渲染后端（浏览器与 Worker）；10k 节点性能达标；多用户协作（光标 / 选区）；软锁与 Agent 意图展示；版本历史（R2 快照）；Queues 长任务；审计与配额；Docker 自托管镜像 | §7.1 性能表全部达标 |
 | **M4 扩展** | 持续 | Freeform 渐变、Envelope、Live Paint 组、CMYK 文档模式（近似预览）、更多 Effects 与图表类型、Pattern Brush、OpenType 特性、PDF 导入、插件 API、纵排、稳定器 | 按需求排期 |
@@ -970,6 +972,7 @@ zibel/
 | 35 | 服务端发起交互 | 删除 elicitation，返回 `NEEDS_DECISION`；progress 仅在单请求 SSE 内；>30 秒任务用 `jobId` | F-MCP-17、F-MCP-19 |
 | 36 | 术语 | Session → **Actor** | `CONTEXT.md` |
 | 37 | Agent 身份 | 每个 MCP 客户端一个 token，即一个 Agent Actor | F-COLLAB-07 |
+| 38 | 编辑往返（2026-09-24） | 导入导出是核心功能，以 **Inkscape** 为编辑工具：一个 Inkscape 方言的 SVG 序列化器；打开 / 替换（三方合并）/ 置入三种导入；Inkscape 能表达而 Zibel 不能的，算 Zibel 缺口并补齐；不保留原始 XML 片段 | ADR-0017、#24 |
 
 **剩余开放问题**
 
@@ -1027,7 +1030,8 @@ zibel/
 | Place / Links / 裁切 | ✅ | F-IO-02 | M0 |
 | Artboards（≤1000、重排、导出） | ✅ | F-VIEW-06 | M0 |
 | Export for Screens / Asset Export / Export As | ✅ | F-IO-06…09 | M1–M2 |
-| Save AI / EPS / FXG | ❌ | `.zibel.json` 替代；PDF 导出 | — |
+| Save AI / EPS / FXG | ❌ | `.zibel.json` 替代；PDF 导出；编辑往返走 Inkscape SVG | — |
+| （Inkscape）Inkscape SVG 往返 | ✅ | F-IO-01 / F-IO-06，ADR-0017 | M1 |
 | SVG 保存选项（样式写法、精度、字体） | ✅ | F-IO-06 | M1 |
 | PDF 导出 / 导入 | ✅ 导出 · ⏳ 导入 | F-IO-08 / F-IO-03 | M2 / M4 |
 | Isolation Mode / Outline Mode | ✅ | F-VIEW-02/05 | M1 |
