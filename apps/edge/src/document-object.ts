@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  type Artboard,
   type ArtboardInput,
   bounds,
   type ConciseView,
@@ -41,6 +42,7 @@ import {
   type CreatedDocument,
   type DocInfo,
   type DocumentMessage,
+  type OpenedDocument,
   type RasterRequest,
   type RejectedMessage,
   type RenderRequest,
@@ -130,25 +132,47 @@ export class DocumentObject extends DurableObject<Env> {
         name: input.name,
         artboards: input.artboards,
       });
-      const { rev } = this.ctx.storage.transactionSync(() => {
-        this.sql.exec(
-          "INSERT INTO doc (id, name, rev, artboards) VALUES (?, ?, 0, ?)",
-          doc.id,
-          doc.name,
-          JSON.stringify(doc.artboards),
-        );
-        const change = { created: [...doc.nodes.values()] };
-        // Not undoable: undo stops at the Document's creation (ADR-0011).
-        return this.commit(
-          input.actor,
-          `Create Document "${doc.name}"`,
-          input.intent,
-          change,
-          null,
-        );
-      });
+      const rev = this.init(doc, input.actor, `Create Document "${doc.name}"`, input.intent);
       return { docId: doc.id, defaultLayerId, artboards: doc.artboards, rev };
     });
+  }
+
+  /** A new Document from a parsed `.zibel.json` file, keeping its ids (ADR-0016). */
+  open(input: {
+    docId: string;
+    name: string;
+    artboards: Artboard[];
+    nodes: Node[];
+    actor: string;
+    intent?: string;
+  }): Result<OpenedDocument> {
+    return guard(() => {
+      const doc: Document = {
+        id: input.docId,
+        name: input.name,
+        version: 1,
+        rev: 0,
+        artboards: input.artboards,
+        nodes: new Map(input.nodes.map((n) => [n.id, n])),
+      };
+      const rev = this.init(doc, input.actor, `Open Document "${doc.name}"`, input.intent);
+      const nodes = outline(doc, { depth: 1 });
+      return { docId: doc.id, name: doc.name, artboards: doc.artboards, rev, nodes };
+    });
+  }
+
+  /** Stores a new Document and commits its Nodes as rev 1. */
+  private init(doc: Document, actor: string, summary: string, intent: string | undefined) {
+    return this.ctx.storage.transactionSync(() => {
+      this.sql.exec(
+        "INSERT INTO doc (id, name, rev, artboards) VALUES (?, ?, 0, ?)",
+        doc.id,
+        doc.name,
+        JSON.stringify(doc.artboards),
+      );
+      // Not undoable: undo stops at the Document's creation (ADR-0011).
+      return this.commit(actor, summary, intent, { created: [...doc.nodes.values()] }, null);
+    }).rev;
   }
 
   /**

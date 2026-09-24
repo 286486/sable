@@ -1,19 +1,29 @@
-import { type ErrorData, newId, ZibelError } from "@zibel/core";
+import { type ErrorData, newId, parseDocument, ZibelError } from "@zibel/core";
 import { svgToPng } from "@zibel/render";
 import type { DocumentService } from "@zibel/sync";
 
 /** DocumentService over one Document Durable Object per docId, acting as `actor`. */
 export function documentService(env: Env, actor: string): DocumentService {
   const doc = (docId: string) => env.DOCUMENT.get(env.DOCUMENT.idFromName(docId));
+  // ponytail: a failed insert leaves the Document unlisted; reconcile from the DOs if that shows up.
+  const index = (docId: string, name: string) =>
+    env.DB.prepare("INSERT INTO documents (id, name, created_at) VALUES (?, ?, ?)")
+      .bind(docId, name, new Date().toISOString())
+      .run();
   return {
     create: async (input) => {
       const docId = newId();
       const created = unwrap(await doc(docId).create({ ...input, docId, actor }));
-      // ponytail: a failed insert leaves the Document unlisted; reconcile from the DOs if that shows up.
-      await env.DB.prepare("INSERT INTO documents (id, name, created_at) VALUES (?, ?, ?)")
-        .bind(docId, input.name, new Date().toISOString())
-        .run();
+      await index(docId, input.name);
       return created;
+    },
+    open: async ({ content, intent }) => {
+      // Parsed here, before any Durable Object or D1 row exists, so a bad file creates nothing.
+      const file = parseDocument(content);
+      const docId = newId();
+      const opened = unwrap(await doc(docId).open({ ...file, docId, actor, intent }));
+      await index(docId, file.name);
+      return opened;
     },
     list: async () => ({ documents: await listDocuments(env) }),
     info: async (docId) => unwrap(await doc(docId).info()),

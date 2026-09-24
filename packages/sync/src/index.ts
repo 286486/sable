@@ -64,6 +64,15 @@ export interface CreatedDocument {
   rev: number;
 }
 
+/** A Document made from a `.zibel.json` file: `nodes` is the Layer list (ADR-0016). */
+export interface OpenedDocument {
+  docId: string;
+  name: string;
+  artboards: Artboard[];
+  rev: number;
+  nodes: OutlineNode[];
+}
+
 /**
  * What the MCP tools (and later the browser) need from a Document, for one Actor.
  * Failures reject with a `ZibelError`.
@@ -74,6 +83,8 @@ export interface DocumentService {
     artboards: ArtboardInput[];
     intent?: string;
   }): Promise<CreatedDocument>;
+  /** A new Document from `.zibel.json` text, keeping its Node and Artboard ids (ADR-0016). */
+  open(input: { content: string; intent?: string }): Promise<OpenedDocument>;
   /** Every Document, newest first. */
   list(): Promise<{ documents: DocSummary[] }>;
   info(docId: string): Promise<DocInfo>;

@@ -25,6 +25,7 @@ import {
   ExportOutput,
   NodeGetOutput,
   NodeQueryOutput,
+  OpenedDocumentOutput,
   OutlineOutput,
   RenderOutput,
   TxOutput,
@@ -157,6 +158,30 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       },
     },
     (args) => run("zibel_doc_create", async () => json(await service.create(args))),
+  );
+
+  server.registerTool(
+    "zibel_doc_open",
+    {
+      title: "Open Document",
+      description: [
+        "Make a new Document from .zibel.json text, as zibel_export returns it with format zibel_json. Pass the file's content, not a path.",
+        "The new Document gets its own docId and starts at rev 1; every Node and Artboard keeps its id. nodes is its Layer list, as zibel_doc_outline returns it at depth 1.",
+        "A file that is not valid fails with a path into it and creates nothing.",
+      ].join(" "),
+      inputSchema: {
+        content: z.string().min(1).describe("The whole .zibel.json text."),
+        intent,
+      },
+      outputSchema: OpenedDocumentOutput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    (args) => run("zibel_doc_open", async () => json(await service.open(args))),
   );
 
   server.registerTool(
