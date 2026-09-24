@@ -556,3 +556,35 @@ it("serves skill://zibel/drawing-conventions and points at it in the instruction
     code: -32602,
   });
 });
+
+it("logs one line per call: Actor, tool, duration, node count, error code and rev (§7.7)", async () => {
+  const { call, log } = await harness(
+    {
+      createNodes: async () => ({ ...receipt, createdIds: ["n"] }),
+      outline: async () => {
+        throw new ZibelError({ code: "DOC_NOT_FOUND", message: "No Document.", hint: "List." });
+      },
+    },
+    "agent-b",
+  );
+  await call("zibel_node_create", { docId: "d", nodes: [{ type: "layer", name: "L" }] });
+  await call("zibel_doc_outline", { docId: "d" });
+  expect(log.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+    {
+      actor: "agent-b",
+      tool: "zibel_node_create",
+      ms: expect.any(Number),
+      nodes: 1,
+      code: null,
+      rev: 2,
+    },
+    {
+      actor: "agent-b",
+      tool: "zibel_doc_outline",
+      ms: expect.any(Number),
+      nodes: 0,
+      code: "DOC_NOT_FOUND",
+      rev: null,
+    },
+  ]);
+});
