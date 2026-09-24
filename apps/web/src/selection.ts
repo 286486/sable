@@ -28,6 +28,17 @@ export function objectOf(doc: Document, node: Node): Node | null {
 }
 
 /**
+ * Where Place puts pasted or dropped art (ADR-0017): the nearest Layer holding the first selected
+ * Node, else the top Layer.
+ */
+export function placeParent(doc: Document, selection: string[]): string | undefined {
+  for (let n = doc.nodes.get(selection[0] ?? ""); n; n = doc.nodes.get(n.parentId ?? "")) {
+    if (n.type === "layer") return n.id;
+  }
+  return childrenOf(doc, null).at(-1)?.id;
+}
+
+/**
  * Every selectable object (visible and unlocked, as is everything above it) in the Document, or in
  * the Layer `layerId`, in draw order.
  */

@@ -1,6 +1,15 @@
 import { createDocument, createNodes, type Node } from "@zibel/core";
 import { describe, expect, it } from "vitest";
-import { combine, editable, hitTest, inverse, marquee, objectOf, objects } from "./selection.ts";
+import {
+  combine,
+  editable,
+  hitTest,
+  inverse,
+  marquee,
+  objectOf,
+  objects,
+  placeParent,
+} from "./selection.ts";
 
 /**
  * Layer 1: Group g (rects a, b), rect c, hidden rect h, locked Group lg (rect m), Layer 3 (rect e).
@@ -124,5 +133,14 @@ describe("hitTest", () => {
     } as unknown as CanvasRenderingContext2D;
     expect(hitTest(ctx, doc, 15, 40, 1)).toBe(t?.id);
     expect(hitTest(ctx, doc, 22, 40, 1)).toBeNull();
+  });
+});
+
+describe("placeParent", () => {
+  it("is the nearest Layer of the first selected Node, else the top Layer", () => {
+    const { doc, id } = fixture();
+    expect(placeParent(doc, [id("a"), id("d")])).toBe(id("l1"));
+    expect(placeParent(doc, [id("e")])).toBe(id("l3"));
+    expect(placeParent(doc, [])).toBe(id("l2"));
   });
 });
