@@ -557,7 +557,7 @@ flowchart LR
 | `doc_list` | — | 文档摘要列表 | R |
 | `doc_create` | `name`, `artboards[]`（预设名或 w/h）, `template?` | `docId`, 大纲 | |
 | `doc_open` | `content`（`.zibel.json` 或 SVG 文本，按内容识别） | 新 `docId`、大纲 | ADR-0016、ADR-0017 |
-| `doc_replace` | `docId`, `content`（SVG 或 `.zibel.json`）, `baseRev?`, `ifRev?`, `intent?` | 回执；相对基准修订号三方合并，一个可撤销的 Transaction | ADR-0017 |
+| `doc_replace` | `docId`, `content`（SVG 或 `.zibel.json`）, `baseRev?`, `ifRev?`, `intent?` | 回执；相对基准修订号三方合并，删除只限文件的导出范围，一个可撤销的 Transaction；只接受来自本 Document 的文件 | ADR-0017 |
 | `doc_save` | `docId`, `path?` | 保存位置 | I |
 | `doc_close` | `docId`, `discardChanges?` | — | D |
 | `doc_get_info` | `docId` | 名称、画板、节点计数、资源计数、当前 `rev`、在线浏览器连接数 | R |
@@ -710,7 +710,7 @@ flowchart LR
 
 ### 6.7 错误处理、并发与长任务
 
-- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_DOCUMENT`（`.zibel.json` 不合法，附文件内 `path`）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
+- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_DOCUMENT`（`.zibel.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
 - **F-MCP-16** 批量工具的部分失败：默认**原子**（任一失败整批回滚）；可选 `partial: true` 返回逐项结果。（P0）
 - **F-MCP-17** 长任务（`export_batch`、`image_trace`、大 `svg_import`）：单个请求内可经 SSE 响应流发送 progress；预计超过 30 秒的任务一律返回 `jobId`，由 Queues 执行，用 `job_status / job_cancel` 轮询。（P1）
 - **F-MCP-18** 幂等：读工具与 `doc_save`、`tx_rollback` 幂等；`node_create` 通过 `clientKey` + `txId` 去重（同一事务内重复提交同 key 不重复创建）。（P1）
@@ -1031,7 +1031,7 @@ zibel/
 | Artboards（≤1000、重排、导出） | ✅ | F-VIEW-06 | M0 |
 | Export for Screens / Asset Export / Export As | ✅ | F-IO-06…09 | M1–M2 |
 | Save AI / EPS / FXG | ❌ | `.zibel.json` 替代；PDF 导出；编辑往返走 Inkscape SVG | — |
-| （Inkscape）Inkscape SVG 往返 | ✅ | F-IO-01 / F-IO-06，ADR-0017 | M1 |
+| SVG 编辑往返（Inkscape） | ✅ | F-IO-01 / F-IO-06，ADR-0017 | M1 |
 | SVG 保存选项（样式写法、精度、字体） | ✅ | F-IO-06 | M1 |
 | PDF 导出 / 导入 | ✅ 导出 · ⏳ 导入 | F-IO-08 / F-IO-03 | M2 / M4 |
 | Isolation Mode / Outline Mode | ✅ | F-VIEW-02/05 | M1 |

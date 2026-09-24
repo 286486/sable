@@ -207,11 +207,11 @@ _Avoid_: Sync、Roundtrip conversion
 _Avoid_: Load、Import（泛指时）
 
 **Replace（替换）**：
-用一个文件更新已有的 Document：以导出时的 Revision 为基准三方合并，只应用文件相对基准改动的属性，作为一个可撤销的 Transaction。它是合并，不是覆盖。
+用一个来自该 Document 的文件更新它：以导出时的 Revision 为基准三方合并，只应用文件相对基准改动的属性，删除只限于文件的导出范围，作为一个可撤销的 Transaction。它是合并，不是覆盖。
 _Avoid_: Overwrite、Reload、Sync
 
 **Place（置入）**：
-把一个 SVG 作为一个 Group 放进已有 Document 的某个父级，全部分配新 id，对应 Illustrator 的 File > Place 与粘贴。
+把一个文件放进已有 Document 的某个父级，对应 Illustrator 的 File > Place 与粘贴。SVG 置入为一个 Group，全部分配新 id；位图置入为 image 节点（F-IO-02）。
 _Avoid_: Insert、Embed（那是位图的链接方式）
 
 ## 读取与查询

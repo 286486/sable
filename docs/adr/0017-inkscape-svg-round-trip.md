@@ -23,8 +23,8 @@ Every new node type or Appearance feature ships with its SVG export mapping, its
 
 | Zibel | SVG |
 |---|---|
-| Document | root `width`/`height` in `pt` and `viewBox` of the first Artboard, so one user unit is one pt; `inkscape:document-units="pt"`; `zibel:doc` (docId) and `zibel:rev` (the exported rev) |
-| Artboard | `<inkscape:page x y width height id inkscape:label>` in `<sodipodi:namedview>`, user units. Inkscape has no per-page background, so a background is a locked `<rect zibel:artboard="<id>">` that import turns back into the Artboard's `background` |
+| Document | root `viewBox` is `docRect` and `width`/`height` are the same numbers in `pt`, as ADR-0014 already specifies, so one user unit is one pt; `inkscape:document-units="pt"`; `zibel:doc` (docId), `zibel:rev` (the exported rev) and `zibel:scope` (`doc`, `artboard:<id>` or `nodes:<id,…>`) |
+| Artboard | `<inkscape:page x y width height id inkscape:label>` in `<sodipodi:namedview>`, user units. Inkscape treats the page whose top-left is the `viewBox` origin as the viewport page; with `viewBox = docRect` that is the top-left Artboard. #25 checks by hand what Inkscape does when no Artboard sits at that corner; if it misbehaves, the fix supersedes ADR-0014's `viewBox` rule then, not now. Inkscape has no per-page background, so a background is a locked `<rect zibel:artboard="<id>">` that import turns back into the Artboard's `background` |
 | Layer | `<g inkscape:groupmode="layer" inkscape:label>` |
 | Any Node | `id="z-<ULID>"` (an XML id cannot start with a digit); name → `inkscape:label`; hidden → `style="display:none"`, written, not dropped; locked → `sodipodi:insensitive="true"`; `opacity` and `mix-blend-mode` in `style`; `tags`, `meta` (JSON) → `zibel:tags`, `zibel:meta` |
 | Leaf with ≤ 1 Fill and ≤ 1 Stroke | one element with both `fill` and `stroke` |
@@ -33,11 +33,11 @@ Every new node type or Appearance feature ships with its SVG export mapping, its
 | `polygon`, `star` | `<path sodipodi:type="star">` with `sodipodi:sides/cx/cy/r1/r2/arg1/arg2`, `inkscape:flatsided/rounded/randomized` and a `d` that matches them, because Inkscape rebuilds the shape from the parameters on load. `arg1 = −π/2` (first vertex up, radians, clockwise); rotation stays in `transform` |
 | `text` | `<text>` with the Node's `fontFamily` |
 
-Inkscape keeps unknown-namespace attributes, `data-*` and existing ids on save (verified in its source, #24), which is what makes the `zibel:` attributes and the id mapping hold.
+Inkscape keeps unknown-namespace attributes, `data-*` and existing ids on save, which is what makes the `zibel:` attributes and the id mapping hold. Its XML tree is its model (`src/xml/repr-io.cpp`), unknown elements are kept as XML (`src/object/sp-factory.cpp`), ids are kept unless they clash (`src/object/sp-object.cpp`), and the default preference `incorrect_attributes_remove` is 0 (`src/preferences-skeleton.h`), per Inkscape 1.4.x.
 
 ## Import
 
-- **Parser:** `@xmldom/xmldom` (MIT, no dependencies, `getAttributeNS`). It does not expand DTD entities and never fetches, so entity bombs and external entities cannot happen. Sanitising strips `<script>`, event attributes and `foreignObject` and caps data URLs (§7.x). saxes, sax and linkedom fail the licence list (§8.4); HTMLRewriter builds no tree.
+- **Parser:** `@xmldom/xmldom` (MIT, no dependencies, `getAttributeNS`). It does not expand DTD entities and never fetches, so entity bombs and external entities cannot happen. Sanitising strips `<script>`, event attributes and `foreignObject` and caps data URLs (§7.5). A file that is not well-formed XML or has no `<svg>` root is `INVALID_DOCUMENT`, with `path` locating the element, as for `.zibel.json` (ADR-0016). saxes, sax and linkedom fail the licence list (§8.4); HTMLRewriter builds no tree.
 - **Paths** normalise to absolute `M L C Q Z` in `core/path.ts`, next to `parsePath`: relative commands and `H V S T` fold, `A` becomes cubics. `node_create` still accepts only canonical `d`.
 - **Transforms.** Inkscape keeps `transform` on a moved `<g>`. A Layer or Group never carries a matrix (ADR-0007), so ancestor transforms compose into each leaf. Inkscape's default "optimized" transforms also bake a move into `x`/`d`; import takes those values as they are.
 - **Styles:** presentation attributes, `style`, `<style>` classes and inheritance resolve to Appearance; any CSS colour converts to `#RRGGBB[AA]`, folding `fill-opacity` and `stroke-opacity` into alpha. Units convert to pt from the root `width`/`height` and `viewBox` (Inkscape defaults to mm).
@@ -54,12 +54,14 @@ Inkscape keeps unknown-namespace attributes, `data-*` and existing ids on save (
 | **Replace** | — | `doc_replace(docId, content, baseRev?, ifRev?, intent?)`, SVG or `.zibel.json` | the same Document updated by a three-way merge, one undoable Transaction of the calling Actor |
 | **Place** | File > Place, paste | `svg_import(docId, svg, parentId, position?, fit?)` | one Group under `parentId`; SVG Layers become Groups, pages are ignored, all ids are new |
 
-**Replace** is the round trip's main path, because a designer may work for an hour while Agents keep writing:
+**Replace** is the round trip's main path, because a designer may work for an hour while Agents keep writing. It accepts a file only when it came from this Document: an SVG whose `zibel:doc` is this docId, or a `.zibel.json` (which carries no docId, ADR-0016; its ids must overlap the Document's). Any other file is refused as `INVALID_DOCUMENT` with a hint to Open or Place it, because replacing with it would delete every Node in scope.
 
-1. **Base.** `baseRev`, else the SVG's `zibel:rev` when its `zibel:doc` is this Document. The Document at that rev is rebuilt by walking the Transaction log back with its stored inverse deltas (ADR-0011).
-2. **Normalise the base** through export and import, and compare the file with that, not with the raw base. Export rounds numbers to 3 decimals and rewrites colours; without this every Node would look edited.
-3. **Apply only what the file changed** onto the current Document. A property both sides changed takes the file's value; a Node deleted in the Document since the base stays deleted and is reported (ADR-0004: per-property last writer wins, delete beats edit). Artboards merge the same way.
-4. **Fallback.** No base (a foreign SVG, a `.zibel.json`, which carries no rev per ADR-0016, and no `baseRev`), or a log that no longer reaches it: compare the file with the current Document, and warn that concurrent edits may be overwritten.
+1. **Base.** `baseRev`, else the SVG's `zibel:rev`. The Document at that rev is rebuilt by applying, newest first, the inverse delta of every Transaction committed since. That needs a delta for **every** rev, not only for those on the undo and redo stacks, which today lose their deltas on undo and on redo-clear (ADR-0011). So every committed Transaction's delta is kept in a rev-indexed log independent of the stacks, pruned only when older than 30 days; the stacks keep their 200-entry limit and point into it. This supersedes ADR-0011's "older ones drop off with their delta rows".
+2. **Normalise the base** by exporting it with the file's `zibel:scope` and importing that, and compare the file with the result, not with the raw base. Both sides are then rounded to export precision (3 decimals; `d` compared as parsed, rounded segments) before the per-property diff: export rounds, Inkscape rewrites `d` in relative form at its own precision, and re-absolutising reintroduces float error, so without this every Path would look edited.
+3. **Apply only what the file changed** onto the current Document. Deletions are confined to the Nodes the scoped export of the base contained, so a file exported from one Artboard can never delete Nodes elsewhere. A property both sides changed takes the file's value; a Node deleted in the Document since the base stays deleted and is reported (ADR-0004: per-property last writer wins, delete beats edit). Artboards merge the same way once Artboard edits exist and are logged (F-VIEW-06); until then they are compared with the current Document.
+4. **Fallback.** No base (a `.zibel.json` without `baseRev`, or a log pruned past the base): compare the file with the current Document exported at the same scope, and warn that concurrent edits in that scope may be overwritten.
+
+Browser: Open, Replace and Place send the file over HTTP to the Worker, which parses it with the same code the MCP tools use and hands the Document model to the Durable Object, as `doc_open` already does (ADR-0016). They are not WebSocket Commands (ADR-0010): a 5 MB file does not belong in a gesture message. They run as the User Actor.
 
 Browser: the toolbar gets "Download SVG" beside the `.zibel.json` download and "Update from file…" (Replace); the Document list gets "Open file" (`.svg`, `.zibel.json`); dropping an SVG on the canvas or pasting SVG text is Place, at the viewport centre. Replace is only ever an explicit button.
 
@@ -85,7 +87,9 @@ Inkscape is GPL. It is only an external program here: no Inkscape source is copi
 ## Consequences
 
 - MCP surface: `doc_open` accepts SVG; `doc_replace` and `svg_import` are new. `svg_import` is capped at 5 MB (§6.7).
-- ADR-0013's one-font rule now holds for rendering only; the schema keeps any `fontFamily`.
+- ADR-0013's one-font rule now holds for rendering only; the schema keeps any `fontFamily`. ADR-0013's "one `<text>` per Fill, then one per Stroke" gives way to the one-element rule above for a single Fill and Stroke.
+- ADR-0011's deltas are kept for every rev for 30 days, not only for the 200 on the stacks: storage grows with edit volume rather than staying bounded by stack depth.
+- `INVALID_DOCUMENT` now also covers SVG (F-MCP-15).
 - New dependency `@xmldom/xmldom` in a new `packages/io`.
 - After an Inkscape save, elements Zibel wrote without an id carry Inkscape's auto ids; import ignores them unless they are the only id on a new object.
 - A moved object may come back with new `x`/`d` and identity `transform`; `doc_changes` shows both properties changed, which is what happened.
