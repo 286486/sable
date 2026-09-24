@@ -523,3 +523,36 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     JSON.stringify({ type: "string", pattern: COLOR_PATTERN }).slice(1, -1),
   );
 });
+
+it("serves skill://zibel/drawing-conventions and points at it in the instructions", async () => {
+  const uri = "skill://zibel/drawing-conventions";
+  const { client } = await harness();
+  expect(client.getInstructions()).toContain(uri);
+  expect((await client.listResources()).resources).toContainEqual(
+    expect.objectContaining({ uri, mimeType: "text/markdown" }),
+  );
+  const [doc] = (await client.readResource({ uri })).contents;
+  expect(doc).toMatchObject({ uri, mimeType: "text/markdown" });
+  const text = (doc as { text: string }).text;
+  for (const fact of [
+    "#RRGGBB",
+    "y down",
+    "parentId",
+    "ifRev",
+    "zibel_doc_changes",
+    "zibel_json",
+    "zibel_doc_open",
+    "INVALID_DOCUMENT",
+    "SVG",
+    "FONT_MISSING",
+    "LIMIT_EXCEEDED",
+  ]) {
+    expect(text).toContain(fact);
+  }
+  // Drift guard: the document names only tools that exist; zibel_json is an export format.
+  const tools = new Set((await client.listTools()).tools.map((t) => t.name));
+  for (const [name] of text.matchAll(/zibel_(?!json\b)[a-z_]+/g)) expect(tools).toContain(name);
+  await expect(client.readResource({ uri: "skill://zibel/nope" })).rejects.toMatchObject({
+    code: -32602,
+  });
+});
