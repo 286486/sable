@@ -46,8 +46,9 @@ const check: Check = async (call, docId) => {
     );
 
   const svg = (await call("zibel_export", { docId, format: "svg" })).content[0]?.text ?? "";
-  const paths = svg.split("<path").length - 1;
-  assert(paths === 100, `the SVG export has ${paths} <path>, want 100`);
+  // Node elements carry a z- id; an Artboard background rect does not.
+  const drawn = svg.match(/<rect [^>]*id="z-/g)?.length ?? 0;
+  assert(drawn === 100, `the SVG export has ${drawn} <rect>, want 100`);
 };
 
 export default check;

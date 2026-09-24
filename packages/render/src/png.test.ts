@@ -71,7 +71,7 @@ it("reads the root's pt as one pixel per point at scale 1", async () => {
   expect(await svgToPixels(svg, 2)).toMatchObject({ width: 20, height: 10 });
 });
 
-it("draws the fixture Document with the same pixels as before the Inkscape dialect", async () => {
+it("draws the fixture Document with known pixels", async () => {
   const file = parseDocument(fixture);
   const doc = {
     id: "d",
@@ -86,8 +86,10 @@ it("draws the fixture Document with the same pixels as before the Inkscape diale
     return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
   };
   const turned = { nodeIds: [file.nodes.find((n) => n.name === "Turned")?.id ?? ""] };
+  // Changed once, by #25: a native <rect rx> or <circle> draws the exact outline where the <path>
+  // before it rounded control points to 3 decimals, which moved 3 edge pixels by up to 16/255.
   expect(await hash(toSvg(doc, docRect(doc)))).toBe(
-    "4fc51f5b0505183f24597432653530dfa1b9fe23356f7d95e0446280376ec24c",
+    "dc0372d1d7a380ea3e80f7d2ad145af58c78f0f4411ba20eea4878ea158974ab",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned }))).toBe(
     "db787e8c66eef5455ce2bb127ad6b5cb9d4d78eb50af924407cc9d235d35f1ab",

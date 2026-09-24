@@ -11,6 +11,7 @@ import {
   type Rect,
   type RenderOverlay,
   type RenderScope,
+  type ShapeNode,
   shapeSegments,
   union,
   visibleBounds,
@@ -260,6 +261,32 @@ const stroke = (s: Appearance["strokes"][number]): Attrs => ({
   "stroke-dasharray": s.dash.length > 0 ? s.dash.join(" ") : undefined,
 });
 
+const num = (a: Record<string, number>) =>
+  Object.entries(a)
+    .map(([k, v]) => ` ${k}="${formatNumber(v)}"`)
+    .join("");
+
+/** The element and geometry of a shape, as the Inkscape tool that draws it writes them. */
+function shape(n: ShapeNode): string {
+  switch (n.type) {
+    case "rect": {
+      const r = Math.min(n.radius, n.width / 2, n.height / 2);
+      const { x, y, width, height } = n;
+      return `rect${num({ x, y, width, height, ...(r > 0 && { rx: r, ry: r }) })}`;
+    }
+    case "ellipse": {
+      const [rx, ry] = [n.width / 2, n.height / 2];
+      const [cx, cy] = [n.x + rx, n.y + ry];
+      return rx === ry ? `circle${num({ cx, cy, r: rx })}` : `ellipse${num({ cx, cy, rx, ry })}`;
+    }
+    case "line":
+      return `line${num({ x1: n.x1, y1: n.y1, x2: n.x2, y2: n.y2 })}`;
+    default:
+      // A Path, or a polygon or star, is a <path> of the same outline node_get reports as d.
+      return `path d="${formatPath(shapeSegments(n))}"`;
+  }
+}
+
 const style = (...parts: (string | false)[]) => parts.filter(Boolean).join(";") || undefined;
 
 function node(doc: Document, n: Node, walk: Walk): string {
@@ -293,7 +320,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
       : "";
   }
   if (!inside) return "";
-  // A Live Shape or Path is a <path> of the same outline node_get reports as d. Text is kerned off:
+  // Text is kerned off:
   // resvg honours font-kerning only as a style, and unkerned the drawn width is the advance sum the
   // bounds report (ADR-0013).
   const text = n.type === "text";
@@ -308,7 +335,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
           style: style(...extra, "font-kerning:none"),
           "xml:space": "preserve",
         })}>${esc(n.content)}</text>`
-      : `<path${attrs({ d: formatPath(shapeSegments(n)), ...a, style: style(...extra) })}/>`;
+      : `<${shape(n)}${attrs({ ...a, style: style(...extra) })}/>`;
   const { fills, strokes } = n.appearance;
   // One Fill and one Stroke are one element, so Inkscape selects one object; a longer Appearance
   // is a <g zibel:stack> painting each Fill, then each Stroke: Illustrator's default stacking.
