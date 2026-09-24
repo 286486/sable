@@ -42,7 +42,7 @@ function sortKeys(value: unknown): unknown {
 export function serializeDocument(doc: Document): string {
   const nodes = [...doc.nodes.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
   const file = {
-    version: doc.version,
+    version: MIGRATIONS.length + 1,
     name: doc.name,
     artboards: sortKeys(doc.artboards),
     nodes: sortKeys(nodes),
@@ -69,7 +69,7 @@ const StoredNode = z.discriminatedUnion("type", [
     z.strictObject({ ...base, ...s.shape, appearance }),
   ),
 ]);
-const File = z.strictObject({
+const FileSchema = z.strictObject({
   version: z.number(),
   name: z.string().min(1),
   artboards: z
@@ -128,7 +128,7 @@ export function parseDocument(
     file = { ...(migrations[v - 1] as Migration)(file), version: v + 1 };
   }
 
-  const parsed = File.safeParse(file);
+  const parsed = FileSchema.safeParse(file);
   if (!parsed.success) {
     const issue = parsed.error.issues[0] as z.core.$ZodIssue;
     const keys = issue.code === "unrecognized_keys" ? issue.keys.slice(0, 1) : [];
@@ -207,5 +207,12 @@ export function parseDocument(
     }
     siblings.add(key);
   });
+  if (!nodes.some((n) => n.type === "layer" && n.parentId === null)) {
+    throw invalid(
+      "nodes",
+      "No top-level Layer.",
+      "Every Document has at least one Layer at its root.",
+    );
+  }
   return { name: parsed.data.name, artboards, nodes };
 }

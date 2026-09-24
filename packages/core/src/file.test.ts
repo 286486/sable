@@ -243,6 +243,7 @@ describe("validation", () => {
       (f) => `nodes[${at(f, byType(f, "path"))}].d`,
     ],
     ["no Artboard", (f) => ({ ...f, artboards: [] }), "INVALID_DOCUMENT", () => "artboards"],
+    ["no Node", (f) => ({ ...f, nodes: [] }), "INVALID_DOCUMENT", () => "nodes"],
     [
       "a named Artboard background",
       (f) => {
