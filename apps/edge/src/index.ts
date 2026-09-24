@@ -62,13 +62,13 @@ async function openFile(request: Request, env: Env): Promise<Response> {
  */
 async function placeFile(docId: string, request: Request, env: Env): Promise<Response> {
   const q = new URL(request.url).searchParams;
-  const x = q.get("x");
-  const y = q.get("y");
+  const x = Number(q.get("x") ?? Number.NaN);
+  const y = Number(q.get("y") ?? Number.NaN);
   return answer(async () =>
     documentService(env, "user").place(docId, {
       svg: await request.text(),
       parentId: q.get("parentId") ?? "",
-      ...(x !== null && y !== null && { position: { x: Number(x), y: Number(y) } }),
+      ...(Number.isFinite(x) && Number.isFinite(y) && { position: { x, y } }),
       name: q.get("name") ?? undefined,
     }),
   );

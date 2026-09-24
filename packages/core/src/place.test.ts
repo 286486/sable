@@ -120,6 +120,9 @@ describe("placeNodes", () => {
     expect(() => placeNodes(doc, file(), { parentId: rect.id })).toThrow(
       expect.objectContaining({ data: expect.objectContaining({ code: "INVALID_PARENT" }) }),
     );
+    expect(() => placeNodes(doc, file(), { parentId: doc.artboards[0]?.id as string })).toThrow(
+      expect.objectContaining({ data: expect.objectContaining({ code: "INVALID_PARENT" }) }),
+    );
     expect(() => placeNodes(doc, file(), { parentId: "nope" })).toThrow(
       expect.objectContaining({ data: expect.objectContaining({ code: "NODE_NOT_FOUND" }) }),
     );

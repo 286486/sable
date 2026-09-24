@@ -402,6 +402,16 @@ it("places an SVG POSTed to /api/docs/:docId/place at the given centre, as the u
     parentId: defaultLayerId,
   });
 
+  // An unreadable centre falls back to the Artboard's (200 × 100 here).
+  const loose = await post(`parentId=${defaultLayerId}&x=abc&y=1`, svg);
+  expect(loose.status).toBe(200);
+  expect(((await loose.json()) as { bounds: object }).bounds).toEqual({
+    x: 90,
+    y: 45,
+    width: 20,
+    height: 10,
+  });
+
   const refused = await post("x=0&y=0", svg);
   expect(refused.status).toBe(400);
   expect(await refused.json()).toMatchObject({ code: "NODE_NOT_FOUND" });

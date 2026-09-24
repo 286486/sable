@@ -28,8 +28,19 @@ export function documentService(env: Env, actor: string): DocumentService {
     },
     replace: async (docId, { content, baseRev, ifRev, intent }) =>
       unwrap(await doc(docId).replace(parseFile(content), actor, { baseRev, ifRev, intent })),
-    place: async (docId, { svg, name, ...opts }) =>
-      unwrap(await doc(docId).place(parseFile(svg, { name }), actor, opts)),
+    place: async (docId, { svg, name, ...opts }) => {
+      let file: ReturnType<typeof parseFile>;
+      try {
+        file = parseFile(svg, { name });
+      } catch (e) {
+        // The file is Place's `svg`, not Open's `content`.
+        if (e instanceof ZibelError && e.data.path === "content") {
+          throw new ZibelError({ ...e.data, path: "svg" });
+        }
+        throw e;
+      }
+      return unwrap(await doc(docId).place(file, actor, opts));
+    },
     list: async () => ({ documents: await listDocuments(env) }),
     info: async (docId) => unwrap(await doc(docId).info()),
     createNodes: async (docId, nodes, opts) =>

@@ -1533,4 +1533,23 @@ it("places an SVG as one Group under the parent, and refuses a .zibel.json", asy
   const file = (await call("zibel_export", { docId, format: "zibel_json" })).content[0].text;
   const refused = await call("zibel_svg_import", { docId, svg: file, parentId: defaultLayerId });
   expect(errorOf(refused)).toMatchObject({ code: "INVALID_DOCUMENT", path: "svg" });
+  const text = await call("zibel_svg_import", { docId, svg: "nope", parentId: defaultLayerId });
+  expect(errorOf(text)).toMatchObject({ code: "INVALID_DOCUMENT", path: "svg" });
+
+  // Staged in a Transaction: invisible to the committed rev until commit.
+  const { txId, rev } = (await call("zibel_tx_begin", { docId })).structuredContent;
+  const staged = await call("zibel_svg_import", {
+    docId,
+    txId,
+    svg: exported,
+    parentId: defaultLayerId,
+  });
+  expect(staged.structuredContent.rev).toBe(rev);
+  const committed = (await call("zibel_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
+    .structuredContent.nodes;
+  expect(committed).toHaveLength(1);
+  await call("zibel_tx_commit", { docId, txId });
+  const after = (await call("zibel_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
+    .structuredContent.nodes;
+  expect(after.at(-1)?.id).toBe(staged.structuredContent.createdIds[0]);
 });

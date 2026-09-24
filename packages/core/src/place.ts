@@ -1,5 +1,5 @@
 import { bounds, createNodes, newId } from "./document.ts";
-import { lookup, transformNodes } from "./edit.ts";
+import { transformNodes } from "./edit.ts";
 import type { Artboard, Document, Node, Rect } from "./schema.ts";
 
 const overlap = (a: Rect, b: Rect) =>
@@ -28,11 +28,11 @@ export function placeNodes(
   file: { name: string; nodes: Node[] },
   opts: { parentId: string; position?: { x: number; y: number }; fit?: boolean },
 ): { groupId: string; created: Node[] } {
-  // Chosen before the file's Nodes join the parent and move its bounds.
-  const artboard = artboardOf(doc, lookup(doc, opts.parentId, "parentId"));
   const [group] = createNodes(doc, [
     { type: "group", parentId: opts.parentId, name: file.name, children: [] },
   ]).nodes as [Node];
+  // Chosen while the Group is empty, before the file's Nodes move the parent's bounds.
+  const artboard = artboardOf(doc, doc.nodes.get(opts.parentId) as Node);
   const ids = new Map(file.nodes.map((n) => [n.id, newId()]));
   for (const n of file.nodes) {
     const id = ids.get(n.id) as string;
