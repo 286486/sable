@@ -164,11 +164,13 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
   for (const key of Object.keys(patch)) {
     const readOnly =
       (Object.hasOwn(READ_ONLY, key) ? READ_ONLY[key] : undefined) ??
-      (key === "d" && node.type === "text"
-        ? "A text has no outline until Create Outlines; change content instead."
-        : key === "d" && node.type !== "path"
-          ? "A Live Shape's d is derived from its parameters; change those instead."
-          : undefined);
+      (key === "kind" && node.type === "text"
+        ? "A text's kind is fixed (ADR-0022); create a text of the other kind and delete this one."
+        : key === "d" && node.type === "text"
+          ? "A text has no outline until Create Outlines; change content instead."
+          : key === "d" && node.type !== "path"
+            ? "A Live Shape's d is derived from its parameters; change those instead."
+            : undefined);
     if (readOnly) throw invalid(`.${key}`, `${key} is read-only.`, readOnly);
     if (!Object.hasOwn(schema.shape, key)) {
       throw invalid(
@@ -192,11 +194,8 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
         : issue.message,
     );
   }
-  const next = { ...node, ...parsed.data } as Node;
-  // null deletes an optional key, such as leading back to Auto.
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === null && !Object.hasOwn(parsed.data, key)) delete next[key as keyof Node];
-  }
+  // From the merge, so null deletes an optional key such as leading.
+  const next = { ...merged, ...parsed.data } as Node;
   // SVG clips everything away through a hidden clip path; Illustrator unclips (ADR-0021).
   if ("clipping" in next && next.clipping && !next.visible) {
     throw invalid(

@@ -468,7 +468,7 @@ describe("updateNodes on a text", () => {
   });
 
   it.each([
-    [{ kind: "area" }, "kind", /x, y, content, fontFamily, fontSize, leading/],
+    [{ kind: "area" }, "kind", /kind is fixed/],
     [{ width: 10 }, "width", /leading/],
     [{ content: "a\tb" }, "content", /./],
     [{ d: "M 0 0" }, "d", /outline/i],
@@ -480,8 +480,8 @@ describe("updateNodes on a text", () => {
       path: `updates[0].patch.${key}`,
       hint: expect.stringMatching(hint),
     });
-    if (key === "kind") expect(error.hint).not.toMatch(/\bkind\b/);
-    if (key === "width") expect(error.hint).not.toMatch(/\bwidth\b/);
+    if (key === "width")
+      expect(error.hint).toMatch(/meta, x, y, content, fontFamily, fontSize, leading, appearance/);
   });
 });
 

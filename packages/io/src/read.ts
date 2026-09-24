@@ -130,7 +130,16 @@ export function parseTransform(list: string | null): Matrix {
 const bakes = ([a, b, c, d]: Matrix) =>
   Math.abs(b) < 1e-9 && Math.abs(c) < 1e-9 && a > 0 && Math.abs(a - d) < 1e-9;
 
-/** Elements that draw, and those that only define or describe and are skipped without a word. */
+/** A text element's characters: its text and its tspans', not a `<title>` or `<desc>` inside it. */
+const characters = (e: Element): string =>
+  Array.from(e.childNodes, (c) =>
+    c.nodeType === c.TEXT_NODE || c.nodeType === c.CDATA_SECTION_NODE
+      ? (c.nodeValue ?? "")
+      : (c as Element).localName === "tspan"
+        ? characters(c as Element)
+        : "",
+  ).join("");
+
 /** The id in `url(#id)`, as `clip-path` and `shape-inside` name an element. */
 const urlId = (value: string) => /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(value.trim())?.[1];
 
@@ -154,6 +163,7 @@ function lineHeight(value: string | undefined, fontSize: number, k: number) {
   return leading && leading > 0 ? n3(leading) : undefined;
 }
 
+/** Elements that draw, and those that only define or describe and are skipped without a word. */
 const DRAWN = new Set([
   "g",
   "a",
@@ -506,10 +516,20 @@ class Reader {
         .replace(pre ? /[^\P{Cc}\n]|[\u2028\u2029]/gu : /[\p{Cc}\u2028\u2029]/gu, " ");
       return pre || e.getAttribute("xml:space") === "preserve" ? s : s.replace(/\s+/g, " ").trim();
     };
+    const anchor = own["text-anchor"];
+    const centred = anchor === "middle" || anchor === "end";
+    // Lines are left-aligned until paragraph alignment (F-TEXT-03).
+    const unaligned = () =>
+      this.warn(
+        "UNSUPPORTED_ATTRIBUTE",
+        "text-anchor",
+        "text-anchor middle or end on Area Type or several lines is not supported yet; the lines are left-aligned.",
+      );
     const frame = this.frame(style);
     if (frame) {
+      if (centred) unaligned();
       // The layout is recomputed from the characters; Inkscape's positioned lines are its fallback.
-      const content = clean(e.textContent ?? "");
+      const content = clean(characters(e));
       if (!content.trim()) return null;
       const shape = {
         ...text,
@@ -522,24 +542,17 @@ class Reader {
       };
       return { shape, style };
     }
-    const lines = (tspans.length ? tspans : [e]).map((t) => clean(t.textContent ?? ""));
+    const lines = (tspans.length ? tspans : [e]).map((t) => clean(characters(t)));
     const content = tspans.length ? lines.join("\n") : (lines[0] ?? "");
     if (!content.trim()) return null;
     const first = (name: string) =>
       numbers(line?.getAttribute(name) ?? null)[0] ?? numbers(e.getAttribute(name))[0] ?? 0;
     let x = k * first("x") + tx;
-    const anchor = own["text-anchor"];
-    if (anchor === "middle" || anchor === "end") {
+    if (centred) {
       const [top = ""] = content.split("\n");
       const width = textBox({ x: 0, y: 0, content: top, fontSize }).width;
       x -= anchor === "middle" ? width / 2 : width;
-      if (content.includes("\n")) {
-        this.warn(
-          "UNSUPPORTED_ATTRIBUTE",
-          "text-anchor",
-          "text-anchor middle or end on several lines is not supported yet; the lines are left-aligned at the first line's start.",
-        );
-      }
+      if (content.includes("\n")) unaligned();
     }
     const shape = { ...text, kind: "point", x: n3(x), y: n3(k * first("y") + ty), content };
     return { shape, style: own };

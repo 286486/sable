@@ -509,10 +509,13 @@ it("warns when Area Type cannot flow as written, and keeps its text", () => {
       '<defs><circle id="c" cx="50" cy="50" r="40"/></defs>' +
         '<text font-size="12" style="shape-inside:url(#c);white-space:pre">in a circle</text>' +
         '<text x="5" y="5" font-size="12" style="shape-inside:url(#nope);white-space:pre">a\nb</text>' +
-        '<text x="50" y="50" text-anchor="middle"><tspan sodipodi:role="line">a</tspan><tspan sodipodi:role="line">b</tspan></text>',
+        '<text x="50" y="50" text-anchor="middle"><tspan sodipodi:role="line">a</tspan><tspan sodipodi:role="line">b</tspan></text>' +
+        '<defs><rect id="r" width="50" height="50"/></defs>' +
+        '<text style="shape-inside:url(#r);text-anchor:middle"><title>Note</title>centred</text>',
     ),
   );
-  const [circle, missing, centred] = leaves(file);
+  const [circle, missing, centred, area] = leaves(file);
+  expect(area).toMatchObject({ kind: "area", x: 0, y: 0, content: "centred" });
   expect(circle).toMatchObject({
     kind: "area",
     x: 10,
