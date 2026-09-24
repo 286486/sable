@@ -134,3 +134,23 @@ it("draws the fixture Document with known pixels", async () => {
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
   );
 });
+
+it("clips by an inline clipPath the Group refers to before it is defined", async () => {
+  const svg = (clip: string) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="#FFFFFF"/>` +
+    `<g clip-path="url(#c)"><rect width="100" height="100" fill="#FF0000"/>` +
+    `<clipPath id="c" clipPathUnits="userSpaceOnUse">${clip}</clipPath></g></svg>`;
+  const drawn = await ink(svg(`<circle cx="50" cy="50" r="10" fill="none"/>`));
+  const at = (x: number, y: number) => drawn.some(([px, py]) => px === x && py === y);
+  expect(at(50, 50)).toBe(true);
+  expect(at(5, 5)).toBe(false);
+  expect(drawn.length).toBeLessThan(400);
+  // clip-rule, not fill-rule, decides a hole inside a clipPath.
+  const ring = `<path d="M 10 10 L 90 10 L 90 90 L 10 90 Z M 40 40 L 60 40 L 60 60 L 40 60 Z"`;
+  expect(
+    (await ink(svg(`${ring} clip-rule="evenodd"/>`))).some(([x, y]) => x === 50 && y === 50),
+  ).toBe(false);
+  expect(
+    (await ink(svg(`${ring} fill-rule="evenodd"/>`))).some(([x, y]) => x === 50 && y === 50),
+  ).toBe(true);
+});

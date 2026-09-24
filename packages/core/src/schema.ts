@@ -403,7 +403,12 @@ export interface GroupNode extends NodeBase {
 }
 
 /** A Live Shape or Path: its parameters plus an Appearance. */
-export type ShapeNode = NodeBase & Shape & { appearance: Appearance };
+export type ShapeNode = NodeBase &
+  Shape & {
+    appearance: Appearance;
+    /** The Clipping Path of its Group (ADR-0021); missing means false. */
+    clipping?: boolean;
+  };
 
 export type TextNode = NodeBase & TextShape & { appearance: Appearance };
 

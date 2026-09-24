@@ -267,8 +267,18 @@ export function childrenOf(doc: Document, parentId: string | null): Node[] {
     .sort((a, b) => (a.index < b.index ? -1 : a.index > b.index ? 1 : 0));
 }
 
+/** The Group's Clipping Path, which makes it a Clipping Mask (ADR-0021). */
+export function clippingPath(doc: Document, node: Node): ShapeNode | undefined {
+  if (node.type !== "group") return undefined;
+  return childrenOf(doc, node.id).find(
+    (c): c is ShapeNode => c.type !== "text" && "clipping" in c && c.clipping === true,
+  );
+}
+
 /** Geometric bounds in document coordinates (no stroke), or null for an empty container. */
 export function bounds(doc: Document, node: Node): Rect | null {
+  const clip = clippingPath(doc, node);
+  if (clip) return bounds(doc, clip);
   if (node.type === "layer" || node.type === "group") {
     return union(childrenOf(doc, node.id).map((c) => bounds(doc, c)));
   }
@@ -277,8 +287,14 @@ export function bounds(doc: Document, node: Node): Rect | null {
   return pathBounds(transformSegments(shapeSegments(shape), worldTransform(doc, node)));
 }
 
-/** Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a container. */
+/**
+ * Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a
+ * container; its Clipping Path's geometric bounds, for a Clipping Mask.
+ */
 export function visibleBounds(doc: Document, node: Node): Rect | null {
+  // A Clipping Path's Strokes are not drawn, so its geometry is all that shows.
+  const clip = clippingPath(doc, node);
+  if (clip) return bounds(doc, clip);
   if (node.type === "layer" || node.type === "group") {
     return union(childrenOf(doc, node.id).map((c) => visibleBounds(doc, c)));
   }
