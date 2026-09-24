@@ -52,6 +52,16 @@ it("keeps runs of spaces, so the drawn width follows the advance sum", async () 
   expect((await right("a    b")) - (await right("a  b"))).toBeCloseTo(40, -0.5);
 });
 
+it("draws a font Zibel does not bundle in Source Sans 3", async () => {
+  const svg = (family: string) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#FFFFFF"/>` +
+    `<text x="0" y="80" font-family="${family}" font-size="60">Hi</text></svg>`;
+  const bundled = await ink(svg("Source Sans 3"));
+  expect(bundled.length).toBeGreaterThan(0);
+  expect(await ink(svg("Helvetica"))).toEqual(bundled);
+  expect(await ink(svg("'DejaVu Serif', serif"))).toEqual(bundled);
+});
+
 it("rounds the pixel size to the nearest pixel and stretches the drawing to it", async () => {
   // Why fit() widens the rect to whole pixels: at 10.2 pt × 2 resvg draws 20 px, not 20.4.
   const size = async (width: number) =>
@@ -88,10 +98,12 @@ it("draws the fixture Document with known pixels", async () => {
   const turned = { nodeIds: [file.nodes.find((n) => n.name === "Turned")?.id ?? ""] };
   // Changed once, by #25: a native <rect rx> or <circle> draws the exact outline where the <path>
   // before it rounded control points to 3 decimals, which moved 3 edge pixels by up to 16/255.
+  // Both changed again, by #26: "Turned" draws with its stored 0.866025 where export wrote 0.866, which
+  // moved 28 of its antialiased edge pixels at 2x by up to 10/255.
   expect(await hash(toSvg(doc, docRect(doc)))).toBe(
-    "dc0372d1d7a380ea3e80f7d2ad145af58c78f0f4411ba20eea4878ea158974ab",
+    "6a5396962e2dfd1ed83c8a223669d92294477469293fee9e3cb36dff89780bec",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned }))).toBe(
-    "db787e8c66eef5455ce2bb127ad6b5cb9d4d78eb50af924407cc9d235d35f1ab",
+    "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
   );
 });

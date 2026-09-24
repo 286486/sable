@@ -50,6 +50,20 @@ Inkscape keeps unknown-namespace attributes, `data-*` and existing ids on save, 
 - **Ids:** `z-<ULID>` maps back to that Node. Any other id (Inkscape gives new and duplicated objects ids like `path123`) is a new Node with a new ULID. A `<g zibel:stack>` the designer ungrouped comes back as separate Nodes.
 - **Text:** `<text>` with `<tspan sodipodi:role="line">` → Text. The font name is kept whatever it is (below).
 
+The importer (`packages/io`, #26) settles the rest:
+
+- **Size.** An SVG over 5 MB, counted as 5 × 1024 × 1024 UTF-16 code units (`content.length`), is `LIMIT_EXCEEDED` before parsing; Replace and Place measure the same way. `.zibel.json` stays uncapped (ADR-0016). Layers and Groups nested deeper than 256 levels are `LIMIT_EXCEEDED` too: the walk and core's own walks recurse.
+- **Units.** px and unitless lengths are one pt, as Illustrator opens SVG; Inkscape's 96 dpi (0.75 pt per px) is not followed. User units scale by root `width` ÷ `viewBox` width; the `viewBox` origin is not subtracted, so a Zibel export's coordinates come back unchanged. Lengths with units inside the file (`stroke-width="1mm"`) convert by the same table.
+- **Baking.** A leaf's composed matrix (ancestors, root scale, its own) that is a move plus a uniform scale bakes into its parameters, Stroke widths and dashes, leaving `transform` identity; any other matrix is stored at 6 decimals with the parameters in the leaf's own units. Numbers round to 3 decimals, which also absorbs Inkscape's `200.00002`. Export writes matrices at the 6 decimals they are stored in, so a turned Node opens with its own matrix.
+- **SVG defaults, not Zibel's.** An unstated `fill` is black and `stroke` none; an unstated `stroke-miterlimit` is SVG's 4 for a miter join, where it shows, and Zibel's 10 for other joins. The cascade is inherited value, presentation attribute, `<style>` rule (simple selectors only), `style` attribute.
+- **Structure.** Content at the root outside any layer goes into one Layer named `Layer 1`, made where the first such element appears; a file with no content still gets it. A layer group inside a Group is a Group. Sibling indexes are `a0, a1, …` in document order, as `node_create` gives them.
+- **Markers.** A `<rect zibel:artboard>` sets that Artboard's background only when the page is in the file, and is never a Node. Export marks the `background` option's rect `zibel:background="true"`, and import drops it.
+- **Name.** The file name (browser Open), else `sodipodi:docname` without `.svg`, which export now writes, else the root `<title>`, else `Untitled`.
+- **Stacks.** A `<g zibel:stack>` is one Node: its id, name, lock, tags, meta, opacity and blend from the `<g>`, its geometry from the first paint, then every Fill, then every Stroke, in order.
+- **Text.** Each line tspan is its own Point Type Node; the first keeps the `<text>` id. Whitespace collapses unless `xml:space="preserve"`. The first family of `font-family` is kept, unquoted; `text-anchor` middle or end moves `x` by the measured width.
+- **Warnings** are `{code, nodeId?, message}`, once per kind: `UNSUPPORTED_ELEMENT` (per tag), `UNSUPPORTED_ATTRIBUTE` (per property: `clip-path`, `mask`, `filter`, markers, `fill-rule: evenodd`), `PATH_EFFECT_FLATTENED`, `BOX3D_AS_PATHS`, `GRADIENT_FLATTENED`, `UNSUPPORTED_PAINT`, `STAR_AS_PATH`, `ARC_AS_PATH`, `DUPLICATE_ID`, `INVALID_TAGS_META`, `INVALID_PATH` (the element is dropped), `INVALID_TRANSFORM` (an unreadable transform is ignored, one that scales to nothing drops the element) and `FONT_MISSING` (per font). `clip-path`, `mask` and `filter` warn on a Layer or Group as on a leaf.
+- **Checked like a file.** The importer's result goes through the `.zibel.json` validator before the Durable Object sees it, so an importer bug fails the Open instead of storing a corrupt Document.
+
 ## Three ways in
 
 | | Illustrator | Tool | Result |
@@ -69,7 +83,7 @@ Browser: Open, Replace and Place send the file over HTTP to the Worker, which pa
 
 ## Fonts
 
-`fontFamily` becomes any string, kept as written. A family Zibel does not have renders in the bundled font (ADR-0013) with a warning, and export writes the original name back, so the file shows the right font in Inkscape (F-TEXT-11, the "record the original name" part). Font upload and embedding are separate work.
+`fontFamily` becomes any string, kept as written. A family Zibel does not have renders in the bundled font (ADR-0013), on the canvas as in `render`, with a `FONT_MISSING` warning on `node_create`, `node_update` and Open, and export writes the original name back, so the file shows the right font in Inkscape (F-TEXT-11, the "record the original name" part). Font upload and embedding are separate work.
 
 ## Testing
 

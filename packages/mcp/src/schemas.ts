@@ -1,4 +1,4 @@
-import { Rect } from "@zibel/core";
+import { Rect, WriteReceipt } from "@zibel/core";
 import { z } from "zod";
 
 const Artboards = z.array(
@@ -44,6 +44,7 @@ export const OpenedDocumentOutput = z.object({
   artboards: Artboards,
   rev: z.number().int(),
   nodes: z.array(OutlineNode),
+  warnings: WriteReceipt.shape.warnings,
 });
 
 export const OutlineOutput = z.object({ rev: z.number().int(), nodes: z.array(OutlineNode) });

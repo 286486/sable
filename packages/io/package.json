@@ -1,0 +1,14 @@
+{
+  "name": "@zibel/io",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "@zibel/core": "workspace:*",
+    "fractional-indexing": "^4.0.0"
+  }
+}

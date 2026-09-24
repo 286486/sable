@@ -1,4 +1,11 @@
-import { childrenOf, type Document, type LeafNode, type Node, shapeSegments } from "@zibel/core";
+import {
+  BUNDLED_FONT,
+  childrenOf,
+  type Document,
+  type LeafNode,
+  type Node,
+  shapeSegments,
+} from "@zibel/core";
 
 type Stroke = LeafNode["appearance"]["strokes"][number];
 
@@ -57,7 +64,8 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
     const text = n.type === "text" ? n : null;
     // Tested on n, not text, so the else branch narrows n to a Live Shape or Path.
     if (n.type === "text") {
-      ctx.font = `${n.fontSize}px "${n.fontFamily}"`;
+      // Every font renders in the bundled one, which its bounds are measured in (ADR-0017).
+      ctx.font = `${n.fontSize}px "${BUNDLED_FONT}"`;
       // Unkerned, like the SVG, so the drawn width is the advance sum (ADR-0013).
       ctx.fontKerning = "none";
     } else {

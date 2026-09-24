@@ -11,6 +11,7 @@ import {
   type Rect,
   type RenderOverlay,
   type RenderScope,
+  round,
   type ShapeNode,
   shapeSegments,
   union,
@@ -179,7 +180,10 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
         .join("")}</sodipodi:namedview>`
     : `<sodipodi:namedview inkscape:document-units="pt"/>`;
   const background = [
-    opts.background ? `<rect${attrs({ x, y, width, height, fill: opts.background })}/>` : "",
+    // Marked, so importing the file does not make it a Node.
+    opts.background
+      ? `<rect${attrs({ x, y, width, height, fill: opts.background, "zibel:background": "true" })}/>`
+      : "",
     ...(nodeIds ? [] : doc.artboards)
       .filter((a) => a.background)
       .map(
@@ -202,6 +206,8 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
     "zibel:doc": doc.id,
     "zibel:rev": doc.rev,
     "zibel:scope": scopeName(scope),
+    // Inkscape shows it as the file name, and import reads the Document name back from it.
+    "sodipodi:docname": `${doc.name}.svg`,
   });
   return `<svg${root}>${namedview}${background}${body}${overlay}</svg>`;
 }
@@ -329,7 +335,8 @@ function node(doc: Document, n: Node, walk: Walk): string {
     "zibel:meta": Object.keys(n.meta).length > 0 ? JSON.stringify(n.meta) : undefined,
     transform: n.transform.every((v, i) => v === IDENTITY[i])
       ? undefined
-      : `matrix(${n.transform.map(formatNumber).join(" ")})`,
+      : // At the precision it is stored in, so the file opens with the same matrix.
+        `matrix(${round(n.transform).join(" ")})`,
   };
   const looks = [
     !n.visible && "display:none",

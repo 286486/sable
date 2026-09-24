@@ -330,3 +330,28 @@ it("clears the redo stack when a new Transaction commits", async () => {
   const [, , , redo] = await received(4);
   expect(redo).toMatchObject({ type: "rejected", error: { code: "NOTHING_TO_REDO" } });
 });
+
+it("opens a file POSTed to /api/docs as the user, named after the file", async () => {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="5" height="5"/></svg>';
+  const res = await exports.default.fetch("http://zibel/api/docs?name=Drawing.svg", {
+    method: "POST",
+    body: svg,
+  });
+  expect(res.status).toBe(200);
+  const { docId, warnings } = (await res.json()) as { docId: string; warnings: unknown[] };
+  expect(warnings).toEqual([]);
+  const listed = (await (await exports.default.fetch("http://zibel/api/docs")).json()) as {
+    documents: { docId: string; name: string }[];
+  };
+  expect(listed.documents[0]).toMatchObject({ docId, name: "Drawing" });
+  const { changes } = (await call("zibel_doc_changes", { docId, sinceRev: 0 })).structuredContent;
+  expect(changes[0]).toMatchObject({ actor: "user" });
+
+  const bad = await exports.default.fetch("http://zibel/api/docs?name=x.svg", {
+    method: "POST",
+    body: "nope",
+  });
+  expect(bad.status).toBe(400);
+  expect(await bad.json()).toMatchObject({ code: "INVALID_DOCUMENT", hint: expect.any(String) });
+});

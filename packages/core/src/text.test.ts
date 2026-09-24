@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
-import { textBox } from "./text.ts";
+import { fontWarnings, textBox } from "./text.ts";
 
 // Read straight from SourceSans3-Regular.ttf, not from the generated table: unitsPerEm 1000,
 // hhea ascender 1000 and descender -326; advances H 652, i 246, space 200, .notdef 653.
@@ -23,4 +23,18 @@ it("grows by each added character's advance, and counts .notdef for one the font
 it("carries the font's vertical metrics", () => {
   const { unitsPerEm, ascender, descender } = SOURCE_SANS_3;
   expect([unitsPerEm, ascender, descender]).toEqual([1000, 1000, -326]);
+});
+
+it("warns once for each text in a font Zibel does not bundle", () => {
+  const text = (id: string, fontFamily: string) =>
+    ({ id, type: "text", fontFamily }) as Parameters<typeof fontWarnings>[0][number];
+  expect(
+    fontWarnings([text("a", "Source Sans 3"), text("b", "Helvetica"), { id: "c", type: "rect" }]),
+  ).toEqual([
+    {
+      code: "FONT_MISSING",
+      nodeId: "b",
+      message: "Helvetica is not bundled, so it renders in Source Sans 3; the name is kept.",
+    },
+  ]);
 });

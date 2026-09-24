@@ -1,4 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { ZibelError } from "@zibel/core";
 import { createMcpServer } from "@zibel/mcp";
 import { actorFor, permissionDenied } from "./auth.ts";
 import { documentService, listDocuments } from "./service.ts";
@@ -11,6 +12,7 @@ export default {
     // Browsers are not authenticated in M0: the viewer is read-only and local (ADR-0009).
     const ws = url.pathname.match(/^\/api\/docs\/([^/]+)\/ws$/)?.[1];
     if (ws) return env.DOCUMENT.get(env.DOCUMENT.idFromName(ws)).fetch(request);
+    if (url.pathname === "/api/docs" && request.method === "POST") return openFile(request, env);
     if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
     if (url.pathname !== "/mcp") return new Response("not found", { status: 404 });
     const actor = actorFor(request, env.DEV_TOKENS);
@@ -29,3 +31,21 @@ export default {
     return transport.handleRequest(request);
   },
 } satisfies ExportedHandler<Env>;
+
+/**
+ * The browser's Open file: the file's text as the body, its name in `?name=`. Over HTTP, not the
+ * WebSocket, since a file does not belong in a gesture message (ADR-0017); by the user.
+ */
+async function openFile(request: Request, env: Env): Promise<Response> {
+  const name = new URL(request.url).searchParams.get("name") ?? undefined;
+  try {
+    const { docId, warnings } = await documentService(env, "user").open({
+      content: await request.text(),
+      name,
+    });
+    return Response.json({ docId, warnings });
+  } catch (e) {
+    if (e instanceof ZibelError) return Response.json(e.data, { status: 400 });
+    throw e;
+  }
+}

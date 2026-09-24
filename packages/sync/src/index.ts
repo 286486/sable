@@ -71,6 +71,8 @@ export interface OpenedDocument {
   artboards: Artboard[];
   rev: number;
   nodes: OutlineNode[];
+  /** What the file held that the Document does not, one per kind (ADR-0017). */
+  warnings: WriteReceipt["warnings"];
 }
 
 /**
@@ -84,7 +86,8 @@ export interface DocumentService {
     intent?: string;
   }): Promise<CreatedDocument>;
   /** A new Document from `.zibel.json` text, keeping its Node and Artboard ids (ADR-0016). */
-  open(input: { content: string; intent?: string }): Promise<OpenedDocument>;
+  /** `name` is the file's name, for an SVG that names no Document. */
+  open(input: { content: string; name?: string; intent?: string }): Promise<OpenedDocument>;
   /** Every Document, newest first. */
   list(): Promise<{ documents: DocSummary[] }>;
   info(docId: string): Promise<DocInfo>;

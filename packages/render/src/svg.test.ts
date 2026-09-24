@@ -170,9 +170,10 @@ it("writes a leaf's matrix on its own element, and a stack's on its <g>", () => 
   if (both.type !== "rect") throw new Error("setup");
   both.appearance.fills.push({ type: "solid", color: "#00FF00" });
   const svg = toSvg(doc);
+  // At the 6 decimals a matrix is stored in, so importing the file gives the same matrix back.
   expect(svg).toContain(`id="z-${turned.id}" transform="matrix(0 1 -1 0 60 -10)" fill="#FFFFFF"`);
   expect(svg).toContain(
-    `<g id="z-${both.id}" transform="matrix(0.123 0 0 1 0 0)" zibel:stack="true" style="opacity:0.5"><rect`,
+    `<g id="z-${both.id}" transform="matrix(0.123457 0 0 1 0 0)" zibel:stack="true" style="opacity:0.5"><rect`,
   );
 });
 
@@ -216,7 +217,7 @@ it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape p
     new RegExp(
       '^<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" ' +
         'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:zibel="https://zibel.dev/ns/svg" ' +
-        'width="200pt" height="100pt" viewBox="0 0 200 100" zibel:doc="d" zibel:rev="7" zibel:scope="doc">' +
+        'width="200pt" height="100pt" viewBox="0 0 200 100" zibel:doc="d" zibel:rev="7" zibel:scope="doc" sodipodi:docname="Doc.svg">' +
         '<sodipodi:namedview inkscape:document-units="pt">' +
         `<inkscape:page x="0" y="0" width="200" height="100" id="z-${one.id}" inkscape:label="Artboard 1"/>` +
         `<inkscape:page x="300" y="0" width="50" height="50" id="z-${two.id}" inkscape:label="Card &amp; back"/>` +
@@ -248,7 +249,7 @@ it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape p
   expect(nodes).toContain('<sodipodi:namedview inkscape:document-units="pt"/>');
   const rect = { x: 1, y: 2, width: 3, height: 4 };
   expect(toSvg(doc, rect, { scope: { rect } })).toContain(
-    'zibel:scope="rect:1,2,3,4"><sodipodi:namedview inkscape:document-units="pt"/><rect',
+    'zibel:scope="rect:1,2,3,4" sodipodi:docname="Doc.svg"><sodipodi:namedview inkscape:document-units="pt"/><rect',
   );
 });
 
@@ -413,10 +414,10 @@ it("fills the whole rect with background beneath the Artboard backgrounds", () =
   const { doc, a } = scene();
   const rect = { x: -5, y: -5, width: 300, height: 200 };
   expect(toSvg(doc, rect, { background: "#112233" })).toMatch(
-    /<\/sodipodi:namedview><rect x="-5" y="-5" width="300" height="200" fill="#112233"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF" zibel:artboard="\w+" sodipodi:insensitive="true"\/><g /,
+    /<\/sodipodi:namedview><rect x="-5" y="-5" width="300" height="200" fill="#112233" zibel:background="true"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF" zibel:artboard="\w+" sodipodi:insensitive="true"\/><g /,
   );
   expect(toSvg(doc, rect, { background: "#112233", scope: { nodeIds: [a.id] } })).toMatch(
-    /<svg[^>]*><sodipodi:namedview[^>]*\/><rect[^>]*fill="#112233"\/><g /,
+    /<svg[^>]*><sodipodi:namedview[^>]*\/><rect[^>]*fill="#112233" zibel:background="true"\/><g /,
   );
 });
 

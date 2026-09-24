@@ -1,4 +1,5 @@
-import { type ErrorData, newId, parseDocument, ZibelError } from "@zibel/core";
+import { type ErrorData, newId, ZibelError } from "@zibel/core";
+import { parseFile } from "@zibel/io";
 import { svgToPng } from "@zibel/render";
 import type { DocumentService } from "@zibel/sync";
 
@@ -17,13 +18,13 @@ export function documentService(env: Env, actor: string): DocumentService {
       await index(docId, input.name);
       return created;
     },
-    open: async ({ content, intent }) => {
+    open: async ({ content, name, intent }) => {
       // Parsed here, before any Durable Object or D1 row exists, so a bad file creates nothing.
-      const file = parseDocument(content);
+      const { warnings, ...file } = parseFile(content, { name });
       const docId = newId();
       const opened = unwrap(await doc(docId).open({ ...file, docId, actor, intent }));
       await index(docId, file.name);
-      return opened;
+      return { ...opened, warnings };
     },
     list: async () => ({ documents: await listDocuments(env) }),
     info: async (docId) => unwrap(await doc(docId).info()),

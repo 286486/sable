@@ -165,12 +165,12 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Open Document",
       description: [
-        "Make a new Document from .zibel.json text, as zibel_export returns it with format zibel_json. Pass the file's content, not a path.",
-        "The new Document gets its own docId and starts at rev 1; every Node and Artboard keeps its id. nodes is its Layer list, as zibel_doc_outline returns it at depth 1.",
-        "A file that is not valid fails with a path into it and creates nothing.",
+        "Make a new Document from a file's text: .zibel.json as zibel_export returns it with format zibel_json, or SVG (Inkscape, Zibel's own export or plain SVG 1.1, at most 5 MB), told apart by content. Pass the file's content, not a path.",
+        "The new Document gets its own docId and starts at rev 1. Ids from .zibel.json, and z-<id> ids from SVG, are kept; SVG layers and pages become Layers and Artboards, units become pt (px counts as pt). nodes is its Layer list, as zibel_doc_outline returns it at depth 1.",
+        "SVG content Zibel cannot hold yet (gradients, clipping, images, filters) imports as close as it can, or is dropped, and warnings lists each kind once. A file that is not valid fails with a path into it and creates nothing.",
       ].join(" "),
       inputSchema: {
-        content: z.string().min(1).describe("The whole .zibel.json text."),
+        content: z.string().min(1).describe("The whole .zibel.json or .svg text."),
         intent,
       },
       outputSchema: OpenedDocumentOutput.shape,
@@ -200,7 +200,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "polygon {cx, cy, radius, sides}: radius is center to vertex.",
         "star {cx, cy, outerRadius, innerRadius, points}.",
         "path {d}: SVG path data with absolute M, L, C, Q and Z only.",
-        "text {x, y, content, fontSize}: Point Type; x, y is where the baseline of the first character starts. content is one line, no line breaks; fontSize is in pt, default 12. The only font is Source Sans 3.",
+        "text {x, y, content, fontSize}: Point Type; x, y is where the baseline of the first character starts. content is one line, no line breaks; fontSize is in pt, default 12. fontFamily is any font name, kept as written; only Source Sans 3 is bundled, so others render in it and the receipt warns FONT_MISSING.",
         "Live Shapes, paths and text take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}; omit it for a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke.",
         "Give each node a clientKey to find its new id in the receipt's keyMap.",
         "At most 2000 Nodes per call, counting inline children.",

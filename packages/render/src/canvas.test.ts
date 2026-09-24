@@ -151,3 +151,13 @@ it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned"
     "strokeText Hi 10 50",
   ]);
 });
+
+it("draws a font Zibel does not bundle in Source Sans 3, as render does", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    { type: "text", parentId, x: 10, y: 50, content: "Hi", fontFamily: "Helvetica" },
+  ]);
+  const { ctx, log } = recorder();
+  drawDocument(ctx, doc);
+  expect(log).toContain('font=12px "Source Sans 3"');
+});

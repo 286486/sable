@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { ZibelError } from "./errors.ts";
-import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
+import { formatPath, normalizePath, parsePath, pathBounds, shapeSegments } from "./path.ts";
 import type { Rect, Shape } from "./schema.ts";
 
 const errorOf = (fn: () => unknown) => {
@@ -142,4 +142,39 @@ it("bounds a path with more segments than a function call takes arguments", () =
     args: [i, -i],
   }));
   expect(pathBounds(segments)).toEqual({ x: 0, y: -199_999, width: 199_999, height: 199_999 });
+});
+
+it("normalises relative commands, H, V, S and T to absolute M, L, C, Q and Z", () => {
+  expect(formatPath(normalizePath("m 10 10 h 20 v 20 s 5 5 10 0 t 10 0 z", "d"))).toBe(
+    "M 10 10 L 30 10 L 30 30 C 30 30 35 35 40 30 Q 40 30 50 30 Z",
+  );
+  // S and T reflect the previous control point; implicit repeats continue the command.
+  expect(
+    formatPath(normalizePath("M0 0C0 10 10 10 10 0S20-10 20 0Q25 5 30 0T40 0l5 5 5 5", "d")),
+  ).toBe("M 0 0 C 0 10 10 10 10 0 C 10 -10 20 -10 20 0 Q 25 5 30 0 Q 35 -5 40 0 L 45 5 L 50 10");
+  // A command after Z without M starts a new subpath at the closed one's start.
+  expect(formatPath(normalizePath("M 5 5 L 10 0 Z l 1 1", "d"))).toBe("M 5 5 L 10 0 Z M 5 5 L 6 6");
+});
+
+it("turns arcs into cubics on the ellipse", () => {
+  const arc = normalizePath("M 0 0 A 10 10 0 0 1 20 0", "d");
+  expect(arc.slice(1).every((s) => s.cmd === "C")).toBe(true);
+  const b = pathBounds(arc) as Rect;
+  for (const [k, v] of Object.entries({ x: 0, y: -10, width: 20, height: 10 })) {
+    expect(b[k as keyof Rect]).toBeCloseTo(v, 3);
+  }
+  // Compact flags, a relative end point and the radius scaled up to reach it.
+  const compact = normalizePath("M0 0a1 1 0 0110 0", "d");
+  expect(compact.at(-1)?.args.slice(-2)).toEqual([10, 0]);
+  expect((pathBounds(compact) as Rect).height).toBeCloseTo(5, 3);
+  // A zero radius is a line; an arc to the current point draws nothing.
+  expect(formatPath(normalizePath("M 0 0 A 0 5 0 0 0 10 0 A 5 5 0 0 0 10 0", "d"))).toBe(
+    "M 0 0 L 10 0",
+  );
+});
+
+it("refuses path data it cannot read", () => {
+  for (const d of ["L 0 0", "M 0", "M 0 0 X 1", "M 0 0 A 1 1 0 2 0 5 5", ""]) {
+    expect(errorOf(() => normalizePath(d, "d")).code).toBe("INVALID_PATH");
+  }
 });

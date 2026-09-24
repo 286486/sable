@@ -1,5 +1,6 @@
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
 import wasm from "@resvg/resvg-wasm/index_bg.wasm";
+import { BUNDLED_FONT } from "@zibel/core";
 import font from "../fonts/SourceSans3-Regular.ttf";
 
 // Workers forbid compiling wasm from bytes at runtime, so the module is imported statically
@@ -10,7 +11,8 @@ const ready = initWasm(wasm);
 const fonts = {
   fontBuffers: [new Uint8Array(font)],
   loadSystemFonts: false,
-  defaultFontFamily: "Source Sans 3",
+  // Also what every family the bundle lacks falls back to (ADR-0017).
+  defaultFontFamily: BUNDLED_FONT,
 };
 
 async function rasterise<T>(

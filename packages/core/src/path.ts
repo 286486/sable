@@ -63,6 +63,174 @@ export function parsePath(d: string, path: string): Segment[] {
   return segments;
 }
 
+type Point = [number, number];
+
+const NUMBER = /[\s,]*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/y;
+const FLAG = /[\s,]*([01])/y;
+const COMMAND = /[\s,]*([MmLlHhVvCcSsQqTtAaZz])/y;
+
+/**
+ * Parses any SVG 1.1 path data into absolute M, L, C, Q and Z (ADR-0017): relative commands and
+ * H, V, S, T fold, arcs become cubics. For imported files; `parsePath` stays strict for tool input.
+ */
+export function normalizePath(d: string, path: string): Segment[] {
+  const fail = (message: string, hint = "d is SVG path data starting with M."): never => {
+    throw new ZibelError({ code: "INVALID_PATH", message, hint, path });
+  };
+  let at = 0;
+  const read = (re: RegExp) => {
+    re.lastIndex = at;
+    const m = re.exec(d);
+    if (m) at = re.lastIndex;
+    return m?.[1];
+  };
+  const more = () => {
+    NUMBER.lastIndex = at;
+    return NUMBER.test(d);
+  };
+  const num = () => {
+    const n = Number(read(NUMBER) ?? fail(`Expected a number at ${at} in d.`));
+    return Number.isFinite(n) ? n : fail(`A number in d is out of range.`);
+  };
+  const flag = () => Number(read(FLAG) ?? fail(`Expected an arc flag 0 or 1 at ${at} in d.`));
+
+  const out: Segment[] = [];
+  let [x, y, sx, sy] = [0, 0, 0, 0];
+  /** The control point S or T reflects, when the previous segment was a C or a Q. */
+  let cubic: Point | null = null;
+  let quad: Point | null = null;
+  const reflect = (p: Point | null): Point => (p ? [2 * x - p[0], 2 * y - p[1]] : [x, y]);
+  let closed = false;
+  for (let c = read(COMMAND); c !== undefined; c = read(COMMAND)) {
+    const C = c.toUpperCase();
+    if (out.length === 0 && C !== "M") fail(`d starts with ${c}.`, "Start d with M x y.");
+    if (C === "Z") {
+      out.push({ cmd: "Z", args: [] });
+      [x, y, cubic, quad, closed] = [sx, sy, null, null, true];
+      continue;
+    }
+    if (closed && C !== "M") out.push({ cmd: "M", args: [sx, sy] });
+    closed = false;
+    const rel = c !== C;
+    let first = true;
+    do {
+      const px = () => num() + (rel ? x : 0);
+      const py = () => num() + (rel ? y : 0);
+      let nextCubic: Point | null = null;
+      let nextQuad: Point | null = null;
+      switch (C) {
+        case "M":
+        case "L": {
+          [x, y] = [px(), py()];
+          const move = C === "M" && first;
+          if (move) [sx, sy] = [x, y];
+          out.push({ cmd: move ? "M" : "L", args: [x, y] });
+          break;
+        }
+        case "H":
+          x = px();
+          out.push({ cmd: "L", args: [x, y] });
+          break;
+        case "V":
+          y = py();
+          out.push({ cmd: "L", args: [x, y] });
+          break;
+        case "C":
+        case "S": {
+          const [x1, y1]: Point = C === "C" ? [px(), py()] : reflect(cubic);
+          const [x2, y2, ex, ey] = [px(), py(), px(), py()];
+          out.push({ cmd: "C", args: [x1, y1, x2, y2, ex, ey] });
+          nextCubic = [x2, y2];
+          [x, y] = [ex, ey];
+          break;
+        }
+        case "Q":
+        case "T": {
+          const control: Point = C === "Q" ? [px(), py()] : reflect(quad);
+          const [ex, ey] = [px(), py()];
+          out.push({ cmd: "Q", args: [...control, ex, ey] });
+          nextQuad = control;
+          [x, y] = [ex, ey];
+          break;
+        }
+        case "A": {
+          const [rx, ry, rotation, large, sweep] = [num(), num(), num(), flag(), flag()];
+          const [ex, ey] = [px(), py()];
+          out.push(...arcToCubics(x, y, rx, ry, rotation, large === 1, sweep === 1, ex, ey));
+          [x, y] = [ex, ey];
+          break;
+        }
+      }
+      cubic = nextCubic;
+      quad = nextQuad;
+      first = false;
+    } while (more());
+  }
+  const rest = d.slice(at).trim();
+  if (rest) fail(`Unexpected "${rest.slice(0, 10)}" in d.`);
+  if (out.length === 0) fail("d is empty.", "Start d with M x y.");
+  return out;
+}
+
+/** An SVG arc as cubics of at most 90° each (SVG 1.1 F.6.5 endpoint to centre conversion). */
+function arcToCubics(
+  x1: number,
+  y1: number,
+  rx: number,
+  ry: number,
+  rotation: number,
+  large: boolean,
+  sweep: boolean,
+  x2: number,
+  y2: number,
+): Segment[] {
+  if (x1 === x2 && y1 === y2) return [];
+  rx = Math.abs(rx);
+  ry = Math.abs(ry);
+  if (rx === 0 || ry === 0) return [{ cmd: "L", args: [x2, y2] }];
+  const phi = (rotation * Math.PI) / 180;
+  const [cos, sin] = [Math.cos(phi), Math.sin(phi)];
+  const [dx, dy] = [(x1 - x2) / 2, (y1 - y2) / 2];
+  const x1p = cos * dx + sin * dy;
+  const y1p = -sin * dx + cos * dy;
+  // Radii too small to reach the end point scale up until they just do.
+  const lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+  if (lambda > 1) [rx, ry] = [rx * Math.sqrt(lambda), ry * Math.sqrt(lambda)];
+  const [rx2, ry2] = [rx * rx, ry * ry];
+  const den = rx2 * y1p * y1p + ry2 * x1p * x1p;
+  const coef = (large === sweep ? -1 : 1) * Math.sqrt(Math.max(0, (rx2 * ry2 - den) / den));
+  const cxp = (coef * rx * y1p) / ry;
+  const cyp = (-coef * ry * x1p) / rx;
+  const cx = cos * cxp - sin * cyp + (x1 + x2) / 2;
+  const cy = sin * cxp + cos * cyp + (y1 + y2) / 2;
+  const angle = (ux: number, uy: number, vx: number, vy: number) =>
+    Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+  const [ux, uy] = [(x1p - cxp) / rx, (y1p - cyp) / ry];
+  const start = angle(1, 0, ux, uy);
+  let delta = angle(ux, uy, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
+  if (!sweep && delta > 0) delta -= 2 * Math.PI;
+  else if (sweep && delta < 0) delta += 2 * Math.PI;
+  const n = Math.max(1, Math.ceil(Math.abs(delta) / (Math.PI / 2) - 1e-9));
+  const step = delta / n;
+  const k = (4 / 3) * Math.tan(step / 4);
+  const at = (t: number) => [
+    cx + rx * Math.cos(t) * cos - ry * Math.sin(t) * sin,
+    cy + rx * Math.cos(t) * sin + ry * Math.sin(t) * cos,
+  ];
+  const tangent = (t: number) => [
+    -rx * Math.sin(t) * cos - ry * Math.cos(t) * sin,
+    -rx * Math.sin(t) * sin + ry * Math.cos(t) * cos,
+  ];
+  return Array.from({ length: n }, (_, i) => {
+    const [ta, tb] = [start + i * step, start + (i + 1) * step];
+    const [ax = 0, ay = 0] = at(ta);
+    const [bx = 0, by = 0] = i === n - 1 ? [x2, y2] : at(tb);
+    const [dax = 0, day = 0] = tangent(ta);
+    const [dbx = 0, dby = 0] = tangent(tb);
+    return { cmd: "C", args: [ax + k * dax, ay + k * day, bx - k * dbx, by - k * dby, bx, by] };
+  });
+}
+
 /** At most 3 decimals and no -0 (REQUIREMENTS §6.5). */
 export const formatNumber = (n: number) => String(Math.round(n * 1000) / 1000 || 0);
 
