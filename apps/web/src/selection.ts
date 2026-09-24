@@ -1,11 +1,13 @@
 import {
   bounds,
   childrenOf,
+  clippingPath,
   type Document,
   formatPath,
   type LeafNode,
   type Node,
   type Rect,
+  type ShapeNode,
   scaleOf,
   shapeSegments,
   touches,
@@ -78,8 +80,13 @@ export function hitTest(
   const walk = (parentId: string | null) => {
     for (const n of childrenOf(doc, parentId)) {
       if (!n.visible || n.locked) continue;
-      if (n.type === "layer" || n.type === "group") walk(n.id);
-      else if (paintedAt(ctx, doc, n, x, y, tolerance)) hit = n;
+      if (n.type === "layer" || n.type === "group") {
+        // Outside its Clipping Path, a Clipping Mask draws nothing to hit (ADR-0021).
+        const clip = clippingPath(doc, n);
+        if (!clip || ctx.isPointInPath(outline(doc, clip), x, y, ruleOf(clip))) walk(n.id);
+      } else if (!("clipping" in n && n.clipping) && paintedAt(ctx, doc, n, x, y, tolerance)) {
+        hit = n;
+      }
     }
   };
   ctx.save();
@@ -106,14 +113,20 @@ function paintedAt(
     const b = bounds(doc, n);
     return !!b && b.x <= x && x <= b.x + b.width && b.y <= y && y <= b.y + b.height;
   }
-  const m = worldTransform(doc, n);
-  const path = new Path2D(formatPath(transformSegments(shapeSegments(n), m)));
-  const rule = n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : "nonzero";
-  if (n.appearance.fills.length > 0 && ctx.isPointInPath(path, x, y, rule)) return true;
-  const widest = Math.max(0, ...n.appearance.strokes.map((s) => s.width)) * scaleOf(m);
+  const path = outline(doc, n);
+  if (n.appearance.fills.length > 0 && ctx.isPointInPath(path, x, y, ruleOf(n))) return true;
+  const widest =
+    Math.max(0, ...n.appearance.strokes.map((s) => s.width)) * scaleOf(worldTransform(doc, n));
   ctx.lineWidth = Math.max(widest, tolerance);
   return ctx.isPointInStroke(path, x, y);
 }
+
+/** A shape's outline in document coordinates. */
+const outline = (doc: Document, n: ShapeNode) =>
+  new Path2D(formatPath(transformSegments(shapeSegments(n), worldTransform(doc, n))));
+
+const ruleOf = (n: ShapeNode) =>
+  n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : "nonzero";
 
 /** A click or marquee's `ids` applied to the Selection: replace; Shift toggles; Alt+Shift removes. */
 export function combine(

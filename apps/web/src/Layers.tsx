@@ -54,7 +54,7 @@ export const Layers = memo(function Layers() {
       }}
     >
       {rows(doc, toggled).map(({ node, depth, expandable, expanded, dimmed }) => {
-        const label = node.name || autoName(node);
+        const label = node.name || autoName(doc, node);
         const selected = selection.includes(node.id);
         const pick = (e: React.MouseEvent) => {
           const { doc, selection } = useStore.getState();

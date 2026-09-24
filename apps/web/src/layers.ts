@@ -1,4 +1,4 @@
-import { childrenOf, type Document, type Node } from "@zibel/core";
+import { childrenOf, clippingPath, type Document, type Node } from "@zibel/core";
 import { editable } from "./selection.ts";
 
 const AUTO_NAMES: Record<Exclude<Node["type"], "text">, string> = {
@@ -12,9 +12,18 @@ const AUTO_NAMES: Record<Exclude<Node["type"], "text">, string> = {
   layer: "<Layer>",
 };
 
-/** What the Layers panel shows for a Node whose `name` is empty, a text's content; never stored (ADR-0012). */
-export const autoName = (node: Node) =>
-  node.type === "text" ? node.content : AUTO_NAMES[node.type];
+/**
+ * What the Layers panel shows for a Node whose `name` is empty, a text's content; never stored
+ * (ADR-0012). A Clipping Mask and its Clipping Path take Illustrator's names (ADR-0021).
+ */
+export const autoName = (doc: Document, node: Node) =>
+  node.type === "text"
+    ? node.content
+    : clippingPath(doc, node)
+      ? "<Clip Group>"
+      : "clipping" in node && node.clipping
+        ? "<Clipping Path>"
+        : AUTO_NAMES[node.type];
 
 /** One line of the Layers panel. */
 export interface Row {

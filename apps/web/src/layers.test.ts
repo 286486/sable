@@ -1,4 +1,4 @@
-import { createDocument, createNodes, type Node } from "@zibel/core";
+import { createDocument, createNodes, makeMask, type Node } from "@zibel/core";
 import { expect, it } from "vitest";
 import { autoName, rows } from "./layers.ts";
 
@@ -62,7 +62,11 @@ it("dims every row hidden or locked, itself or through an ancestor", () => {
 
 it("auto-names each type of unnamed Node", () => {
   const types = ["rect", "ellipse", "line", "polygon", "star", "path", "group", "layer"] as const;
-  expect(types.map((type) => autoName({ type } as Node))).toEqual([
+  expect(
+    types.map((type) =>
+      autoName(createDocument({ id: "d", name: "D", artboards: [] }).doc, { type } as Node),
+    ),
+  ).toEqual([
     "<Rectangle>",
     "<Ellipse>",
     "<Line>",
@@ -84,5 +88,22 @@ it("offers no disclosure for an empty container", () => {
 });
 
 it("auto-names a text by its content", () => {
-  expect(autoName({ type: "text", content: "Q3 revenue" } as Node)).toBe("Q3 revenue");
+  expect(
+    autoName(createDocument({ id: "d", name: "D", artboards: [] }).doc, {
+      type: "text",
+      content: "Q3 revenue",
+    } as Node),
+  ).toBe("Q3 revenue");
+});
+
+it("auto-names a Clipping Mask and its Clipping Path as Illustrator does", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({ id: "d", name: "D", artboards: [] });
+  const [content, clip] = createNodes(doc, [
+    { type: "rect", parentId, x: 0, y: 0, width: 5, height: 5 },
+    { type: "ellipse", parentId, x: 0, y: 0, width: 5, height: 5 },
+  ]).nodes as [Node, Node];
+  const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+  expect(autoName(doc, group)).toBe("<Clip Group>");
+  expect(autoName(doc, doc.nodes.get(clip.id) as Node)).toBe("<Clipping Path>");
+  expect(autoName(doc, content)).toBe("<Rectangle>");
 });
