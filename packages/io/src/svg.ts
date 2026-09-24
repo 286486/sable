@@ -403,13 +403,6 @@ class Reader {
         );
       }
     }
-    if (style["fill-rule"] === "evenodd") {
-      this.warn(
-        "UNSUPPORTED_ATTRIBUTE",
-        "fill-rule",
-        "fill-rule evenodd is not supported until Compound Paths land (#30); nonzero is used.",
-      );
-    }
     if (e.hasAttributeNS(INKSCAPE_NS, "path-effect")) {
       this.warn(
         "PATH_EFFECT_FLATTENED",
@@ -618,6 +611,8 @@ class Reader {
     const path = (segments: Segment[]) => ({
       type: "path",
       d: formatPath(bake ? transformSegments(segments, m) : segments),
+      // Only a Path keeps it: a Live Shape's or a text's outline never crosses itself (ADR-0018).
+      fillRule: style["fill-rule"] === "evenodd" ? "evenodd" : "nonzero",
       transform,
     });
     switch (e.localName) {
