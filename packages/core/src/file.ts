@@ -15,6 +15,7 @@ import {
   SHAPES,
   Stroke,
   TextShape,
+  textFrame,
   Writable,
 } from "./schema.ts";
 
@@ -65,7 +66,7 @@ const appearance = z.strictObject({
 const StoredNode = z.discriminatedUnion("type", [
   z.strictObject({ ...base, type: z.literal("layer") }),
   z.strictObject({ ...base, type: z.literal("group") }),
-  z.strictObject({ ...base, ...TextShape.shape, appearance }),
+  z.strictObject({ ...base, ...TextShape.shape, appearance }).superRefine(textFrame),
   ...Object.values(SHAPES).map((s) =>
     z.strictObject({ ...base, ...s.shape, appearance, clipping: z.boolean().optional() }),
   ),

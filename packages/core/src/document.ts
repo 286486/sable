@@ -21,6 +21,7 @@ import {
   Shape,
   type ShapeNode,
   TextShape,
+  textFrame,
 } from "./schema.ts";
 import { textBox } from "./text.ts";
 
@@ -120,7 +121,7 @@ export function createNodes(
     if (input.type === "layer" || input.type === "group") {
       node = { ...at, type: input.type, name };
     } else if (input.type === "text") {
-      const text = TextShape.parse(input);
+      const text = TextShape.superRefine(textFrame).parse(input);
       const appearance = paint(input.appearance ?? defaultTypeAppearance(), `${path}.appearance`);
       node = { ...at, ...text, name, appearance };
     } else {

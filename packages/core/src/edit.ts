@@ -142,9 +142,13 @@ export const zodPath = (path: PropertyKey[]) =>
 
 function writableSchema(node: Node) {
   if (node.type === "layer" || node.type === "group") return Writable;
-  // A text's kind is fixed: Point Type stays Point Type until Area Type exists.
-  const { type: _, ...parameters } =
-    node.type === "text" ? TextShape.omit({ kind: true }).shape : SHAPES[node.type].shape;
+  if (node.type === "text") {
+    // A text's kind is fixed, and only Area Type has a frame, which it cannot drop (ADR-0022).
+    const { type: _, kind: __, width, height, ...text } = TextShape.shape;
+    const frame = node.kind === "area" ? { width: width.unwrap(), height: height.unwrap() } : {};
+    return Writable.extend(text).extend(frame).extend({ appearance: AppearanceInput });
+  }
+  const { type: _, ...parameters } = SHAPES[node.type].shape;
   return Writable.extend(parameters).extend({ appearance: AppearanceInput });
 }
 
@@ -189,6 +193,10 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
     );
   }
   const next = { ...node, ...parsed.data } as Node;
+  // null deletes an optional key, such as leading back to Auto.
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null && !Object.hasOwn(parsed.data, key)) delete next[key as keyof Node];
+  }
   // SVG clips everything away through a hidden clip path; Illustrator unclips (ADR-0021).
   if ("clipping" in next && next.clipping && !next.visible) {
     throw invalid(

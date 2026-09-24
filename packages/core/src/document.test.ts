@@ -606,9 +606,37 @@ describe("text", () => {
     expect(inner).toMatchObject({ type: "text", parentId: group?.id });
   });
 
-  it.each(["", "a\nb", "a\rb", "a\tb", "a\u2028b"])("rejects content %j", (content) => {
+  it.each(["", "a\rb", "a\tb", "a\u2028b"])("rejects content %j", (content) => {
     const { doc, defaultLayerId } = newDoc();
     expect(() => createNodes(doc, [text(defaultLayerId, content)])).toThrow();
+    expect(doc.nodes.size).toBe(1);
+  });
+
+  it("keeps hard returns, and a set leading", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [node] = createNodes(doc, [{ ...text(defaultLayerId, "a\nb"), leading: 15 }]).nodes;
+    expect(node).toMatchObject({ content: "a\nb", leading: 15 });
+  });
+
+  it("stores Area Type with its frame, which is its bounds", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const frame = { x: 10, y: 20, width: 100, height: 40 };
+    const [node] = createNodes(doc, [
+      { type: "text", kind: "area", parentId: defaultLayerId, ...frame, content: "Hi" },
+    ]).nodes;
+    expect(node).toMatchObject({ kind: "area", ...frame });
+    expect(node && bounds(doc, node)).toEqual(frame);
+  });
+
+  it.each([
+    [{ kind: "area", width: 100 }, /Area Type needs width and height/],
+    [{ width: 100 }, /set kind to area/],
+  ])("refuses a frame that does not match the kind: %j", (extra, message) => {
+    const { doc, defaultLayerId } = newDoc();
+    const input = { ...text(defaultLayerId), ...extra } as Parameters<
+      typeof createNodes
+    >[1][number];
+    expect(() => createNodes(doc, [input])).toThrow(message);
     expect(doc.nodes.size).toBe(1);
   });
 });

@@ -433,9 +433,44 @@ describe("updateNodes on a text", () => {
     expect(doc.nodes.get(t.id)).toMatchObject({ fontFamily: "Arial" });
   });
 
+  it("writes hard returns, and leading, which null returns to Auto", () => {
+    const { doc, t } = setup();
+    updateNodes(doc, [{ nodeId: t.id, patch: { content: "a\nb", leading: 15 } }]);
+    expect(doc.nodes.get(t.id)).toMatchObject({ content: "a\nb", leading: 15 });
+    updateNodes(doc, [{ nodeId: t.id, patch: { leading: null } }]);
+    expect(doc.nodes.get(t.id)).not.toHaveProperty("leading");
+  });
+
+  it("writes an Area Type's frame, and refuses to delete it", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [a] = createNodes(doc, [
+      {
+        type: "text",
+        kind: "area",
+        parentId: defaultLayerId,
+        x: 0,
+        y: 0,
+        width: 50,
+        height: 20,
+        content: "Hi",
+      },
+    ]).nodes;
+    if (!a) throw new Error("setup");
+    updateNodes(doc, [{ nodeId: a.id, patch: { width: 200 } }]);
+    expect(doc.nodes.get(a.id)).toMatchObject({ width: 200, height: 20 });
+    expect(
+      errorOf(() => updateNodes(doc, [{ nodeId: a.id, patch: { height: null } }])),
+    ).toMatchObject({
+      code: "INVALID_PATCH",
+      path: "updates[0].patch.height",
+      hint: expect.stringMatching(/required/),
+    });
+  });
+
   it.each([
-    [{ kind: "area" }, "kind", /x, y, content, fontFamily, fontSize/],
-    [{ content: "a\nb" }, "content", /./],
+    [{ kind: "area" }, "kind", /x, y, content, fontFamily, fontSize, leading/],
+    [{ width: 10 }, "width", /leading/],
+    [{ content: "a\tb" }, "content", /./],
     [{ d: "M 0 0" }, "d", /outline/i],
   ])("rejects %j with INVALID_PATCH", (patch, key, hint) => {
     const { doc, t } = setup();
@@ -446,6 +481,7 @@ describe("updateNodes on a text", () => {
       hint: expect.stringMatching(hint),
     });
     if (key === "kind") expect(error.hint).not.toMatch(/\bkind\b/);
+    if (key === "width") expect(error.hint).not.toMatch(/\bwidth\b/);
   });
 });
 

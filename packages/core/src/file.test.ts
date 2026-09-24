@@ -294,6 +294,24 @@ describe("validation", () => {
       (f) => `nodes[${f.nodes.length - 1}].clipping`,
     ],
     [
+      "a Point Type with a frame",
+      (f) => {
+        Object.assign(byType(f, "text"), { width: 10, height: 10 });
+        return f;
+      },
+      "INVALID_DOCUMENT",
+      (f) => `nodes[${at(f, byType(f, "text"))}].width`,
+    ],
+    [
+      "an Area Type without height",
+      (f) => {
+        Object.assign(byType(f, "text"), { kind: "area", width: 10 });
+        return f;
+      },
+      "INVALID_DOCUMENT",
+      (f) => `nodes[${at(f, byType(f, "text"))}].height`,
+    ],
+    [
       "a hidden Clipping Path",
       (f) => {
         Object.assign(byType(f, "rect"), { clipping: true, visible: false });
@@ -320,4 +338,21 @@ it("reads a Clipping Mask back as it was written", () => {
   const text = JSON.stringify(f, null, 2);
   const { nodes } = parseDocument(text);
   expect(nodes.find((n) => n.type === "rect")).toMatchObject({ clipping: true });
+});
+
+it("reads Area Type back with its frame and no leading", () => {
+  const f = JSON.parse(serializeDocument(scene()));
+  Object.assign(
+    f.nodes.find((n: { type: string }) => n.type === "text"),
+    {
+      kind: "area",
+      width: 100,
+      height: 40,
+      content: "a\nb",
+    },
+  );
+  const { nodes } = parseDocument(JSON.stringify(f));
+  const area = nodes.find((n) => n.type === "text");
+  expect(area).toMatchObject({ kind: "area", width: 100, height: 40, content: "a\nb" });
+  expect(area).not.toHaveProperty("leading");
 });
