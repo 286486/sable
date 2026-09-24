@@ -209,7 +209,7 @@ it("keeps a Transaction's edits in an overlay until commit, across a restart", a
   expect(await layerChildren(s, txId)).toEqual([rectId, a]);
   expect(await layerChildren(s)).toEqual([rectId]);
   expect(await s.get([a], "concise", "agent-a")).toMatchObject({
-    error: { code: "NODE_NOT_FOUND" },
+    error: { code: "NODE_NOT_FOUND", path: "nodeIds[0]" },
   });
   expect(await s.info()).toMatchObject({ rev: 2 });
 

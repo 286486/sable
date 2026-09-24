@@ -107,6 +107,10 @@ it("derives d for each Live Shape, with bounds equal to the shape's box", () => 
     const b = pathBounds(segments);
     for (const k of ["x", "y", "width", "height"] as const) expect(b?.[k]).toBeCloseTo(box[k], 9);
   }
+  // An ellipse starts at its top and runs in cubics.
+  expect(
+    formatPath(shapeSegments({ type: "ellipse", x: 10, y: 10, width: 80, height: 40 })),
+  ).toMatch(/^M 50 10 C/);
 });
 
 it("clamps the corner radius and draws four arcs", () => {

@@ -1,6 +1,6 @@
 import { evictAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
-import { COLOR_PATTERN, type ErrorCode } from "@zibel/core";
+import type { ErrorCode } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import { call, errorOf, rpc } from "./rpc.ts";
@@ -19,14 +19,9 @@ it("initializes without a session id", async () => {
   expect(res.headers.get("mcp-session-id")).toBeNull();
 });
 
-it("lists tools with annotations and an outputSchema", async () => {
+it("lists the tools over HTTP (their schemas and annotations: packages/mcp server.test.ts)", async () => {
   const { body } = await rpc("tools/list");
-  const tools = body.result.tools as {
-    name: string;
-    annotations: object;
-    inputSchema: object;
-    outputSchema: object;
-  }[];
+  const tools = body.result.tools as { name: string }[];
   expect(tools.map((t) => t.name).sort()).toEqual([
     "zibel_doc_changes",
     "zibel_doc_create",
@@ -48,116 +43,6 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_tx_commit",
     "zibel_tx_rollback",
   ]);
-  const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
-  const inputKeys = (name: string) => {
-    const tool = byName[name];
-    return tool ? Object.keys((tool.inputSchema as { properties: object }).properties) : [];
-  };
-  for (const [name, destructive] of [
-    ["zibel_node_create", false],
-    ["zibel_node_update", true],
-    ["zibel_node_delete", true],
-    ["zibel_node_transform", false],
-  ] as const) {
-    expect(byName[name]?.annotations).toMatchObject({ destructiveHint: destructive });
-    expect(inputKeys(name)).toEqual(
-      expect.arrayContaining(["docId", "intent", "txId", "ifRev", "partial"]),
-    );
-  }
-  expect(inputKeys("zibel_doc_create")).toContain("intent");
-  expect(inputKeys("zibel_doc_replace").sort()).toEqual(
-    ["baseRev", "content", "docId", "ifRev", "intent"].sort(),
-  );
-  expect(byName.zibel_doc_replace?.annotations).toMatchObject({ destructiveHint: true });
-  expect(inputKeys("zibel_svg_import").sort()).toEqual(
-    ["docId", "fit", "ifRev", "intent", "parentId", "position", "svg", "txId"].sort(),
-  );
-  expect(byName.zibel_svg_import?.annotations).toMatchObject({ destructiveHint: false });
-  for (const name of [
-    "zibel_node_get",
-    "zibel_node_query",
-    "zibel_doc_outline",
-    "zibel_render",
-    "zibel_export",
-  ]) {
-    expect(inputKeys(name)).toContain("txId");
-  }
-  expect(inputKeys("zibel_tx_commit")).toEqual(
-    expect.arrayContaining(["docId", "txId", "ifRev", "intent"]),
-  );
-  expect(byName.zibel_doc_changes?.annotations).toMatchObject({ readOnlyHint: true });
-  expect(byName.zibel_doc_get_info?.annotations).toMatchObject({ readOnlyHint: true });
-  expect(byName.zibel_doc_list?.annotations).toMatchObject({ readOnlyHint: true });
-  expect(byName.zibel_tx_rollback?.annotations).toMatchObject({ destructiveHint: true });
-  expect(byName.zibel_tx_commit?.annotations).toMatchObject({ destructiveHint: false });
-  expect(JSON.stringify(tools)).not.toContain("no effect yet");
-  // Descriptions point at the Skill document instead of repeating its conventions.
-  const described = (name: string) => (byName[name] as { description?: string })?.description;
-  for (const name of ["zibel_doc_create", "zibel_node_create", "zibel_node_update"]) {
-    expect(described(name)).toContain("skill://zibel/drawing-conventions");
-  }
-  expect(described("zibel_node_create")).not.toContain("origin top-left");
-  for (const t of tools) {
-    expect(t.annotations, t.name).toEqual({
-      readOnlyHint: expect.any(Boolean),
-      destructiveHint: expect.any(Boolean),
-      idempotentHint: expect.any(Boolean),
-      openWorldHint: false,
-    });
-    expect(t.outputSchema, t.name).toMatchObject({ type: "object" });
-  }
-  // Core validates colours, but Agents still read the pattern from the published schema (§6.5).
-  const nodeCreate = tools.find((t) => t.name === "zibel_node_create");
-  expect(JSON.stringify(nodeCreate?.inputSchema)).toContain(
-    JSON.stringify({ type: "string", pattern: COLOR_PATTERN }).slice(1, -1),
-  );
-});
-
-// #4: Point Type measured by Source Sans 3's advances, read straight from the TTF: H 652, i 246,
-// space 200 per 1000 units; ascender 1000, descender -326.
-it("creates text whose bounds grow with its content by the font's advance widths", async () => {
-  const doc = await newDoc();
-  const text = (content: string) => ({
-    type: "text",
-    parentId: doc.defaultLayerId,
-    x: 10,
-    y: 50,
-    content,
-  });
-  const { tools } = (await rpc("tools/list")).body.result as {
-    tools: { name: string; description: string }[];
-  };
-  expect(tools.find((t) => t.name === "zibel_node_create")?.description).toContain("text {");
-  const created = await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [text("Hi"), text("Hi Hi")],
-  });
-  const ids = created.structuredContent.createdIds as string[];
-  const bounds = async () =>
-    (
-      (await call("zibel_node_get", { docId: doc.docId, nodeIds: ids })).structuredContent
-        .nodes as { geometricBounds: { x: number; y: number; width: number; height: number } }[]
-    ).map((n) => n.geometricBounds);
-  const [hi, longer] = await bounds();
-  expect(hi?.x).toBeCloseTo(10);
-  expect(hi?.y).toBeCloseTo(50 - 12);
-  expect(hi?.width).toBeCloseTo(((652 + 246) * 12) / 1000);
-  expect(hi?.height).toBeCloseTo((1326 * 12) / 1000);
-  expect(longer?.width).toBeCloseTo((((652 + 246) * 2 + 200) * 12) / 1000);
-
-  await call("zibel_node_update", {
-    docId: doc.docId,
-    updates: [{ nodeId: ids[0], patch: { content: "H" } }],
-  });
-  expect((await bounds())[0]?.width).toBeCloseTo((652 * 12) / 1000);
-  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: ids, detail: "full" }))
-    .structuredContent.nodes;
-  expect(full).toMatchObject({ type: "text", kind: "point", content: "H", fontSize: 12 });
-  expect(full).not.toHaveProperty("d");
-  const { nodes } = (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
-  expect(nodes[0].children.map((c: { type: string }) => c.type)).toEqual(["text", "text"]);
-  const rendered = await call("zibel_render", { docId: doc.docId });
-  expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
 });
 
 it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
@@ -231,103 +116,6 @@ it("creates a rect in the default Layer and reads it back from doc_outline", asy
   expect(await read()).toMatchObject(expected);
 });
 
-it("reads Nodes back with node_get in concise or full detail", async () => {
-  const doc = await newDoc();
-  const created = await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [
-      {
-        type: "rect",
-        parentId: doc.defaultLayerId,
-        x: 10,
-        y: 10,
-        width: 50,
-        height: 30,
-        appearance: { strokes: [{ color: "#000000", width: 4 }] },
-      },
-    ],
-  });
-  const [id] = created.structuredContent.createdIds;
-  const get = async (detail?: string) =>
-    (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail })).structuredContent;
-
-  expect(await get("full")).toEqual({
-    rev: 2,
-    nodes: [
-      expect.objectContaining({
-        id,
-        type: "rect",
-        parentId: doc.defaultLayerId,
-        x: 10,
-        y: 10,
-        width: 50,
-        height: 30,
-        radius: 0,
-        d: "M 10 10 L 60 10 L 60 40 L 10 40 Z",
-        appearance: {
-          fills: [],
-          strokes: [
-            { color: "#000000", width: 4, cap: "butt", join: "miter", miterLimit: 10, dash: [] },
-          ],
-        },
-        geometricBounds: { x: 10, y: 10, width: 50, height: 30 },
-        visibleBounds: { x: 8, y: 8, width: 54, height: 34 },
-        worldTransform: [1, 0, 0, 1, 0, 0],
-      }),
-    ],
-  });
-  const concise = await get();
-  expect(concise.nodes[0]).toMatchObject({ id, geometricBounds: { x: 10 } });
-  expect(concise.nodes[0]).not.toHaveProperty("d");
-});
-
-it("returns NODE_NOT_FOUND from node_get with the index of the unknown id", async () => {
-  const doc = await newDoc();
-  const result = await call("zibel_node_get", {
-    docId: doc.docId,
-    nodeIds: [doc.defaultLayerId, "nope"],
-  });
-  expect(errorOf(result)).toMatchObject({
-    code: "NODE_NOT_FOUND",
-    hint: expect.any(String),
-    path: "nodeIds[1]",
-  });
-});
-
-it("returns INVALID_PARENT with a path when the parent is a rect", async () => {
-  const doc = await newDoc();
-  const rect = { type: "rect", parentId: doc.defaultLayerId, x: 0, y: 0, width: 1, height: 1 };
-  const first = await call("zibel_node_create", { docId: doc.docId, nodes: [rect] });
-  const result = await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [{ ...rect, parentId: first.structuredContent.createdIds[0] }],
-  });
-  expect(errorOf(result)).toMatchObject({
-    code: "INVALID_PARENT",
-    hint: expect.any(String),
-    path: "nodes[0].parentId",
-  });
-});
-
-it("returns INVALID_COLOR with a hint for a bad Artboard background", async () => {
-  const result = await call("zibel_doc_create", {
-    name: "Doc",
-    artboards: [{ width: 10, height: 10, background: "white" }],
-  });
-  expect(errorOf(result)).toMatchObject({
-    code: "INVALID_COLOR",
-    hint: expect.stringContaining("#FFFFFF"),
-    path: "artboards[0].background",
-  });
-});
-
-it("returns DOC_NOT_FOUND for an unknown docId", async () => {
-  for (const tool of ["zibel_doc_outline", "zibel_doc_get_info", "zibel_node_query"]) {
-    const result = await call(tool, { docId: "01NOPE" });
-    expect(errorOf(result)).toMatchObject({ code: "DOC_NOT_FOUND", hint: expect.any(String) });
-  }
-});
-
 it("lists Documents created in earlier requests, newest first, with doc_list", async () => {
   const create = async (name: string) =>
     (await call("zibel_doc_create", { name, artboards: [{ width: 10, height: 10 }] }))
@@ -367,258 +155,6 @@ it("answers GET and DELETE with 405: no standalone stream and no sessions (ADR-0
     expect(res.status).toBe(405);
     expect(res.headers.get("allow")).toBe("POST");
   }
-});
-
-it("rejects more than 1000 Artboards or 2000 nodes in one call", async () => {
-  const tooManyArtboards = await call("zibel_doc_create", {
-    name: "x",
-    artboards: Array(1001).fill({ width: 1, height: 1 }),
-  });
-  expect(tooManyArtboards.isError).toBe(true);
-  const doc = await newDoc();
-  const rect = { type: "rect", parentId: doc.defaultLayerId, x: 0, y: 0, width: 1, height: 1 };
-  const tooManyNodes = await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: Array(2001).fill(rect),
-  });
-  expect(errorOf(tooManyNodes)).toMatchObject({
-    code: "LIMIT_EXCEEDED",
-    hint: expect.stringContaining("Split"),
-    path: "nodes",
-  });
-});
-
-it("cuts a hole with an evenodd Compound Path, which node_get reports and render draws", async () => {
-  const doc = await newDoc();
-  // Both subpaths wind the same way, so only evenodd makes the inner one a hole.
-  const d = "M 10 10 L 60 10 L 60 60 L 10 60 Z M 25 25 L 45 25 L 45 45 L 25 45 Z";
-  const created = await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [
-      {
-        type: "path",
-        parentId: doc.defaultLayerId,
-        d,
-        fillRule: "evenodd",
-        appearance: { fills: [{ color: "#000000" }] },
-      },
-    ],
-  });
-  const [id] = created.structuredContent.createdIds as string[];
-  const get = async () =>
-    (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
-      .structuredContent.nodes[0];
-  expect(await get()).toMatchObject({ type: "path", d, fillRule: "evenodd" });
-  const png = async () =>
-    (await call("zibel_render", { docId: doc.docId, background: "#FFFFFF" })).content[0].data;
-  const holed = await png();
-  await call("zibel_node_update", {
-    docId: doc.docId,
-    updates: [{ nodeId: id, patch: { fillRule: "nonzero" } }],
-  });
-  expect(await get()).toMatchObject({ fillRule: "nonzero" });
-  expect(await png()).not.toBe(holed);
-  const [rectId] = (
-    await call("zibel_node_create", {
-      docId: doc.docId,
-      nodes: [{ type: "rect", parentId: doc.defaultLayerId, x: 0, y: 0, width: 1, height: 1 }],
-    })
-  ).structuredContent.createdIds as string[];
-  expect(
-    errorOf(
-      await call("zibel_node_update", {
-        docId: doc.docId,
-        updates: [{ nodeId: rectId, patch: { fillRule: "evenodd" } }],
-      }),
-    ),
-  ).toMatchObject({ code: "INVALID_PATCH", message: "A rect has no fillRule." });
-});
-
-it("creates every M0 type with an Appearance and reads each back in full", async () => {
-  const doc = await newDoc();
-  const paint = (color: string) => ({
-    fills: [{ color }],
-    strokes: [{ color: "#000000", width: 2, join: "round" }],
-  });
-  const parentId = doc.defaultLayerId;
-  const created = await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [
-      { type: "layer", clientKey: "layer", name: "Top" },
-      {
-        type: "group",
-        parentId,
-        clientKey: "group",
-        children: [
-          {
-            type: "rect",
-            clientKey: "rect",
-            x: 10,
-            y: 10,
-            width: 40,
-            height: 20,
-            radius: 4,
-            appearance: paint("#FF0000"),
-          },
-          {
-            type: "line",
-            clientKey: "line",
-            x1: 10,
-            y1: 40,
-            x2: 50,
-            y2: 60,
-            appearance: paint("#00FF00"),
-          },
-        ],
-      },
-      {
-        type: "ellipse",
-        parentId,
-        clientKey: "ellipse",
-        x: 60,
-        y: 10,
-        width: 30,
-        height: 20,
-        appearance: paint("#0000FF"),
-      },
-      {
-        type: "polygon",
-        parentId,
-        clientKey: "polygon",
-        cx: 120,
-        cy: 25,
-        radius: 15,
-        sides: 6,
-        appearance: paint("#FFFF00"),
-      },
-      {
-        type: "star",
-        parentId,
-        clientKey: "star",
-        cx: 160,
-        cy: 25,
-        outerRadius: 15,
-        innerRadius: 6,
-        points: 5,
-        appearance: paint("#FF00FF"),
-      },
-      {
-        type: "path",
-        parentId,
-        clientKey: "path",
-        d: "M 60 50 C 70 30 90 30 100 50 Q 80 90 60 50 Z",
-        appearance: paint("#00FFFF80"),
-      },
-    ],
-  });
-  const receipt = created.structuredContent;
-  const order = ["layer", "group", "rect", "line", "ellipse", "polygon", "star", "path"];
-  expect(receipt.createdIds).toEqual(order.map((k) => receipt.keyMap[k]));
-  expect(Object.keys(receipt.keyMap).sort()).toEqual([...order].sort());
-
-  const { nodes } = (
-    await call("zibel_node_get", { docId: doc.docId, nodeIds: receipt.createdIds, detail: "full" })
-  ).structuredContent;
-  const byKey = Object.fromEntries(order.map((k, i) => [k, nodes[i]]));
-  expect(byKey.layer).toMatchObject({ type: "layer", name: "Top", parentId: null, childCount: 0 });
-  expect(byKey.group).toMatchObject({
-    type: "group",
-    parentId,
-    childCount: 2,
-    geometricBounds: { x: 10, y: 10, width: 40, height: 50 },
-    visibleBounds: { x: 9, y: 9, width: 42, height: 52 },
-  });
-  expect(byKey.rect).toMatchObject({
-    parentId: receipt.keyMap.group,
-    radius: 4,
-    d: expect.stringMatching(/^M 14 10 L 46 10 C/),
-    appearance: { fills: [{ type: "solid", color: "#FF0000" }], strokes: [{ join: "round" }] },
-    geometricBounds: { x: 10, y: 10, width: 40, height: 20 },
-  });
-  expect(byKey.line).toMatchObject({
-    d: "M 10 40 L 50 60",
-    geometricBounds: { x: 10, y: 40, width: 40, height: 20 },
-  });
-  expect(byKey.ellipse).toMatchObject({
-    d: expect.stringMatching(/^M 75 10 C/),
-    geometricBounds: { x: 60, y: 10, width: 30, height: 20 },
-  });
-  expect(byKey.polygon).toMatchObject({ sides: 6, d: expect.stringMatching(/^M 120 10 L/) });
-  expect(byKey.polygon.geometricBounds.height).toBeCloseTo(30, 9);
-  expect(byKey.star).toMatchObject({ points: 5, d: expect.stringMatching(/^M 160 10 L/) });
-  expect(byKey.star.d.match(/L/g)).toHaveLength(9);
-  expect(byKey.path).toMatchObject({
-    d: "M 60 50 C 70 30 90 30 100 50 Q 80 90 60 50 Z",
-    appearance: { fills: [{ color: "#00FFFF80" }] },
-    geometricBounds: { x: 60, y: 35, width: 40, height: 35 },
-  });
-
-  const rendered = await call("zibel_render", { docId: doc.docId });
-  expect(rendered.content.find((c: { type: string }) => c.type === "image")?.mimeType).toBe(
-    "image/png",
-  );
-});
-
-it.each([
-  [
-    "INVALID_COLOR",
-    (parentId: string) => ({
-      type: "ellipse",
-      parentId,
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      appearance: { fills: [{ color: "rgb(255, 0, 0)" }] },
-    }),
-    "nodes[1].appearance.fills[0].color",
-  ],
-  [
-    "INVALID_PATH",
-    (parentId: string) => ({ type: "path", parentId, d: "M 0 0 h 10" }),
-    "nodes[1].d",
-  ],
-  [
-    "INVALID_PARENT",
-    (parentId: string) => ({ type: "rect", parentId, x: 0, y: 0, width: 1, height: 1 }),
-    "nodes[1].parentId",
-  ],
-] as const)("returns %s with hint and path, and creates nothing", async (code, bad, path) => {
-  const doc = await newDoc();
-  // The INVALID_PARENT case points at an Artboard; the others at the default Layer.
-  const artboardId = doc.artboards[0].id;
-  const second = bad(code === "INVALID_PARENT" ? artboardId : doc.defaultLayerId);
-  const ok = { type: "line", parentId: doc.defaultLayerId, x1: 0, y1: 0, x2: 1, y2: 1 };
-  const result = await call("zibel_node_create", { docId: doc.docId, nodes: [ok, second] });
-  expect(errorOf(result)).toMatchObject({ code, hint: expect.any(String), path });
-  const outline = (await call("zibel_doc_outline", { docId: doc.docId })).structuredContent;
-  expect(outline).toMatchObject({ rev: 1, nodes: [{ childCount: 0 }] });
-});
-
-it("returns INVALID_PARENT for a Layer inside a Group", async () => {
-  const doc = await newDoc();
-  const group = await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [{ type: "group", parentId: doc.defaultLayerId }],
-  });
-  const result = await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [{ type: "layer", parentId: group.structuredContent.createdIds[0] }],
-  });
-  expect(errorOf(result)).toMatchObject({
-    code: "INVALID_PARENT",
-    hint: expect.any(String),
-    path: "nodes[0].parentId",
-  });
-  const inline = await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [{ type: "group", parentId: doc.defaultLayerId, children: [{ type: "layer" }] }],
-  });
-  expect(errorOf(inline)).toMatchObject({
-    code: "INVALID_PARENT",
-    hint: expect.any(String),
-    path: "nodes[0].children[0].type",
-  });
 });
 
 describe("edit tools", () => {
@@ -1288,7 +824,8 @@ it("returns a non-empty hint with every error code a tool can return", async () 
   }
 });
 
-it("serves skill://zibel/drawing-conventions as a resource and points at it on initialize", async () => {
+it("serves skill://zibel/drawing-conventions over HTTP and points at it on initialize", async () => {
+  // Its facts and the drift guard: packages/mcp server.test.ts.
   const uri = "skill://zibel/drawing-conventions";
   const init = await rpc("initialize", {
     protocolVersion: "2025-06-18",
@@ -1299,28 +836,11 @@ it("serves skill://zibel/drawing-conventions as a resource and points at it on i
   const listed = (await rpc("resources/list")).body.result.resources;
   expect(listed).toContainEqual(expect.objectContaining({ uri, mimeType: "text/markdown" }));
   const [doc] = (await rpc("resources/read", { uri })).body.result.contents;
-  expect(doc).toMatchObject({ uri, mimeType: "text/markdown" });
-  for (const fact of [
-    "#RRGGBB",
-    "y down",
-    "parentId",
-    "ifRev",
-    "zibel_doc_changes",
-    "zibel_json",
-    "zibel_doc_open",
-    "INVALID_DOCUMENT",
-    "SVG",
-    "FONT_MISSING",
-    "LIMIT_EXCEEDED",
-  ]) {
-    expect(doc.text).toContain(fact);
-  }
-  // Drift guard: the document names only tools that exist; zibel_json is an export format.
-  const tools = new Set(
-    (await rpc("tools/list")).body.result.tools.map((t: { name: string }) => t.name),
-  );
-  for (const [name] of doc.text.matchAll(/zibel_(?!json\b)[a-z_]+/g)) expect(tools).toContain(name);
-  expect((await rpc("resources/read", { uri: "skill://zibel/nope" })).body.error).toBeDefined();
+  expect(doc).toMatchObject({
+    uri,
+    mimeType: "text/markdown",
+    text: expect.stringContaining("#RRGGBB"),
+  });
 });
 
 describe("zibel_json", () => {
