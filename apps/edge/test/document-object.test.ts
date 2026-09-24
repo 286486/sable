@@ -189,6 +189,52 @@ async function withRect(docId: string) {
   return { s: stub(docId), defaultLayerId, rectId };
 }
 
+it("reports where a redone delete took the Node from", async () => {
+  const { s, rectId } = await withRect("u6");
+  const at = { x: 0, y: 0, width: 10, height: 10 };
+  ok(await s.deleteNodes([rectId], "agent-a"));
+  expect(ok(await s.undo("user"))).toMatchObject({ createdIds: [rectId], bounds: at });
+  expect(ok(await s.redo("user"))).toMatchObject({ deletedIds: [rectId], bounds: at });
+});
+
+it("commits with bounds covering what it created and where it deleted", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("t6");
+  const { txId } = ok(await s.begin("agent-a"));
+  const [a = ""] = ok(
+    await s.createNodes([{ ...rect, x: 30, parentId: defaultLayerId }], "agent-a", { txId }),
+  ).createdIds;
+  expect(ok(await s.deleteNodes([rectId], "agent-a", { txId }))).toMatchObject({
+    rev: 2,
+    deletedIds: [rectId],
+    bounds: { x: 0, y: 0, width: 10, height: 10 },
+  });
+  expect(ok(await s.commitTx(txId, "agent-a"))).toMatchObject({
+    rev: 3,
+    createdIds: [a],
+    deletedIds: [rectId],
+    bounds: { x: 0, y: 0, width: 40, height: 10 },
+  });
+});
+
+it("reports where a deleted Group's contents were", async () => {
+  const { s, defaultLayerId } = await withRect("u7");
+  const [group = ""] = ok(
+    await s.createNodes(
+      [
+        {
+          type: "group",
+          parentId: defaultLayerId,
+          children: [{ type: "line", x1: 20, y1: 0, x2: 70, y2: 5 }],
+        },
+      ],
+      "agent-a",
+    ),
+  ).createdIds;
+  expect(ok(await s.deleteNodes([group], "agent-a"))).toMatchObject({
+    bounds: { x: 20, y: 0, width: 50, height: 5 },
+  });
+});
+
 const layerChildren = async (s: ReturnType<typeof stub>, txId?: string) => {
   const { nodes } = ok(await s.outline({ depth: 2 }, "agent-a", txId));
   return (nodes[0]?.children ?? []).map((c) => c.id);
@@ -364,7 +410,11 @@ it("undoes and redoes as new Transactions, back to the Document's creation", asy
   expect(await stub("u2").redo("user")).toMatchObject({ error: { code: "NOTHING_TO_REDO" } });
 
   ok(await stub("u2").undo("user"));
-  expect(ok(await stub("u2").undo("user"))).toMatchObject({ deletedIds: [id] });
+  // Undoing the create reports where the Node was.
+  expect(ok(await stub("u2").undo("user"))).toMatchObject({
+    deletedIds: [id],
+    bounds: { x: 0, y: 0, width: 10, height: 10 },
+  });
   expect(await x()).toBeNull();
   expect(await stub("u2").undo("user")).toMatchObject({ error: { code: "NOTHING_TO_UNDO" } });
 

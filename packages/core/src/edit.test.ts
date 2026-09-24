@@ -333,9 +333,8 @@ describe("deleteNodes", () => {
       rect(100, 0),
     ]).nodes;
     if (!g || !a || !inner || !b) throw new Error("setup");
-    const { deletedIds, bounds } = deleteNodes(doc, [g.id, b.id]);
+    const { deletedIds } = deleteNodes(doc, [g.id, b.id]);
     expect(deletedIds).toEqual([g.id, a.id, inner.id, b.id]);
-    expect(bounds).toEqual({ x: 0, y: 0, width: 50, height: 10 });
     expect(outline(doc)).toMatchObject([{ id: defaultLayerId, childCount: 1 }]);
     expect([...doc.nodes.keys()]).not.toContain(b.id);
   });

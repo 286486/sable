@@ -216,18 +216,17 @@ export function updateNodes(
   return { nodes: unique, failed };
 }
 
-/** Deletes the Nodes and everything beneath them; `bounds` is where they were. */
+/** Deletes the Nodes and everything beneath them. */
 export function deleteNodes(
   doc: Document,
   nodeIds: string[],
   { partial = false } = {},
-): { deletedIds: string[]; bounds: Rect | null; failed: Failed[] } {
+): { deletedIds: string[]; failed: Failed[] } {
   const { ok: targets, failed } = collect(nodeIds, partial, (id, i) =>
     lookup(doc, id, `nodeIds[${i}]`),
   );
   const { kept } = outermost(doc, targets);
   const gone = kept.flatMap((n) => subtree(doc, n));
-  const before = union(kept.map((n) => bounds(doc, n)));
   for (const n of gone) doc.nodes.delete(n.id);
-  return { deletedIds: gone.map((n) => n.id), bounds: before, failed };
+  return { deletedIds: gone.map((n) => n.id), failed };
 }

@@ -598,15 +598,28 @@ describe("zibel_json", () => {
 
 it("replaces a Document from its edited SVG export, and refuses any other file", async () => {
   const doc = await newDoc();
+  const rect = { type: "rect", parentId: doc.defaultLayerId, y: 0, width: 10, height: 10 };
   const created = await call("zibel_node_create", {
     docId: doc.docId,
-    nodes: [{ type: "rect", parentId: doc.defaultLayerId, x: 0, y: 0, width: 10, height: 10 }],
+    nodes: [
+      { ...rect, x: 0 },
+      { ...rect, x: 20 },
+    ],
   });
-  const [id] = created.structuredContent.createdIds as string[];
+  const [id = "", gone = ""] = created.structuredContent.createdIds as string[];
   const svg = (await call("zibel_export", { docId: doc.docId, format: "svg" })).content[0].text;
-  const content = svg.replace(/(id="z-[^"]+"[^>]*) fill="[^"]*"/, '$1 fill="#FF0000"');
+  const element = (nodeId: string) => new RegExp(`<[a-z]+ [^>]*\\bid="z-${nodeId}"[^>]*/>`);
+  const content = svg
+    .replace(element(id), (e: string) => e.replace(/fill="[^"]*"/, 'fill="#FF0000"'))
+    .replace(element(gone), "");
   const replaced = await call("zibel_doc_replace", { docId: doc.docId, content });
-  expect(replaced.structuredContent).toMatchObject({ updatedIds: [id], warnings: [] });
+  // bounds covers the recoloured rect and where the deleted one was.
+  expect(replaced.structuredContent).toMatchObject({
+    updatedIds: [id],
+    deletedIds: [gone],
+    bounds: { x: 0, y: 0, width: 30, height: 10 },
+    warnings: [],
+  });
 
   const foreign = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="5" height="5"/></svg>';
   const refused = await call("zibel_doc_replace", { docId: doc.docId, content: foreign });
