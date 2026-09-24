@@ -1,16 +1,10 @@
 // `pnpm bench [task…]`: runs each task's prompt through `claude -p` against a local `wrangler dev`,
 // then checks the Document it drew through MCP (REQUIREMENTS §9.0). Not run in CI.
-import { type ChildProcess, spawn } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  openSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startServer } from "../wrangler.ts";
 import { type Check, httpCall } from "./mcp.ts";
 
 const PORT = 8790;
@@ -98,37 +92,10 @@ async function agent(task: string, prompt: string): Promise<Run> {
   return run;
 }
 
-async function waitForServer(server: ChildProcess) {
-  for (let i = 0; i < 120; i++) {
-    if (server.exitCode !== null) throw new Error(`wrangler dev exited; see ${STATE}/wrangler.log`);
-    try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/api/docs`)).ok) return;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`wrangler dev did not answer in 60 s; see ${STATE}/wrangler.log`);
-}
-
-mkdirSync(STATE, { recursive: true });
-const log = openSync(join(STATE, "wrangler.log"), "w");
-const server = spawn(
-  "wrangler",
-  ["dev", "-c", "apps/edge/wrangler.jsonc", "--port", String(PORT), "--persist-to", STATE],
-  { detached: true, stdio: ["ignore", log, log] },
-);
-const stop = () => {
-  try {
-    if (server.pid) process.kill(-server.pid, "SIGTERM");
-  } catch {} // already exited
-};
-process.on("SIGINT", () => {
-  stop();
-  process.exit(130);
-});
+const server = await startServer(PORT, STATE);
 
 let failed = 0;
 try {
-  await waitForServer(server);
   const call = httpCall(MCP, TOKEN);
   const only = process.argv.slice(2);
   const tasks = readdirSync(here)
@@ -172,6 +139,6 @@ try {
     );
   }
 } finally {
-  stop();
+  server.stop();
 }
 process.exit(failed ? 1 : 0);

@@ -19,3 +19,19 @@ jobs:
       - run: pnpm check
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+
+  # The Inkscape round trip (ADR-0017); ubuntu-24.04 ships Inkscape 1.2.2.
+  roundtrip:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: sudo apt-get update && sudo apt-get install -y inkscape
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm roundtrip
+        env:
+          WRANGLER_SEND_METRICS: "false"

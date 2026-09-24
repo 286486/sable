@@ -442,6 +442,139 @@
       "width": 30,
       "x": 240,
       "y": 40
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29SJ4M6P9R2B8K3Q7X5N",
+      "index": "aB",
+      "locked": false,
+      "meta": {},
+      "name": "Sublayer",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "layer",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "square",
+            "color": "#3355AA",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 4
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "d": "M 230 85 Q 265 60 295 85",
+      "id": "01M38T29SJ8D2F6G1H3K5M7N9P",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SJ4M6P9R2B8K3Q7X5N",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "path",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#FFCC00",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "multiply",
+      "height": 40,
+      "id": "01M38T29SJC5E7G9J1K3M5P7R9",
+      "index": "aC",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 40,
+      "x": 115,
+      "y": 60
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "square",
+            "color": "#000000",
+            "dash": [],
+            "join": "bevel",
+            "miterLimit": 10,
+            "width": 6
+          },
+          {
+            "cap": "butt",
+            "color": "#FFFFFFCC",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 2
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "d": "M 415 130 L 432 150 L 415 170",
+      "id": "01M38T29SJF2H4K6M8P0R2T4V6",
+      "index": "aD",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "path",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#FF0000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 20,
+      "id": "01M38T29SJK7N9Q1S3V5X7Z9B1",
+      "index": "aE",
+      "locked": false,
+      "meta": {},
+      "name": "Hidden",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": false,
+      "width": 20,
+      "x": 230,
+      "y": 90
     }
   ]
 }

@@ -1,5 +1,6 @@
 import {
   type Appearance,
+  type Artboard,
   bounds,
   childrenOf,
   type Document,
@@ -41,6 +42,13 @@ const attrs = (a: Attrs) =>
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => ` ${k}="${esc(String(v))}"`)
     .join("");
+
+/** A colour as `fill` or `stroke` plus its alpha as `-opacity`: Inkscape 1.2 draws #RRGGBBAA black. */
+const paint = (name: "fill" | "stroke", color: string): Attrs => ({
+  [name]: color.slice(0, 7),
+  [`${name}-opacity`]:
+    color.length === 9 ? formatNumber(Number.parseInt(color.slice(7), 16) / 255) : undefined,
+});
 
 /** The area a doc-scope render covers: every Artboard. */
 export function docRect(doc: Document): Rect {
@@ -182,13 +190,13 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
   const background = [
     // Marked, so importing the file does not make it a Node.
     opts.background
-      ? `<rect${attrs({ x, y, width, height, fill: opts.background, "zibel:background": "true" })}/>`
+      ? `<rect${attrs({ x, y, width, height, ...paint("fill", opts.background), "zibel:background": "true" })}/>`
       : "",
     ...(nodeIds ? [] : doc.artboards)
-      .filter((a) => a.background)
+      .filter((a): a is Artboard & { background: string } => !!a.background)
       .map(
         (a) =>
-          `<rect${attrs({ ...num(a.frame), fill: a.background, "zibel:artboard": a.id, "sodipodi:insensitive": "true" })}/>`,
+          `<rect${attrs({ ...num(a.frame), ...paint("fill", a.background), "zibel:artboard": a.id, "sodipodi:insensitive": "true" })}/>`,
       ),
   ].join("");
   const drawn: Node[] = [];
@@ -260,7 +268,7 @@ function overlays(doc: Document, drawn: Node[], on: Set<RenderOverlay>, scale: n
 }
 
 const stroke = (s: Appearance["strokes"][number]): Attrs => ({
-  stroke: s.color,
+  ...paint("stroke", s.color),
   "stroke-width": s.width,
   "stroke-linecap": s.cap === "butt" ? undefined : s.cap,
   "stroke-linejoin": s.join === "miter" ? undefined : s.join,
@@ -376,10 +384,13 @@ function node(doc: Document, n: Node, walk: Walk): string {
   if (fills.length <= 1 && strokes.length <= 1) {
     const [f] = fills;
     const [s] = strokes;
-    return element({ ...own, fill: f?.color ?? "none", ...(s && stroke(s)) }, [...looks]);
+    return element(
+      { ...own, ...(f ? paint("fill", f.color) : { fill: "none" }), ...(s && stroke(s)) },
+      [...looks],
+    );
   }
   const paints = [
-    ...fills.map((f) => element({ fill: f.color })),
+    ...fills.map((f) => element(paint("fill", f.color))),
     ...strokes.map((s) => element({ fill: "none", ...stroke(s) })),
   ].join("");
   return `<g${attrs({ ...own, "zibel:stack": "true", style: style(...looks) })}>${paints}</g>`;

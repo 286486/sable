@@ -54,7 +54,7 @@ When a task is done (gate 8 merged), end by recommending the next task to the us
 5. **Implement (Opus).** One unit at a time: test red, smallest change to green, `pnpm check`, commit. Use `/mattpocock-skills:tdd` when the unit has a cheap test target. Done: every unit green and committed.
 6. **Verify (Opus).** `pnpm check` (typecheck, Biome, Vitest in workerd via `@cloudflare/vitest-plugin`) plus the suites the change reaches:
     - MCP tools, schemas or `skill://` docs: agent benchmarks in `fixtures/agent-benchmarks/` (`pnpm bench`, local only).
-    - `packages/io` or `packages/render`: SVG round-trip fixtures.
+    - `packages/io` or `packages/render`: the Inkscape round trip over `fixtures/documents/` (`pnpm roundtrip`, also a CI job). It needs `inkscape` ≥ 1.2 on `PATH`; a skip is not a pass.
     - `packages/geometry`: boolean and offset regression fixtures.
 
     Done: all green, with the output kept for the merge commit. Until M0 creates these scripts and fixtures, say which checks did not exist.

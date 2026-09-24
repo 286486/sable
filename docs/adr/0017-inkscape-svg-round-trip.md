@@ -29,6 +29,7 @@ Every new node type or Appearance feature ships with its SVG export mapping, its
 | Any Node | `id="z-<ULID>"` (an XML id cannot start with a digit); name → `inkscape:label`; hidden → `style="display:none"`, written, not dropped; locked → `sodipodi:insensitive="true"`; `opacity` and `mix-blend-mode` in `style`; `tags` and `meta` as JSON → `zibel:tags`, `zibel:meta`, each left out when empty |
 | Leaf with ≤ 1 Fill and ≤ 1 Stroke | one element with both `fill` and `stroke`; no Fill is `fill="none"`, so an empty Appearance is still an element |
 | Appearance stack | a `<g zibel:stack="true">` of paints, read back as one Node; the paints carry no id |
+| Colour with alpha | `fill="#RRGGBB" fill-opacity`, `stroke="#RRGGBB" stroke-opacity`, likewise Artboard and render backgrounds, opacity at 3 decimals, which recovers every alpha byte: Inkscape 1.2 draws `#RRGGBBAA` as black. Import reads both forms |
 | `rect`, `ellipse`, `line` | `<rect rx ry>` (the clamped radius, left out at 0), `<circle>` when width equals height, else `<ellipse>`, `<line>` |
 | `polygon`, `star` | `<path sodipodi:type="star">` with `sodipodi:sides/cx/cy/r1/r2/arg1/arg2`, `inkscape:flatsided/rounded/randomized` and a `d` that matches them, because Inkscape rebuilds the shape from the parameters on load. `arg1 = −π/2` (first vertex up, radians, clockwise) and `arg2 = arg1 + π/sides`, at full precision; a polygon is `flatsided="true"` with `r2` its inradius; `rounded` and `randomized` are written as 0; rotation stays in `transform` |
 | `text` | `<text>` with the Node's `fontFamily` |
@@ -87,7 +88,11 @@ Browser: Open, Replace and Place send the file over HTTP to the Worker, which pa
 
 ## Testing
 
-`pnpm roundtrip` (#27): export each fixture Document, re-save it with `inkscape --export-type=svg` (Inkscape SVG), import, and check that outline, Node types, parameters, names, visibility, lock and Artboards equal the original's; also that resvg's PNG and Inkscape's PNG of the export differ by under 1% of pixels. It needs Inkscape ≥ 1.2 (Ubuntu 24.04 ships 1.2.2) and Node, so it runs outside `pnpm check`: locally, skipping when `inkscape` is missing, and as its own CI job.
+`pnpm roundtrip` (#27): for each Document in `fixtures/documents/`, export SVG through a local Worker, re-save it with `inkscape --export-type=svg` (Inkscape SVG), Open the result, and check that it has no warnings and that its `.zibel.json` equals the original's field by field: name, Artboards, every Node by id (type, parameters, `d`, name, visibility, lock, tags, meta, Appearance, font) and each parent's child order. It prints the first difference, such as `nodes[<id>].locked: false, want true`. Both files are named after the Document, because Inkscape writes `sodipodi:docname` from the file it read.
+
+The pixel check compares resvg's PNG of the whole Document with Inkscape's PNG of a rect-scope export of the same rect, drawn with `-C -d 72` so one pt is one pixel (`--export-area` takes px, not user units). Both are on opaque white, since transparent pixels carry different RGB in the two renderers. A pixel differs when a channel differs by more than 32/255, and a fixture fails at 1% of pixels. Inkscape draws text in the bundled Source Sans 3 through a `FONTCONFIG_FILE`. The remaining 0.1–0.2% is antialiasing plus kerning: Inkscape ignores `font-kerning:none` and kerns, resvg does not, so a text-heavy fixture may need a higher budget or 2x.
+
+It needs Inkscape ≥ 1.2 (Ubuntu 24.04 ships 1.2.2) and Node, so it runs outside `pnpm check`: locally, skipping when `inkscape` is missing, and as its own CI job.
 
 Inkscape is GPL. It is only an external program here: no Inkscape source is copied or ported. Its shape formulas (star rounding, randomisation) are implemented from its documentation and observed output, and the round-trip check is what proves they match.
 
