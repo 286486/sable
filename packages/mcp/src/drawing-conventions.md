@@ -20,6 +20,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - Absolute `M`, `L`, `C`, `Q` and `Z` only, uppercase. Numbers are stored with at most 3 decimals. Write `H` and `V` as `L`, `S` as `C`, `T` as `Q`, and arcs `A` as `C`.
 - Start with `M x y`. Extra pairs after `M` are implicit `L`. `Z` closes the subpath.
 - Example, a closed triangle and a curve: `M 0 0 L 100 0 L 50 80 Z M 0 100 C 30 60 70 140 100 100`.
+- To cut a hole, make a Compound Path: put the hole as another subpath of the same `d` and set `fillRule: "evenodd"`, e.g. `M 0 0 L 100 0 L 100 100 L 0 100 Z M 30 30 L 70 30 L 70 70 L 30 70 Z`. Under the default `nonzero`, an inner subpath is a hole only when it winds the other way.
 - Prefer a Live Shape (`rect`, `ellipse`, `line`, `polygon`, `star`) to a path when one fits: its parameters stay editable.
 - Only tool input is held to these commands: an SVG opened with `zibel_doc_open` may use any path data, and it is stored in this form.
 
