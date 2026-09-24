@@ -100,8 +100,10 @@ it("draws the fixture Document with known pixels", async () => {
   // before it rounded control points to 3 decimals, which moved 3 edge pixels by up to 16/255.
   // Both changed again, by #26: "Turned" draws with its stored 0.866025 where export wrote 0.866, which
   // moved 28 of its antialiased edge pixels at 2x by up to 10/255.
+  // The whole Document again, by #27: the fixture gained a Sublayer, a multiply rect, a two-Stroke
+  // path and a hidden ellipse. Writing alpha as fill-opacity did not move a pixel.
   expect(await hash(toSvg(doc, docRect(doc)))).toBe(
-    "6a5396962e2dfd1ed83c8a223669d92294477469293fee9e3cb36dff89780bec",
+    "d9e4998a8fb487a787ecff7547859b3d1ce00d32f16eed5e4d20f0419291f8ba",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
