@@ -66,12 +66,17 @@ async function agent(task: string, prompt: string): Promise<Run> {
     stdio: ["pipe", "pipe", "inherit"],
     timeout: TIMEOUT_MS,
   });
+  let spawnError: string | undefined;
+  child.on("error", (e) => {
+    spawnError = `claude: ${e.message}`;
+  });
   child.stdin.end(prompt);
+  child.stdout.setEncoding("utf8");
   let stream = "";
   for await (const chunk of child.stdout) stream += chunk;
   writeFileSync(join(STATE, `${task}.jsonl`), stream);
 
-  const run: Run = { tools: [], turns: 0, ms: 0, cost: 0, model: "?" };
+  const run: Run = { tools: [], turns: 0, ms: 0, cost: 0, model: "?", error: spawnError };
   for (const line of stream.split("\n").filter(Boolean)) {
     const event = JSON.parse(line);
     if (event.type === "system" && event.subtype === "init") {
@@ -111,7 +116,11 @@ const server = spawn(
   ["dev", "-c", "apps/edge/wrangler.jsonc", "--port", String(PORT), "--persist-to", STATE],
   { detached: true, stdio: ["ignore", log, log] },
 );
-const stop = () => server.pid && process.kill(-server.pid, "SIGTERM");
+const stop = () => {
+  try {
+    if (server.pid) process.kill(-server.pid, "SIGTERM");
+  } catch {} // already exited
+};
 process.on("SIGINT", () => {
   stop();
   process.exit(130);
