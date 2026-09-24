@@ -27,6 +27,7 @@ import {
   NodeQueryOutput,
   OpenedDocumentOutput,
   OutlineOutput,
+  PlacedOutput,
   RenderOutput,
   TxOutput,
 } from "./schemas.ts";
@@ -249,6 +250,44 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     },
     ({ docId, nodes, ...opts }) =>
       run("zibel_node_create", async () => json(await service.createNodes(docId, nodes, opts))),
+  );
+
+  server.registerTool(
+    "zibel_svg_import",
+    {
+      title: "Place SVG",
+      description: [
+        "Place an SVG into a Document, as Illustrator's File > Place: one new Group under parentId (a Layer or Group), above its other children, named from the SVG's sodipodi:docname or <title>, else Untitled (rename it with zibel_node_update). Pass the file's content, not a path; at most 5 MB.",
+        "SVG layers become Groups, pages and page backgrounds are dropped, and every Node gets a new id, so placing a file twice, or one exported from this Document, never collides. Units become pt, with px counting as pt.",
+        "position is where the centre of the Group's geometricBounds lands, in document coordinates; default the centre of the parent's Artboard, the one the parent overlaps most, else the first. fit: true first scales the Group uniformly, Strokes included, to fit that Artboard.",
+        "One Transaction. createdIds starts with the Group, and nodes is its outline to depth 2. warnings lists once per kind what Zibel cannot hold yet, as zibel_doc_open does. A .zibel.json is INVALID_DOCUMENT.",
+      ].join(" "),
+      inputSchema: {
+        docId,
+        svg: z.string().min(1).describe("The whole .svg text."),
+        parentId: z.string().describe("A Layer or Group id to place the new Group in."),
+        position: z
+          .object({ x: z.number(), y: z.number() })
+          .optional()
+          .describe("Where the Group's centre lands, in document coordinates."),
+        fit: z
+          .boolean()
+          .default(false)
+          .describe("Scale uniformly, Strokes included, to fit the parent's Artboard."),
+        intent,
+        txId: writeFields.txId,
+        ifRev,
+      },
+      outputSchema: PlacedOutput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, ...input }) =>
+      run("zibel_svg_import", async () => json(await service.place(docId, input))),
   );
 
   server.registerTool(

@@ -5,7 +5,7 @@ import { toSvg } from "@zibel/render/svg";
 import { useEffect, useRef, useState } from "react";
 import { Layers } from "./Layers.tsx";
 import { preview } from "./receive.ts";
-import { combine, editable, hitTest, inverse, marquee, objects } from "./selection.ts";
+import { combine, editable, hitTest, inverse, marquee, objects, placeParent } from "./selection.ts";
 import { connect, send, useStore } from "./store.ts";
 import { fit, toDoc, type Viewport, zoomAt } from "./viewport.ts";
 
@@ -45,25 +45,22 @@ function download(text: string, type: string, filename: string) {
 }
 
 /**
- * Replace (ADR-0017): the Worker merges the file into the Document as the user, and the canvas
+ * Replace and Place (ADR-0017) POST the file to the Worker, which writes it as the user; the canvas
  * follows the `tx` broadcast like any other write. Failures and warnings show as the notice.
  */
-async function replaceFrom(docId: string, file: File) {
+async function postFile(url: string, body: string, what: string) {
   const notice = (text: string) => useStore.setState({ notice: text });
   try {
-    const res = await fetch(`/api/docs/${docId}/replace`, {
-      method: "POST",
-      body: await file.text(),
-    });
-    const body = (await res.json()) as {
+    const res = await fetch(url, { method: "POST", body });
+    const json = (await res.json()) as {
       message?: string;
       hint?: string;
       warnings?: { message: string }[];
     };
-    if (!res.ok) notice(`Could not update from ${file.name}: ${body.message} ${body.hint ?? ""}`);
-    else useStore.setState({ notice: body.warnings?.map((w) => w.message).join(" ") || null });
+    if (!res.ok) notice(`Could not ${what}: ${json.message} ${json.hint ?? ""}`);
+    else useStore.setState({ notice: json.warnings?.map((w) => w.message).join(" ") || null });
   } catch (e) {
-    notice(`Could not update from ${file.name}: ${String(e)}`);
+    notice(`Could not ${what}: ${String(e)}`);
   }
 }
 
@@ -224,6 +221,42 @@ export function Viewer({ docId }: { docId: string }) {
     };
   }, [size]);
 
+  /** Place (ADR-0017): an SVG at the centre of the canvas, in the Selection's Layer or the top one. */
+  const place = (svg: string, name?: string) => {
+    const { doc, viewport: v, selection } = useStore.getState();
+    const parentId = doc && placeParent(doc, selection);
+    if (!v || !parentId) return;
+    const { x, y } = toDoc(v, size.width / 2, size.height / 2);
+    const query = new URLSearchParams({
+      parentId,
+      x: String(x),
+      y: String(y),
+      ...(name && { name }),
+    });
+    postFile(`/api/docs/${docId}/place?${query}`, svg, `place ${name ?? "the pasted SVG"}`);
+  };
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: place reads the current size
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const data = e.clipboardData;
+      const text = data?.getData("image/svg+xml") || data?.getData("text/plain") || "";
+      if (!text.trimStart().startsWith("<")) return;
+      e.preventDefault();
+      place(text);
+    };
+    addEventListener("paste", onPaste);
+    return () => removeEventListener("paste", onPaste);
+  }, [size]);
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = [...e.dataTransfer.files].find(
+      (f) => f.type === "image/svg+xml" || /\.svg$/i.test(f.name),
+    );
+    file?.text().then((text) => place(text, file.name));
+  };
+
   /** The pointer in document coordinates. */
   const docPoint = (e: React.PointerEvent<HTMLCanvasElement>, v: Viewport) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -327,6 +360,8 @@ export function Viewer({ docId }: { docId: string }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={onDrop}
       />
       <div style={{ position: "absolute", top: 8, left: 12, color: "#444" }}>
         <a href="/">Documents</a> / {doc?.name ?? docId}
@@ -365,7 +400,13 @@ export function Viewer({ docId }: { docId: string }) {
             onChange={(e) => {
               const file = e.target.files?.[0];
               e.target.value = "";
-              if (file) replaceFrom(docId, file);
+              if (file) {
+                file
+                  .text()
+                  .then((text) =>
+                    postFile(`/api/docs/${docId}/replace`, text, `update from ${file.name}`),
+                  );
+              }
             }}
           />
         </label>

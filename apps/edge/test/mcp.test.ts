@@ -44,6 +44,7 @@ it("lists tools with annotations and an outputSchema", async () => {
     "zibel_node_transform",
     "zibel_node_update",
     "zibel_render",
+    "zibel_svg_import",
     "zibel_tx_begin",
     "zibel_tx_commit",
     "zibel_tx_rollback",
@@ -69,6 +70,10 @@ it("lists tools with annotations and an outputSchema", async () => {
     ["baseRev", "content", "docId", "ifRev", "intent"].sort(),
   );
   expect(byName.zibel_doc_replace?.annotations).toMatchObject({ destructiveHint: true });
+  expect(inputKeys("zibel_svg_import").sort()).toEqual(
+    ["docId", "fit", "ifRev", "intent", "parentId", "position", "svg", "txId"].sort(),
+  );
+  expect(byName.zibel_svg_import?.annotations).toMatchObject({ destructiveHint: false });
   for (const name of [
     "zibel_node_get",
     "zibel_node_query",
@@ -1505,4 +1510,46 @@ it("replaces a Document from its edited SVG export, and refuses any other file",
   const foreign = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="5" height="5"/></svg>';
   const refused = await call("zibel_doc_replace", { docId: doc.docId, content: foreign });
   expect(errorOf(refused)).toMatchObject({ code: "INVALID_DOCUMENT", path: "content" });
+});
+
+it("places an SVG as one Group under the parent, and refuses a .zibel.json", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const placed = await call("zibel_svg_import", { docId, svg: exported, parentId: defaultLayerId });
+  const { createdIds, nodes, warnings } = placed.structuredContent;
+  const outline = (await call("zibel_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
+    .structuredContent.nodes;
+  expect(outline).toMatchObject([
+    { id: createdIds[0], type: "group", name: "Inkscape round trip" },
+  ]);
+  expect(nodes.map((n: { name: string; type: string }) => [n.type, n.name])).toEqual([
+    ["group", "Layer 1"],
+    ["group", "Guides"],
+  ]);
+  expect(nodes[0].children.length).toBeGreaterThan(0);
+  expect(warnings).toEqual([]);
+  // The export's z-<id> ids are not reused.
+  expect(createdIds.filter((id: string) => exported.includes(`z-${id}`))).toEqual([]);
+
+  const file = (await call("zibel_export", { docId, format: "zibel_json" })).content[0].text;
+  const refused = await call("zibel_svg_import", { docId, svg: file, parentId: defaultLayerId });
+  expect(errorOf(refused)).toMatchObject({ code: "INVALID_DOCUMENT", path: "svg" });
+  const text = await call("zibel_svg_import", { docId, svg: "nope", parentId: defaultLayerId });
+  expect(errorOf(text)).toMatchObject({ code: "INVALID_DOCUMENT", path: "svg" });
+
+  // Staged in a Transaction: invisible to the committed rev until commit.
+  const { txId, rev } = (await call("zibel_tx_begin", { docId })).structuredContent;
+  const staged = await call("zibel_svg_import", {
+    docId,
+    txId,
+    svg: exported,
+    parentId: defaultLayerId,
+  });
+  expect(staged.structuredContent.rev).toBe(rev);
+  const committed = (await call("zibel_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
+    .structuredContent.nodes;
+  expect(committed).toHaveLength(1);
+  await call("zibel_tx_commit", { docId, txId });
+  const after = (await call("zibel_doc_outline", { docId, rootId: defaultLayerId, depth: 1 }))
+    .structuredContent.nodes;
+  expect(after.at(-1)?.id).toBe(staged.structuredContent.createdIds[0]);
 });

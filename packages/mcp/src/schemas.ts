@@ -47,6 +47,9 @@ export const OpenedDocumentOutput = z.object({
   warnings: WriteReceipt.shape.warnings,
 });
 
+/** svg_import's receipt: `nodes` is the placed Group's outline to depth 2. */
+export const PlacedOutput = WriteReceipt.extend({ nodes: z.array(OutlineNode) });
+
 export const OutlineOutput = z.object({ rev: z.number().int(), nodes: z.array(OutlineNode) });
 
 const Viewport = z.object({
