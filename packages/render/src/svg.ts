@@ -1,5 +1,6 @@
 import {
   type Appearance,
+  type Artboard,
   bounds,
   childrenOf,
   type Document,
@@ -192,7 +193,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
       ? `<rect${attrs({ x, y, width, height, ...paint("fill", opts.background), "zibel:background": "true" })}/>`
       : "",
     ...(nodeIds ? [] : doc.artboards)
-      .flatMap((a) => (a.background ? [{ ...a, background: a.background }] : []))
+      .filter((a): a is Artboard & { background: string } => !!a.background)
       .map(
         (a) =>
           `<rect${attrs({ ...num(a.frame), ...paint("fill", a.background), "zibel:artboard": a.id, "sodipodi:insensitive": "true" })}/>`,

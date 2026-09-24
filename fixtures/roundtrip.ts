@@ -11,6 +11,8 @@ const PORT = 8791;
 const STATE = ".wrangler/roundtrip";
 const FIXTURES = join(import.meta.dirname, "documents");
 const WHITE = "#FFFFFF";
+/** Fails a hung Inkscape (a display or font-cache probe) instead of the CI job's 6 h limit. */
+const TIMEOUT_MS = 120_000;
 /** A pixel differs when a channel is off by more than this; a fixture fails at 1% of pixels. */
 const TOLERANCE = 32;
 const MAX_DIFFERENT = 0.01;
@@ -38,6 +40,7 @@ interface Doc {
 function inkscape(...args: string[]) {
   const run = spawnSync("inkscape", args, {
     encoding: "utf8",
+    timeout: TIMEOUT_MS,
     env: { ...process.env, FONTCONFIG_FILE: FONTS_CONF },
   });
   if (run.error) throw run.error;
@@ -145,7 +148,10 @@ function differentPixels(a: Image, b: Image): number {
 }
 
 async function main() {
-  const version = spawnSync("inkscape", ["--version"], { encoding: "utf8" });
+  const version = spawnSync("inkscape", ["--version"], {
+    encoding: "utf8",
+    timeout: TIMEOUT_MS,
+  });
   if ((version.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
     console.log("roundtrip: skipped, inkscape is not on PATH");
     return 0;

@@ -527,7 +527,7 @@
           },
           {
             "cap": "butt",
-            "color": "#FFFFFF",
+            "color": "#FFFFFFCC",
             "dash": [],
             "join": "miter",
             "miterLimit": 10,
