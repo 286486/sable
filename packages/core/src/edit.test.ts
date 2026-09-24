@@ -448,3 +448,38 @@ describe("updateNodes on a text", () => {
     if (key === "kind") expect(error.hint).not.toMatch(/\bkind\b/);
   });
 });
+
+describe("a Clipping Path under node_update and node_create (ADR-0021)", () => {
+  const setup = () => {
+    const { doc, defaultLayerId, rect } = newDoc();
+    const [group, content, clip] = createNodes(doc, [
+      { type: "group", parentId: defaultLayerId, children: [rect(0, 0), rect(5, 5)] },
+    ]).nodes;
+    if (!group || !content || !clip) throw new Error("setup");
+    doc.nodes.set(clip.id, { ...shape(doc, clip.id), clipping: true });
+    return { doc, content, clip, rect };
+  };
+
+  it("keeps clipping read-only, pointing at mask_make and mask_release", () => {
+    const { doc, content } = setup();
+    const e = errorOf(() => updateNodes(doc, [{ nodeId: content.id, patch: { clipping: true } }]));
+    expect(e).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.clipping" });
+    expect(e.hint).toMatch(/mask_make/);
+    expect(e.hint).toMatch(/mask_release/);
+  });
+
+  it("refuses to hide a Clipping Path, and hides its content", () => {
+    const { doc, content, clip } = setup();
+    const e = errorOf(() => updateNodes(doc, [{ nodeId: clip.id, patch: { visible: false } }]));
+    expect(e).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.visible" });
+    expect(e.hint).toMatch(/mask_release/);
+    updateNodes(doc, [{ nodeId: content.id, patch: { visible: false } }]);
+    expect(doc.nodes.get(content.id)?.visible).toBe(false);
+  });
+
+  it("drops clipping given to node_create", () => {
+    const { doc, rect } = setup();
+    const [r] = createNodes(doc, [rect(0, 0, { clipping: true })]).nodes;
+    expect(r && "clipping" in r).toBe(false);
+  });
+});

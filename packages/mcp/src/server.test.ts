@@ -104,6 +104,24 @@ describe("write tools pass the write and its options apart", () => {
     });
   });
 
+  it("mask_make: kind defaults to clip; intent, txId and ifRev but no partial", async () => {
+    const { service, call } = await harness({ makeMask: async () => receipt });
+    const { partial: _, ...write } = { ...opts, partial: false };
+    await call("zibel_mask_make", { docId: "d", clipNodeId: "c", contentIds: ["a"], ...write });
+    expect(service.makeMask).toHaveBeenCalledWith(
+      "d",
+      { clipNodeId: "c", contentIds: ["a"], kind: "clip" },
+      write,
+    );
+  });
+
+  it("mask_release", async () => {
+    const { service, call } = await harness({ releaseMask: async () => receipt });
+    const { partial: _, ...write } = { ...opts, partial: false };
+    await call("zibel_mask_release", { docId: "d", nodeIds: ["g"], ...write });
+    expect(service.releaseMask).toHaveBeenCalledWith("d", ["g"], write);
+  });
+
   it("doc_replace: content, baseRev, ifRev and intent; no txId or partial", async () => {
     const { service, call } = await harness({ replace: async () => receipt });
     await call("zibel_doc_replace", {
@@ -449,6 +467,8 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "zibel_doc_outline",
     "zibel_doc_replace",
     "zibel_export",
+    "zibel_mask_make",
+    "zibel_mask_release",
     "zibel_node_create",
     "zibel_node_delete",
     "zibel_node_get",
@@ -486,6 +506,10 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     ["docId", "fit", "ifRev", "intent", "parentId", "position", "svg", "txId"].sort(),
   );
   expect(byName.zibel_svg_import?.annotations).toMatchObject({ destructiveHint: false });
+  for (const name of ["zibel_mask_make", "zibel_mask_release"]) {
+    expect(inputKeys(name)).toEqual(expect.arrayContaining(["docId", "intent", "txId", "ifRev"]));
+    expect(inputKeys(name)).not.toContain("partial");
+  }
   for (const name of [
     "zibel_node_get",
     "zibel_node_query",

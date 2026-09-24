@@ -40,6 +40,9 @@ export const numbers = (s: string | null) =>
 /** A Node's or Artboard's XML id: an XML id cannot start with a digit, a ULID can. */
 export const xmlId = (id: string) => `z-${id}`;
 
+/** The id of a Clipping Mask's `<clipPath>`: its Group's XML id behind `clip-`. */
+export const clipId = (groupId: string) => `clip-${xmlId(groupId)}`;
+
 /** The id `xmlId` wrote, or undefined for any other id. */
 export const idOf = (value: string | null | undefined) =>
   /^z-([0-9A-HJKMNP-TV-Z]{26})$/.exec(value ?? "")?.[1];

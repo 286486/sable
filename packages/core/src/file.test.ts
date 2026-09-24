@@ -264,6 +264,44 @@ describe("validation", () => {
       "INVALID_COLOR",
       () => "artboards[0].background",
     ],
+    [
+      "clipping on a text",
+      (f) => {
+        byType(f, "text").clipping = true;
+        return f;
+      },
+      "INVALID_DOCUMENT",
+      (f) => `nodes[${at(f, byType(f, "text"))}].clipping`,
+    ],
+    [
+      "a Clipping Path in a Layer",
+      (f) => {
+        byType(f, "path").clipping = true;
+        return f;
+      },
+      "INVALID_DOCUMENT",
+      (f) => `nodes[${at(f, byType(f, "path"))}].clipping`,
+    ],
+    [
+      "two Clipping Paths in one Group",
+      (f) => {
+        const rect = byType(f, "rect");
+        rect.clipping = true;
+        f.nodes.push({ ...rect, id: "~second", index: "a9" });
+        return f;
+      },
+      "INVALID_DOCUMENT",
+      (f) => `nodes[${f.nodes.length - 1}].clipping`,
+    ],
+    [
+      "a hidden Clipping Path",
+      (f) => {
+        Object.assign(byType(f, "rect"), { clipping: true, visible: false });
+        return f;
+      },
+      "INVALID_DOCUMENT",
+      (f) => `nodes[${at(f, byType(f, "rect"))}].visible`,
+    ],
   ])("rejects %s", (_, change, code, path) => {
     const file = good();
     const changed = change(file);
@@ -274,4 +312,12 @@ describe("validation", () => {
       hint: expect.stringMatching(/\S/),
     });
   });
+});
+
+it("reads a Clipping Mask back as it was written", () => {
+  const f = JSON.parse(serializeDocument(scene()));
+  f.nodes.find((n: { type: string }) => n.type === "rect").clipping = true;
+  const text = JSON.stringify(f, null, 2);
+  const { nodes } = parseDocument(text);
+  expect(nodes.find((n) => n.type === "rect")).toMatchObject({ clipping: true });
 });

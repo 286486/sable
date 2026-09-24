@@ -1,4 +1,4 @@
-import { bounds, createDocument, createNodes, parseDocument } from "@zibel/core";
+import { bounds, createDocument, createNodes, makeMask, parseDocument } from "@zibel/core";
 import { docRect, scopeRect, toSvg } from "@zibel/io";
 import { expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
@@ -126,11 +126,56 @@ it("draws the fixture Document with known pixels", async () => {
   // moved 28 of its antialiased edge pixels at 2x by up to 10/255.
   // The whole Document again, by #27: the fixture gained a Sublayer, a multiply rect, a two-Stroke
   // path with a translucent Stroke and a hidden ellipse. Writing alpha as fill-opacity did not
-  // move a pixel. Again by #30: the fixture gained an evenodd ring.
+  // move a pixel. Again by #30: the fixture gained an evenodd ring; by #31, a Clipping Mask.
   expect(await hash(toSvg(doc, docRect(doc)))).toBe(
-    "662688059d5c42595eb229711d65ff00566cac0b654df88d9344a0d4ba5bad13",
+    "4cc5e29db61b5636db9f394f8785fdb471a7b84a84f3f65ccd2115948c96c201",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
   );
+});
+
+it("clips by an inline clipPath the Group refers to before it is defined", async () => {
+  const svg = (clip: string) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="#FFFFFF"/>` +
+    `<g clip-path="url(#c)"><rect width="100" height="100" fill="#FF0000"/>` +
+    `<clipPath id="c" clipPathUnits="userSpaceOnUse">${clip}</clipPath></g></svg>`;
+  const drawn = await ink(svg(`<circle cx="50" cy="50" r="10" fill="none"/>`));
+  const at = (x: number, y: number) => drawn.some(([px, py]) => px === x && py === y);
+  expect(at(50, 50)).toBe(true);
+  expect(at(5, 5)).toBe(false);
+  expect(drawn.length).toBeLessThan(400);
+  // clip-rule, not fill-rule, decides a hole inside a clipPath.
+  const ring = `<path d="M 10 10 L 90 10 L 90 90 L 10 90 Z M 40 40 L 60 40 L 60 60 L 40 60 Z"`;
+  expect(
+    (await ink(svg(`${ring} clip-rule="evenodd"/>`))).some(([x, y]) => x === 50 && y === 50),
+  ).toBe(false);
+  expect(
+    (await ink(svg(`${ring} fill-rule="evenodd"/>`))).some(([x, y]) => x === 50 && y === 50),
+  ).toBe(true);
+});
+
+it("draws a Clipping Mask's content only inside its Clipping Path", async () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100, background: "#FFFFFF" }],
+  });
+  const [content, clip] = createNodes(doc, [
+    {
+      type: "rect",
+      parentId,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      appearance: { fills: [{ color: "#FF0000" }] },
+    },
+    { type: "ellipse", parentId, x: 40, y: 40, width: 20, height: 20 },
+  ]).nodes;
+  if (!content || !clip) throw new Error("setup");
+  makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+  const drawn = await ink(toSvg(doc));
+  expect(drawn.some(([x, y]) => x === 50 && y === 50)).toBe(true);
+  expect(drawn.every(([x, y]) => x >= 39 && x <= 60 && y >= 39 && y <= 60)).toBe(true);
 });

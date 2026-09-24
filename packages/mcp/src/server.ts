@@ -3,6 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   ArtboardInput,
   Color,
+  MaskInput,
   NodeInput,
   NodeQuery,
   NodeType,
@@ -168,7 +169,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Make a new Document from a file's text: .zibel.json as zibel_export returns it with format zibel_json, or SVG (Inkscape, Zibel's own export or plain SVG 1.1, at most 5 MB), told apart by content. Pass the file's content, not a path.",
         "The new Document gets its own docId and starts at rev 1. Ids from .zibel.json, and z-<id> ids from SVG, are kept; SVG layers and pages become Layers and Artboards, units become pt (px counts as pt). nodes is its Layer list, as zibel_doc_outline returns it at depth 1.",
-        "SVG content Zibel cannot hold yet (gradients, clipping, images, filters) imports as close as it can, or is dropped, and warnings lists each kind once. A file that is not valid fails with a path into it and creates nothing.",
+        "SVG content Zibel cannot hold yet (gradients, images, filters, masks) imports as close as it can, or is dropped, and warnings lists each kind once. A file that is not valid fails with a path into it and creates nothing.",
       ].join(" "),
       inputSchema: {
         content: z.string().min(1).describe("The whole .zibel.json or .svg text."),
@@ -355,6 +356,50 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       run("zibel_node_transform", async () =>
         json(await service.transformNodes(docId, input, { intent, partial, txId, ifRev })),
       ),
+  );
+
+  const maskWrite = { intent, txId: writeFields.txId, ifRev };
+  server.registerTool(
+    "zibel_mask_make",
+    {
+      title: "Make Clipping Mask",
+      description: [
+        "Clip Nodes by a shape, as Illustrator's Object > Clipping Mask > Make: a new Group, the Clipping Mask, takes the place of the topmost of them and holds clipNodeId and contentIds in their stacking order; the content draws only inside the clip Node, which becomes the Group's Clipping Path and loses its Fills and Strokes.",
+        "The clip Node is a Live Shape or path (not a text), and every Node listed shares its parent. The Group's geometricBounds are the Clipping Path's. Move the clip or the content with zibel_node_transform; zibel_mask_release undoes the clip.",
+        "One Transaction. createdIds is the Group; updatedIds the Nodes moved into it.",
+      ].join(" "),
+      inputSchema: { docId, ...MaskInput.shape, ...maskWrite },
+      outputSchema: WriteReceipt.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, intent, txId, ifRev, ...input }) =>
+      run("zibel_mask_make", async () =>
+        json(await service.makeMask(docId, input, { intent, txId, ifRev })),
+      ),
+  );
+
+  server.registerTool(
+    "zibel_mask_release",
+    {
+      title: "Release Clipping Mask",
+      description:
+        "Stop Clipping Masks clipping, as Illustrator's Object > Clipping Mask > Release. List each by its Group id or its Clipping Path's id. The Group and its Nodes stay; the former Clipping Path keeps no Fill or Stroke until you give it an appearance with zibel_node_update.",
+      inputSchema: { docId, nodeIds: z.array(z.string()).min(1).max(1000), ...maskWrite },
+      outputSchema: WriteReceipt.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    ({ docId, nodeIds, ...opts }) =>
+      run("zibel_mask_release", async () => json(await service.releaseMask(docId, nodeIds, opts))),
   );
 
   server.registerTool(

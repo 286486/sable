@@ -313,6 +313,21 @@ export const NodePatch = z
 export const UpdateInput = z.object({ nodeId: z.string(), patch: NodePatch });
 export type UpdateInput = z.input<typeof UpdateInput>;
 
+/** Illustrator's Object > Clipping Mask > Make (ADR-0021). */
+export const MaskInput = z.object({
+  clipNodeId: z.string().describe("The Live Shape or Path that clips; it loses its Appearance."),
+  contentIds: z
+    .array(z.string())
+    .min(1)
+    .max(1000)
+    .describe("The Nodes it clips: siblings of the clip Node."),
+  kind: z
+    .enum(["clip", "opacity"])
+    .default("clip")
+    .describe("clip; an Opacity Mask (F-MASK-02) is not available yet."),
+});
+export type MaskInput = z.input<typeof MaskInput>;
+
 /** `[a, b, c, d, e, f]` with SVG semantics. */
 export type Matrix = [number, number, number, number, number, number];
 
@@ -403,7 +418,12 @@ export interface GroupNode extends NodeBase {
 }
 
 /** A Live Shape or Path: its parameters plus an Appearance. */
-export type ShapeNode = NodeBase & Shape & { appearance: Appearance };
+export type ShapeNode = NodeBase &
+  Shape & {
+    appearance: Appearance;
+    /** The Clipping Path of its Group (ADR-0021); missing means false. */
+    clipping?: boolean;
+  };
 
 export type TextNode = NodeBase & TextShape & { appearance: Appearance };
 

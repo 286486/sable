@@ -65,8 +65,9 @@ const appearance = z.strictObject({
 const StoredNode = z.discriminatedUnion("type", [
   z.strictObject({ ...base, type: z.literal("layer") }),
   z.strictObject({ ...base, type: z.literal("group") }),
-  ...[TextShape, ...Object.values(SHAPES)].map((s) =>
-    z.strictObject({ ...base, ...s.shape, appearance }),
+  z.strictObject({ ...base, ...TextShape.shape, appearance }),
+  ...Object.values(SHAPES).map((s) =>
+    z.strictObject({ ...base, ...s.shape, appearance, clipping: z.boolean().optional() }),
   ),
 ]);
 const FileSchema = z.strictObject({
@@ -179,6 +180,7 @@ export function parseDocument(
     nodes: new Map(nodes.map((n) => [n.id, n])),
   };
   const siblings = new Set<string>();
+  const clipped = new Set<string | null>();
   nodes.forEach((n, i) => {
     const at = `nodes[${i}]`;
     // An Artboard id falls through to assertParent, whose hint explains Artboards are not parents.
@@ -206,6 +208,17 @@ export function parseDocument(
       );
     }
     siblings.add(key);
+    if ("clipping" in n && n.clipping) {
+      const hint = "A Clipping Path is the one clipping child of a Group, and visible (ADR-0021).";
+      if (doc.nodes.get(n.parentId ?? "")?.type !== "group") {
+        throw invalid(`${at}.clipping`, "A Clipping Path's parent is a Group.", hint);
+      }
+      if (clipped.has(n.parentId)) {
+        throw invalid(`${at}.clipping`, "Its Group already has a Clipping Path.", hint);
+      }
+      if (!n.visible) throw invalid(`${at}.visible`, "A Clipping Path cannot be hidden.", hint);
+      clipped.add(n.parentId);
+    }
   });
   if (!nodes.some((n) => n.type === "layer" && n.parentId === null)) {
     throw invalid(

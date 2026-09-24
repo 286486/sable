@@ -1,4 +1,4 @@
-import { createDocument, createNodes, type ShapeNode, shapeSegments } from "@zibel/core";
+import { createDocument, createNodes, makeMask, type ShapeNode, shapeSegments } from "@zibel/core";
 import { expect, it } from "vitest";
 import { type Canvas2D, drawDocument } from "./canvas.ts";
 
@@ -179,6 +179,44 @@ it("fills a Path with its fill rule", () => {
   drawDocument(ctx, doc);
   expect(log.filter((l) => l.startsWith("fill ") || l === "fill")).toEqual([
     "fill evenodd",
+    "fill",
+  ]);
+});
+
+it("clips a Clipping Mask's children by its Clipping Path, in document coordinates, and never paints it", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const [content, clip] = createNodes(doc, [
+    {
+      type: "rect",
+      parentId,
+      x: 0,
+      y: 0,
+      width: 50,
+      height: 50,
+      appearance: { fills: [{ color: "#FF0000" }] },
+    },
+    { type: "path", parentId, d: "M 0 0 L 10 0 L 10 10 Z", fillRule: "evenodd" },
+  ]).nodes as [ShapeNode, ShapeNode];
+  makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+  doc.nodes.set(clip.id, {
+    ...(doc.nodes.get(clip.id) as ShapeNode),
+    transform: [1, 0, 0, 1, 5, 0],
+  });
+  const { ctx, log } = recorder();
+  drawDocument(ctx, doc);
+  const body = log.filter(
+    (l) => !/^(save|restore|globalAlpha|transform|fillStyle=#FFFFFF|fillRect)/.test(l),
+  );
+  expect(body).toEqual([
+    "beginPath",
+    "moveTo 5 0",
+    "lineTo 15 0",
+    "lineTo 15 10",
+    "closePath",
+    "clip evenodd",
+    "beginPath",
+    ...traced(content),
+    "fillStyle=#FF0000",
     "fill",
   ]);
 });

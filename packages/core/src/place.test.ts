@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bounds, childrenOf, createDocument, createNodes, visibleBounds } from "./document.ts";
+import { makeMask } from "./mask.ts";
 import { placeNodes } from "./place.ts";
 import type { Node, ShapeNode } from "./schema.ts";
 
@@ -127,4 +128,26 @@ describe("placeNodes", () => {
       expect.objectContaining({ data: expect.objectContaining({ code: "NODE_NOT_FOUND" }) }),
     );
   });
+});
+
+it("keeps a placed Clipping Mask clipping under its new ids", () => {
+  const f = createDocument({ id: "f", name: "F", artboards: [] });
+  const [content, clip] = createNodes(f.doc, [
+    { type: "rect", parentId: f.defaultLayerId, x: 0, y: 0, width: 20, height: 20 },
+    { type: "ellipse", parentId: f.defaultLayerId, x: 5, y: 5, width: 4, height: 4 },
+  ]).nodes as [Node, Node];
+  makeMask(f.doc, { clipNodeId: clip.id, contentIds: [content.id] });
+  const { doc, defaultLayerId } = setup();
+  const { created } = placeNodes(
+    doc,
+    { name: "Clip", nodes: [...f.doc.nodes.values()] },
+    {
+      parentId: defaultLayerId,
+      fit: false,
+    },
+  );
+  const placed = created.find((n) => n.type === "ellipse") as ShapeNode;
+  expect(placed).toMatchObject({ clipping: true });
+  expect(placed.id).not.toBe(clip.id);
+  expect(doc.nodes.get(placed.parentId ?? "")?.type).toBe("group");
 });

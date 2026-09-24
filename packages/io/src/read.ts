@@ -140,6 +140,8 @@ const DRAWN = new Set([
   "path",
   "text",
 ]);
+/** What a Clipping Path can be: a Live Shape or Path, not a text (ADR-0021). */
+const CLIP_SHAPES = new Set(["rect", "circle", "ellipse", "line", "polyline", "polygon", "path"]);
 const SILENT = new Set([
   "defs",
   "title",
@@ -316,17 +318,21 @@ class Reader {
           path: "content",
         });
       }
-      // A container's clipping, mask or filter is lost like a leaf's.
+      // A container's mask or filter is lost like a leaf's.
       this.unsupported(e, style);
       const layer = ctx.layerLevel && e.getAttributeNS(NS.inkscape, "groupmode") === "layer";
+      const clip = this.clipOf(style, layer);
       const parentId = layer ? ctx.parentId : this.parent(ctx);
       const node = this.add({
         ...this.base(e, parentId, undefined, style),
         type: layer ? "layer" : "group",
       });
       for (const c of elements(e)) {
+        if (c === clip) this.clipping(clip, node.id, matrix);
         this.walk(c, { parentId: node.id, layerLevel: layer, matrix, style, depth: ctx.depth + 1 });
       }
+      // Inkscape's Set Clip puts the clip in <defs>; Illustrator's Clipping Path is on top.
+      if (clip && clip.parentNode !== e) this.clipping(clip, node.id, matrix);
       return;
     }
     // An Artboard's background, or the export's background option: not artwork.
@@ -370,19 +376,74 @@ class Reader {
       pieces = [{ shape: this.shape(e, matrix, style), appearance }];
     }
     pieces = pieces.filter((p) => p.shape);
-    if (pieces.length) this.unsupported(e, style);
+    if (!pieces.length) return;
+    this.unsupported(e, style);
+    // A clipped leaf, as Inkscape's Set Clip writes one, becomes a Clipping Mask of its own.
+    const clip = this.clipOf(style, false);
+    const parentId = clip
+      ? this.add({ ...this.base(null, this.parent(ctx)), type: "group" }).id
+      : this.parent(ctx);
     pieces.forEach(({ shape, appearance }, i) => {
       // A text's later lines are new Nodes, not duplicates of its id.
-      const base = this.base(e, this.parent(ctx), undefined, style, i > 0);
+      const base = this.base(e, parentId, undefined, style, i > 0);
       // visibility inherits, unlike display, so it hides a leaf rather than its Group.
       if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
       this.add({ ...base, ...shape, appearance } as Node);
     });
+    if (clip) this.clipping(clip, parentId, matrix);
+  }
+
+  /**
+   * The <clipPath> a `clip-path` names when Zibel can hold it as a Clipping Path (ADR-0021): one
+   * Live Shape or Path in the referencing element's user space. Otherwise the content imports
+   * unclipped, with a warning.
+   */
+  private clipOf(style: Style, layer: boolean): Element | undefined {
+    const value = style["clip-path"];
+    if (!value || value === "none") return undefined;
+    const id = /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(value.trim())?.[1];
+    const el = id === undefined ? undefined : this.byId.get(id);
+    const inner = el ? elements(el).filter((c) => !SILENT.has(c.localName ?? "")) : [];
+    const [only] = inner;
+    const holds =
+      !layer &&
+      el?.localName === "clipPath" &&
+      el.getAttribute("clipPathUnits") !== "objectBoundingBox" &&
+      !el.getAttribute("clip-path") &&
+      inner.length === 1 &&
+      !!only &&
+      CLIP_SHAPES.has(only.localName ?? "");
+    if (holds) return el;
+    this.warn(
+      "UNSUPPORTED_ATTRIBUTE",
+      "clip-path",
+      "A clip-path Zibel cannot hold (on a Layer, a missing reference, objectBoundingBox units, or anything but one shape or path inside) was dropped; the artwork imports unclipped.",
+    );
+    return undefined;
+  }
+
+  /** The Clipping Path of `parentId` from the one shape in `clip`, drawn in `matrix`'s space. */
+  private clipping(clip: Element, parentId: string, matrix: Matrix) {
+    const [e] = elements(clip).filter((c) => !SILENT.has(c.localName ?? "")) as [Element];
+    const outer = computeStyle(clip, {}, this.rules);
+    const style = computeStyle(e, outer, this.rules);
+    const m = multiply(
+      multiply(matrix, parseTransform(clip.getAttribute("transform"))),
+      parseTransform(e.getAttribute("transform")),
+    );
+    // Inside a <clipPath> SVG reads clip-rule, never fill-rule.
+    const shape = this.shape(e, m, { ...style, "fill-rule": style["clip-rule"] ?? "nonzero" });
+    if (!shape) return;
+    const placed = this.placed(e, m);
+    const appearance = this.appearance(style, bakes(placed) ? placed[0] : 1);
+    // SVG draws nothing through a hidden clip path, and a Clipping Path is never hidden.
+    const base = { ...this.base(e, parentId, undefined, style), visible: true };
+    this.add({ ...base, ...shape, appearance, clipping: true } as Node);
   }
 
   /** What a leaf's style asks for that Zibel draws without: warned, then left out. */
   private unsupported(e: Element, style: Style) {
-    for (const p of ["clip-path", "mask", "filter", "marker-start", "marker-mid", "marker-end"]) {
+    for (const p of ["mask", "filter", "marker-start", "marker-mid", "marker-end"]) {
       if (style[p] && style[p] !== "none") {
         this.warn(
           "UNSUPPORTED_ATTRIBUTE",

@@ -4,6 +4,7 @@ import {
   createDocument,
   createNodes,
   type Document,
+  makeMask,
   type Node,
   parseDocument,
   type RenderScope,
@@ -232,6 +233,48 @@ describe("replaceFile", () => {
     const order = childrenOf(doc, layer).map((n) => n.id);
     expect(order.at(-1)).toBe(a.id);
     expect(out.updated.map((n) => n.id)).toEqual([a.id]);
+  });
+
+  it("makes a Clipping Mask of a leaf clipped in Inkscape, whose Set Clip replaces the clip Node", () => {
+    const { doc, layer, a, b } = setup();
+    const e = exportNow(doc);
+    // Set Clip with b over a: b moves into <defs> under a new id, and a carries the clip-path.
+    const aElement = element(a.id).exec(e.svg())?.[0] ?? "";
+    const file = remove(e.svg(), b.id)
+      .replace(aElement, `<g id="g9" clip-path="url(#clipPath13)">${aElement}</g>`)
+      .replace(
+        "</sodipodi:namedview>",
+        '</sodipodi:namedview><defs><clipPath clipPathUnits="userSpaceOnUse" id="clipPath13"><rect id="rect15" x="2" y="2" width="4" height="4"/></clipPath></defs>',
+      );
+    const out = replace(doc, file, e);
+    expect(out.deletedIds).toEqual([b.id]);
+    const group = out.created.find((n) => n.type === "group");
+    expect(group).toMatchObject({ parentId: layer });
+    expect(out.created.find((n) => n.type === "rect")).toMatchObject({
+      parentId: group?.id,
+      clipping: true,
+      x: 2,
+    });
+    expect(doc.nodes.get(a.id)).toMatchObject({ parentId: group?.id });
+  });
+
+  it("releases a Clipping Mask released in Inkscape, the clip back above the Group", () => {
+    const { doc, layer, a, b } = setup();
+    const { group } = makeMask(doc, { clipNodeId: b.id, contentIds: [a.id] });
+    const e = exportNow(doc);
+    // What Inkscape 1.2.2's Release writes: the clip keeps its id and leaves the Group.
+    const svg = e.svg();
+    const inline = /<clipPath [^>]*>(<rect [^>]*\/>)<\/clipPath>/.exec(svg);
+    const file = svg
+      .replace(inline?.[0] ?? "", "")
+      .replace(`clip-path="url(#clip-z-${group.id})"`, 'clip-path="none"')
+      .replace(new RegExp(`(<g id="z-${group.id}"[^>]*>.*?</g>)`), `$1${inline?.[1]}`);
+    const out = replace(doc, file, e);
+    expect(out.updated.map((n) => n.id)).toContain(b.id);
+    const clip = doc.nodes.get(b.id);
+    expect(clip && "clipping" in clip).toBe(false);
+    expect(clip).toMatchObject({ parentId: layer });
+    expect(childrenOf(doc, group.id).map((n) => n.id)).toEqual([a.id]);
   });
 
   it("updates an Artboard the file resized", () => {

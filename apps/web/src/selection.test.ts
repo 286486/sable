@@ -1,4 +1,4 @@
-import { createDocument, createNodes, type Node } from "@zibel/core";
+import { createDocument, createNodes, makeMask, type Node } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   combine,
@@ -170,6 +170,49 @@ describe("hitTest", () => {
     if (ring) doc.nodes.set(ring.id, { ...ring, fillRule: "nonzero" } as Node);
     expect(hitTest(ctx, doc, 15, 15, 1)).toBe(ring?.id);
     expect(rules).toEqual(["evenodd", "nonzero"]);
+  });
+
+  it("hits a Clipping Mask's content only inside its Clipping Path, which is never a hit itself", () => {
+    // A Path2D that is its d's bounding box: enough for rects.
+    vi.stubGlobal(
+      "Path2D",
+      class {
+        constructor(readonly d: string) {}
+      },
+    );
+    const box = (d: string, x: number, y: number) => {
+      const n = d.match(/-?[\d.]+/g)?.map(Number) ?? [];
+      const xs = n.filter((_, i) => i % 2 === 0);
+      const ys = n.filter((_, i) => i % 2 === 1);
+      return (
+        Math.min(...xs) <= x && x <= Math.max(...xs) && Math.min(...ys) <= y && y <= Math.max(...ys)
+      );
+    };
+    const ctx = {
+      save() {},
+      restore() {},
+      setTransform() {},
+      isPointInPath: (p: { d: string }, x: number, y: number) => box(p.d, x, y),
+      isPointInStroke: () => false,
+    } as unknown as CanvasRenderingContext2D;
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100 }],
+    });
+    const [content, clip] = createNodes(doc, [
+      { type: "rect", parentId, x: 0, y: 0, width: 50, height: 50 },
+      { type: "rect", parentId, x: 60, y: 0, width: 10, height: 10 },
+    ]).nodes as [Node, Node];
+    // The clip sits beside the content, so a click on it would hit it were it painted.
+    const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+    doc.nodes.set(clip.id, {
+      ...(doc.nodes.get(clip.id) as Node),
+      transform: [1, 0, 0, 1, -55, 0],
+    } as Node);
+    expect(hitTest(ctx, doc, 8, 5, 1)).toBe(group.id);
+    expect(hitTest(ctx, doc, 30, 30, 1)).toBeNull();
+    expect(hitTest(ctx, doc, 65, 5, 1)).toBeNull();
   });
 });
 

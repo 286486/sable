@@ -609,6 +609,99 @@
       "transform": [1, 0, 0, 1, 0, 0],
       "type": "path",
       "visible": true
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29SM4CPGR0VPC11PG0VP",
+      "index": "aG",
+      "locked": false,
+      "meta": {},
+      "name": "Clipped",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#CC3366",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 40,
+      "id": "01M38T29SM8R3CTNG1EC0NTENT",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SM4CPGR0VPC11PG0VP",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 60,
+      "x": 95,
+      "y": 105
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "clipping": true,
+      "height": 34,
+      "id": "01M38T29SMC11PPNGE11PSE000",
+      "index": "a1",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SM4CPGR0VPC11PG0VP",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 50,
+      "x": 100,
+      "y": 108
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#33CC66",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 20,
+      "id": "01M38T29SMK9R3CTTW0XYZ4ABC",
+      "index": "a2",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SM4CPGR0VPC11PG0VP",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 60,
+      "x": 120,
+      "y": 115
     }
   ]
 }

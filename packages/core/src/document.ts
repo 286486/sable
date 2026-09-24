@@ -267,20 +267,36 @@ export function childrenOf(doc: Document, parentId: string | null): Node[] {
     .sort((a, b) => (a.index < b.index ? -1 : a.index > b.index ? 1 : 0));
 }
 
+const clipAmong = (children: Node[]) =>
+  children.find((c): c is ShapeNode => c.type !== "text" && "clipping" in c && c.clipping === true);
+
+/** The Group's Clipping Path, which makes it a Clipping Mask (ADR-0021). */
+export function clippingPath(doc: Document, node: Node): ShapeNode | undefined {
+  return node.type === "group" ? clipAmong(childrenOf(doc, node.id)) : undefined;
+}
+
 /** Geometric bounds in document coordinates (no stroke), or null for an empty container. */
 export function bounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
-    return union(childrenOf(doc, node.id).map((c) => bounds(doc, c)));
+    const children = childrenOf(doc, node.id);
+    const clip = node.type === "group" ? clipAmong(children) : undefined;
+    return clip ? bounds(doc, clip) : union(children.map((c) => bounds(doc, c)));
   }
   const shape =
     node.type === "text" ? { type: "rect" as const, ...textBox(node), radius: 0 } : node;
   return pathBounds(transformSegments(shapeSegments(shape), worldTransform(doc, node)));
 }
 
-/** Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a container. */
+/**
+ * Geometric bounds grown by half the widest Stroke, for a leaf; the union of its children's, for a
+ * container; its Clipping Path's geometric bounds, for a Clipping Mask.
+ */
 export function visibleBounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
-    return union(childrenOf(doc, node.id).map((c) => visibleBounds(doc, c)));
+    const children = childrenOf(doc, node.id);
+    // A Clipping Path's Strokes are not drawn, so its geometry is all that shows.
+    const clip = node.type === "group" ? clipAmong(children) : undefined;
+    return clip ? bounds(doc, clip) : union(children.map((c) => visibleBounds(doc, c)));
   }
   const b = bounds(doc, node);
   // ponytail: half the Stroke width on every side, scaled by sqrt|det|; miter spikes, square caps

@@ -2,6 +2,7 @@ import {
   createDocument,
   createNodes,
   formatPath,
+  makeMask,
   type ShapeNode,
   shapeSegments,
 } from "@zibel/core";
@@ -434,4 +435,64 @@ it("writes fill-rule evenodd on a Path and on each paint of its stack, and nothi
     `zibel:stack="true"><path d="${d}" fill-rule="evenodd" fill="#111111"/><path d="${d}" fill-rule="evenodd" fill="#222222"/></g>`,
   );
   expect(svg).toContain(`<path d="${d}" id="z-${plain?.id}"`);
+});
+
+/** A Group of a rect under a Clipping Path, the ellipse, and a rect above it. */
+function clipped() {
+  const { doc, defaultLayerId } = newDoc();
+  const [below, clip, above] = createNodes(doc, [
+    { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 },
+    { type: "ellipse", parentId: defaultLayerId, x: 2, y: 2, width: 4, height: 4 },
+    { type: "rect", parentId: defaultLayerId, x: 5, y: 5, width: 10, height: 10 },
+  ]).nodes as [ShapeNode, ShapeNode, ShapeNode];
+  const { group } = makeMask(doc, { clipNodeId: clip.id, contentIds: [below.id, above.id] });
+  return { doc, group, below, clip, above };
+}
+
+it("writes a Clipping Mask as <g clip-path> with its Clipping Path in an inline <clipPath>, in place", () => {
+  const { doc, group, below, clip, above } = clipped();
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `<g id="z-${group.id}" clip-path="url(#clip-z-${group.id})"><rect x="0" y="0" width="10" height="10" id="z-${below.id}"`,
+  );
+  expect(svg).toContain(
+    `<clipPath id="clip-z-${group.id}" clipPathUnits="userSpaceOnUse"><circle cx="4" cy="4" r="2" id="z-${clip.id}" fill="none"/></clipPath><rect x="5" y="5" width="10" height="10" id="z-${above.id}"`,
+  );
+});
+
+it("writes an evenodd Clipping Path's clip-rule, and one element for a painted one", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const [content, clip] = createNodes(doc, [
+    { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 10, height: 10 },
+    { type: "path", parentId: defaultLayerId, d: "M 0 0 L 9 0 L 9 9 Z", fillRule: "evenodd" },
+  ]).nodes as [ShapeNode, ShapeNode];
+  makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+  const painted = {
+    fills: [
+      { type: "solid" as const, color: "#FF0000" },
+      { type: "solid" as const, color: "#00FF00" },
+    ],
+    strokes: [],
+  };
+  doc.nodes.set(clip.id, { ...(doc.nodes.get(clip.id) as ShapeNode), appearance: painted });
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `fill-rule="evenodd" id="z-${clip.id}" fill="#FF0000" clip-rule="evenodd"/></clipPath>`,
+  );
+  expect(svg).not.toContain("zibel:stack");
+});
+
+it("keeps the clip around a listed Node inside a Clipping Mask, and draws only that Node", () => {
+  const { doc, group, below, clip } = clipped();
+  let drawn: string[] = [];
+  const svg = toSvg(doc, undefined, {
+    scope: { nodeIds: [below.id] },
+    trailer: (nodes) => {
+      drawn = nodes.map((n) => n.id);
+      return "";
+    },
+  });
+  expect(svg).toContain(`clip-path="url(#clip-z-${group.id})"`);
+  expect(svg).toContain(`id="z-${clip.id}"`);
+  expect(drawn).toEqual([below.id]);
 });

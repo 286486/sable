@@ -51,6 +51,9 @@ export function documentService(env: Env, actor: string): DocumentService {
       unwrap(await doc(docId).deleteNodes(nodeIds, actor, opts)),
     transformNodes: async (docId, input, opts) =>
       unwrap(await doc(docId).transformNodes(input, actor, opts)),
+    makeMask: async (docId, input, opts) => unwrap(await doc(docId).makeMask(input, actor, opts)),
+    releaseMask: async (docId, nodeIds, opts) =>
+      unwrap(await doc(docId).releaseMask(nodeIds, actor, opts)),
     get: async (docId, nodeIds, detail, txId) =>
       unwrap(await doc(docId).get(nodeIds, detail, actor, txId)),
     outline: async (docId, opts, txId) => unwrap(await doc(docId).outline(opts, actor, txId)),

@@ -121,6 +121,7 @@ const READ_ONLY: Record<string, string> = {
   visibleBounds: "Derived; move or resize the Node to change it.",
   worldTransform: "Derived; use node_transform.",
   closed: "Derived from d: end d with Z to close it.",
+  clipping: "Use mask_make to make a Clipping Mask and mask_release to release one (ADR-0021).",
 };
 
 /** RFC 7396: objects merge recursively, null deletes, anything else (arrays too) replaces. */
@@ -188,6 +189,14 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
     );
   }
   const next = { ...node, ...parsed.data } as Node;
+  // SVG clips everything away through a hidden clip path; Illustrator unclips (ADR-0021).
+  if ("clipping" in next && next.clipping && !next.visible) {
+    throw invalid(
+      ".visible",
+      "A Clipping Path cannot be hidden.",
+      "Use mask_release to show the content unclipped, or hide the Clipping Mask's Group.",
+    );
+  }
   if (next.type !== "layer" && next.type !== "group") {
     next.appearance = paint(next.appearance as AppearanceInput, `${at}.appearance`);
   }

@@ -828,3 +828,43 @@ describe("outline options", () => {
     expect(bare.some((n) => "bounds" in n)).toBe(false);
   });
 });
+
+describe("a Clipping Mask (ADR-0021)", () => {
+  const masked = () => {
+    const { doc, defaultLayerId: layerId } = newDoc();
+    const [group, , clip] = createNodes(doc, [
+      {
+        type: "group",
+        parentId: layerId,
+        children: [
+          { type: "rect", x: 0, y: 0, width: 100, height: 100 },
+          { type: "ellipse", x: 40, y: 40, width: 20, height: 20 },
+        ],
+      },
+    ]).nodes;
+    if (!group || !clip) throw new Error("setup");
+    doc.nodes.set(clip.id, { ...clip, clipping: true } as typeof clip);
+    return { doc, group, clip };
+  };
+
+  it("is bounded by its Clipping Path's geometry, visible bounds too", () => {
+    const { doc, group } = masked();
+    const clipBox = { x: 40, y: 40, width: 20, height: 20 };
+    expect(bounds(doc, group)).toEqual(clipBox);
+    expect(visibleBounds(doc, group)).toEqual(clipBox);
+    expect(nodeView(doc, group, "concise").geometricBounds).toEqual(clipBox);
+  });
+
+  it("becomes an ordinary Group when its Clipping Path is deleted", () => {
+    const { doc, group, clip } = masked();
+    doc.nodes.delete(clip.id);
+    expect(bounds(doc, group)).toEqual({ x: 0, y: 0, width: 100, height: 100 });
+  });
+
+  it("shows clipping on the Clipping Path in node_get full", () => {
+    const { doc, clip } = masked();
+    expect(nodeView(doc, doc.nodes.get(clip.id) ?? clip, "full")).toMatchObject({
+      clipping: true,
+    });
+  });
+});

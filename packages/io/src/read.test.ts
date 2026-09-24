@@ -1,5 +1,5 @@
 import { serializeDocument, ZibelError } from "@zibel/core";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { MAX_DEPTH, parseFile, SVG_LIMIT } from "./index.ts";
 
 const errorOf = (fn: () => unknown) => {
@@ -467,7 +467,9 @@ it("opens a file with content Zibel cannot hold, with one warning per kind", () 
         '<path d="M 0 0 X"/>',
     ),
   );
+  // The clipped rect and its Clipping Path, in a Group of their own.
   expect(leaves(file).map((n) => n.type)).toEqual([
+    "rect",
     "rect",
     "path",
     "path",
@@ -476,7 +478,8 @@ it("opens a file with content Zibel cannot hold, with one warning per kind", () 
     "rect",
     "path",
   ]);
-  expect(leaves(file)[1]).toMatchObject({ d: "M 0 0 L 1 1" });
+  expect(leaves(file)[1]).toMatchObject({ clipping: true });
+  expect(leaves(file)[2]).toMatchObject({ d: "M 0 0 L 1 1" });
   const codes = file.warnings.map((w) => w.code);
   expect(codes.filter((c) => c === "UNSUPPORTED_ELEMENT")).toHaveLength(7);
   expect(new Set(codes)).toEqual(
@@ -490,7 +493,8 @@ it("opens a file with content Zibel cannot hold, with one warning per kind", () 
       "INVALID_PATH",
     ]),
   );
-  expect(codes.filter((c) => c === "UNSUPPORTED_ATTRIBUTE")).toHaveLength(4);
+  // mask, filter and marker-end; the clip-path is held.
+  expect(codes.filter((c) => c === "UNSUPPORTED_ATTRIBUTE")).toHaveLength(3);
   for (const w of file.warnings) expect(w.message).not.toBe("");
 });
 
@@ -536,4 +540,103 @@ it("reads where a Zibel export came from: zibel:doc, zibel:rev and zibel:scope",
   // A rev that is not a whole number gives no base to merge from.
   expect(origin('zibel:doc="D" zibel:rev="x"')).toEqual({ docId: "D" });
   expect(origin("")).toBeUndefined();
+});
+
+describe("Clipping Masks (ADR-0021)", () => {
+  const G = "z-01J00000000000000000000G01";
+  const C = "z-01J00000000000000000000C01";
+  const byId = (file: ReturnType<typeof parseFile>, xml: string) =>
+    file.nodes.find((n) => `z-${n.id}` === xml);
+  const children = (file: ReturnType<typeof parseFile>, id: string | undefined) =>
+    file.nodes.filter((n) => n.parentId === id).sort((a, b) => (a.index < b.index ? -1 : 1));
+
+  it("reads Inkscape's clipped Group, the clip in <defs> under a new id, as a Clipping Mask", () => {
+    const file = parseFile(
+      svg(
+        'width="200" height="200" viewBox="0 0 200 200"',
+        '<defs><clipPath clipPathUnits="userSpaceOnUse" id="clipPath13"><circle id="circle15" cx="80" cy="80" r="50" fill="#00ff00"/></clipPath></defs>' +
+          `<g id="${G}" clip-path="url(#clipPath13)" transform="translate(10 0)"><rect width="100" height="100" fill="#FF0000"/></g>`,
+      ),
+    );
+    expect(file.warnings).toEqual([]);
+    const group = byId(file, G);
+    const [rect, clip] = children(file, group?.id);
+    expect(rect).toMatchObject({ type: "rect", x: 10 });
+    // On top, in the Group's user space, its paint kept but not drawn.
+    expect(clip).toMatchObject({
+      type: "ellipse",
+      x: 40,
+      y: 30,
+      width: 100,
+      clipping: true,
+      appearance: { fills: [{ color: "#00FF00" }] },
+    });
+  });
+
+  it("reads Zibel's inline <clipPath> where it sits, with its id and clip-rule", () => {
+    const file = parseFile(
+      svg(
+        "",
+        `<g id="${G}" clip-path="url(#clip-${G})"><rect width="9" height="9"/>` +
+          `<clipPath id="clip-${G}" clipPathUnits="userSpaceOnUse"><path id="${C}" d="M 0 0 L 9 0 L 9 9 Z" fill="none" clip-rule="evenodd"/></clipPath>` +
+          '<rect x="5" width="9" height="9"/></g>',
+      ),
+    );
+    const group = byId(file, G);
+    expect(children(file, group?.id).map((n) => n.type)).toEqual(["rect", "path", "rect"]);
+    expect(byId(file, C)).toMatchObject({
+      clipping: true,
+      fillRule: "evenodd",
+      parentId: group?.id,
+    });
+  });
+
+  it("wraps a clipped leaf in a new Group, the clip in the leaf's user space", () => {
+    const file = parseFile(
+      svg(
+        "",
+        '<defs><clipPath id="c"><rect x="1" y="1" width="2" height="2"/></clipPath></defs>' +
+          '<rect id="z-01J00000000000000000000R01" transform="translate(10 20)" clip-path="url(#c)" width="5" height="5"/>',
+      ),
+    );
+    const rect = byId(file, "z-01J00000000000000000000R01");
+    const group = file.nodes.find((n) => n.id === rect?.parentId);
+    expect(group).toMatchObject({ type: "group", name: "" });
+    expect(children(file, group?.id)).toMatchObject([
+      { type: "rect", x: 10, y: 20 },
+      { type: "rect", x: 11, y: 21, width: 2, clipping: true },
+    ]);
+  });
+
+  it("imports unclipped, warning once, a clip Zibel cannot hold", () => {
+    const clip = (inner: string, attrs = "") =>
+      parseFile(
+        svg(
+          "",
+          `<defs><clipPath id="c" ${attrs}>${inner}</clipPath></defs><g clip-path="url(#c)"><rect width="5" height="5"/></g>`,
+        ),
+      );
+    for (const file of [
+      clip('<text x="0" y="5">Hi</text>'),
+      clip('<rect width="1" height="1"/><rect width="2" height="2"/>'),
+      clip('<g><rect width="1" height="1"/></g>'),
+      clip('<rect width="1" height="1"/>', 'clipPathUnits="objectBoundingBox"'),
+      clip('<rect width="1" height="1"/>', 'clip-path="url(#d)"'),
+      parseFile(svg("", '<g clip-path="url(#nope)"><rect width="5" height="5"/></g>')),
+      parseFile(
+        svg(
+          "",
+          '<defs><clipPath id="c"><rect width="1" height="1"/></clipPath></defs><g inkscape:groupmode="layer" clip-path="url(#c)"><rect width="5" height="5"/></g>',
+        ),
+      ),
+    ]) {
+      expect(file.warnings).toMatchObject([{ code: "UNSUPPORTED_ATTRIBUTE" }]);
+      expect(file.nodes.some((n) => "clipping" in n)).toBe(false);
+    }
+  });
+
+  it("takes clip-path none, as Inkscape's Release writes it, as no clip", () => {
+    const file = parseFile(svg("", '<g clip-path="none"><rect width="5" height="5"/></g>'));
+    expect(file.warnings).toEqual([]);
+  });
 });
