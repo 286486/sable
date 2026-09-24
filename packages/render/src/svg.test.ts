@@ -55,6 +55,16 @@ it("writes rect, ellipse and line as their own elements, and other shapes as the
   expect(paths).toHaveLength(3);
   for (const n of paths) expect(svg).toContain(`d="${formatPath(shapeSegments(n))}"`);
   expect(svg).toContain('<rect x="0" y="0" width="10" height="10" rx="2" ry="2" id=');
+  expect(svg).toContain(
+    '<path sodipodi:type="star" sodipodi:sides="5" sodipodi:cx="50" sodipodi:cy="50" sodipodi:r1="10" sodipodi:r2="8.09" ' +
+      'sodipodi:arg1="-1.5707963267948966" sodipodi:arg2="-0.9424777960769379" inkscape:flatsided="true" ' +
+      'inkscape:rounded="0" inkscape:randomized="0" d="M 50 40 L 59.511 46.91 L 55.878 58.09',
+  );
+  expect(svg).toContain(
+    '<path sodipodi:type="star" sodipodi:sides="5" sodipodi:cx="80" sodipodi:cy="50" sodipodi:r1="10" sodipodi:r2="4" ' +
+      'sodipodi:arg1="-1.5707963267948966" sodipodi:arg2="-0.9424777960769379" inkscape:flatsided="false" ' +
+      'inkscape:rounded="0" inkscape:randomized="0" d="M 80 40 L 82.351 46.764',
+  );
   expect(svg).toContain('<line x1="0" y1="0" x2="5" y2="5" id=');
   expect(svg).toContain('<ellipse cx="10" cy="5" rx="10" ry="5" id=');
   expect(svg).toContain('<circle cx="45" cy="5" r="5" id=');

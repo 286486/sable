@@ -281,8 +281,32 @@ function shape(n: ShapeNode): string {
     }
     case "line":
       return `line${num({ x1: n.x1, y1: n.y1, x2: n.x2, y2: n.y2 })}`;
+    case "polygon":
+    case "star": {
+      // Inkscape's star tool rebuilds the outline from these on load, so d is the same vertices:
+      // the first straight up (arg1, radians), the inner ones half a step clockwise (arg2).
+      const [sides, r1, r2] =
+        n.type === "polygon"
+          ? [n.sides, n.radius, n.radius * Math.cos(Math.PI / n.sides)]
+          : [n.points, n.outerRadius, n.innerRadius];
+      const arg1 = -Math.PI / 2;
+      return `path${attrs({
+        "sodipodi:type": "star",
+        "sodipodi:sides": sides,
+        "sodipodi:cx": formatNumber(n.cx),
+        "sodipodi:cy": formatNumber(n.cy),
+        "sodipodi:r1": formatNumber(r1),
+        "sodipodi:r2": formatNumber(r2),
+        "sodipodi:arg1": arg1,
+        "sodipodi:arg2": arg1 + Math.PI / sides,
+        "inkscape:flatsided": String(n.type === "polygon"),
+        "inkscape:rounded": 0,
+        "inkscape:randomized": 0,
+        d: formatPath(shapeSegments(n)),
+      })}`;
+    }
     default:
-      // A Path, or a polygon or star, is a <path> of the same outline node_get reports as d.
+      // The same outline node_get reports as d.
       return `path d="${formatPath(shapeSegments(n))}"`;
   }
 }
