@@ -5,6 +5,7 @@ import type {
   ArtboardInput,
   ConciseView,
   FullView,
+  MaskInput,
   NodeInput,
   NodeQuery,
   OutlineNode,
@@ -118,6 +119,9 @@ export interface DocumentService {
   updateNodes(docId: string, updates: UpdateInput[], opts?: WriteOptions): Promise<WriteReceipt>;
   deleteNodes(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
   transformNodes(docId: string, input: TransformInput, opts?: WriteOptions): Promise<WriteReceipt>;
+  /** Illustrator's Clipping Mask > Make and Release (ADR-0021). */
+  makeMask(docId: string, input: MaskInput, opts?: WriteOptions): Promise<WriteReceipt>;
+  releaseMask(docId: string, nodeIds: string[], opts?: WriteOptions): Promise<WriteReceipt>;
   /** Reads take `txId` to see that open Transaction's uncommitted edits. */
   get(
     docId: string,

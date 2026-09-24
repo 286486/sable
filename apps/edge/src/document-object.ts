@@ -13,6 +13,8 @@ import {
   type Failed,
   type FullView,
   fontWarnings,
+  type MaskInput,
+  makeMask,
   type Node,
   type NodeInput,
   type NodeQuery,
@@ -25,6 +27,7 @@ import {
   placeNodes,
   queryNodes,
   type Rect,
+  releaseMask,
   revert,
   serializeDocument,
   type TransformInput,
@@ -337,6 +340,20 @@ export class DocumentObject extends DurableObject<Env> {
 
   deleteNodes(nodeIds: string[], actor: string, opts: Options = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Delete", (doc) => deleteNodes(doc, nodeIds, opts));
+  }
+
+  makeMask(input: MaskInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
+    return this.write(actor, opts, "Make Clipping Mask", (doc) => {
+      const { group, updated } = makeMask(doc, input);
+      return { created: [group], updated, failed: [], summary: "Make Clipping Mask" };
+    });
+  }
+
+  releaseMask(nodeIds: string[], actor: string, opts: Options = {}): Result<WriteReceipt> {
+    return this.write(actor, opts, "Release Clipping Mask", (doc) => {
+      const { nodes, failed } = releaseMask(doc, nodeIds);
+      return { updated: nodes, failed, summary: "Release Clipping Mask" };
+    });
   }
 
   /**

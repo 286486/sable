@@ -326,6 +326,7 @@ export const MaskInput = z.object({
     .default("clip")
     .describe("clip; an Opacity Mask (F-MASK-02) is not available yet."),
 });
+export type MaskInput = z.input<typeof MaskInput>;
 
 /** `[a, b, c, d, e, f]` with SVG semantics. */
 export type Matrix = [number, number, number, number, number, number];

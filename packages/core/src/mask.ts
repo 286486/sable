@@ -1,4 +1,3 @@
-import type { z } from "zod";
 import { clippingPath, createNodes } from "./document.ts";
 import { lookup } from "./edit.ts";
 import { collect, ZibelError } from "./errors.ts";
@@ -14,7 +13,7 @@ const invalid = (path: string, message: string, hint: string) =>
  */
 export function makeMask(
   doc: Document,
-  { clipNodeId, contentIds, kind = "clip" }: z.input<typeof MaskInput>,
+  { clipNodeId, contentIds, kind = "clip" }: MaskInput,
 ): { group: GroupNode; updated: Node[] } {
   if (kind !== "clip") {
     throw invalid(

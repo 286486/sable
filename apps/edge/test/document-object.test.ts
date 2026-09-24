@@ -512,3 +512,51 @@ it("queries Nodes as a Transaction sees them, and reports DOC_NOT_FOUND", async 
     error: { code: "DOC_NOT_FOUND" },
   });
 });
+
+it("makes and releases a Clipping Mask as one Transaction each, undone and redone like any other", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("m1");
+  const [clipId = ""] = ok(
+    await s.createNodes(
+      [{ type: "ellipse", parentId: defaultLayerId, x: 2, y: 2, width: 4, height: 4 }],
+      "agent-a",
+    ),
+  ).createdIds;
+  const made = ok(await s.makeMask({ clipNodeId: clipId, contentIds: [rectId] }, "agent-a"));
+  const [groupId = ""] = made.createdIds;
+  expect(made).toMatchObject({ rev: 4, updatedIds: [rectId, clipId], deletedIds: [] });
+  expect(made.bounds).toEqual({ x: 0, y: 0, width: 10, height: 10 });
+  const get = async (id: string) => ok(await s.get([id], "full", "agent-a")).nodes[0];
+  expect(await get(clipId)).toMatchObject({ parentId: groupId, clipping: true });
+  expect(await layerChildren(s)).toEqual([groupId]);
+
+  // The Layers panel's eye on the Clipping Path.
+  expect(
+    await s.updateNodes([{ nodeId: clipId, patch: { visible: false } }], "user"),
+  ).toMatchObject({ error: { code: "INVALID_PATCH" } });
+
+  expect(ok(await s.undo("user"))).toMatchObject({ deletedIds: [groupId] });
+  expect(await layerChildren(s)).toEqual([rectId, clipId]);
+  const restored = await get(clipId);
+  expect(restored).toMatchObject({ parentId: defaultLayerId, appearance: { fills: [{}] } });
+  expect(restored && "clipping" in restored).toBe(false);
+  ok(await s.redo("user"));
+  expect(await get(clipId)).toMatchObject({ parentId: groupId, clipping: true });
+
+  expect(ok(await s.releaseMask([groupId], "agent-a"))).toMatchObject({ updatedIds: [clipId] });
+  const released = await get(clipId);
+  expect(released && "clipping" in released).toBe(false);
+  expect(released).toMatchObject({ parentId: groupId });
+});
+
+it("stages a Clipping Mask in a Transaction until commit", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("m2");
+  const [clipId = ""] = ok(
+    await s.createNodes([{ ...rect, parentId: defaultLayerId }], "agent-a"),
+  ).createdIds;
+  const { txId } = ok(await s.begin("agent-a"));
+  ok(await s.makeMask({ clipNodeId: clipId, contentIds: [rectId] }, "agent-a", { txId }));
+  expect(await layerChildren(s)).toEqual([rectId, clipId]);
+  expect(await layerChildren(s, txId)).toHaveLength(1);
+  ok(await s.commitTx(txId, "agent-a"));
+  expect(await layerChildren(s)).toHaveLength(1);
+});
