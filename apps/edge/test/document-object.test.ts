@@ -197,6 +197,25 @@ it("reports where a redone delete took the Node from", async () => {
   expect(ok(await s.redo("user"))).toMatchObject({ deletedIds: [rectId], bounds: at });
 });
 
+it("commits with bounds covering what it created and where it deleted", async () => {
+  const { s, defaultLayerId, rectId } = await withRect("t6");
+  const { txId } = ok(await s.begin("agent-a"));
+  const [a = ""] = ok(
+    await s.createNodes([{ ...rect, x: 30, parentId: defaultLayerId }], "agent-a", { txId }),
+  ).createdIds;
+  expect(ok(await s.deleteNodes([rectId], "agent-a", { txId }))).toMatchObject({
+    rev: 2,
+    deletedIds: [rectId],
+    bounds: { x: 0, y: 0, width: 10, height: 10 },
+  });
+  expect(ok(await s.commitTx(txId, "agent-a"))).toMatchObject({
+    rev: 3,
+    createdIds: [a],
+    deletedIds: [rectId],
+    bounds: { x: 0, y: 0, width: 40, height: 10 },
+  });
+});
+
 const layerChildren = async (s: ReturnType<typeof stub>, txId?: string) => {
   const { nodes } = ok(await s.outline({ depth: 2 }, "agent-a", txId));
   return (nodes[0]?.children ?? []).map((c) => c.id);

@@ -553,26 +553,12 @@ export class DocumentObject extends DurableObject<Env> {
       this.checkRev(doc, opts.ifRev);
       const before = { ...doc, nodes: new Map(doc.nodes) };
       const change = commitTransaction(doc, this.rows(txId));
-      const { created, updated, deletedIds } = change;
       const { rev } = this.ctx.storage.transactionSync(() => {
         this.end(txId, "committed");
         const text = label ?? summary("Commit", change);
         return this.commit(actor, text, opts.intent, change, undefined, txId);
       });
-      this.broadcast({ type: "tx", rev, txId, actor, intent: opts.intent ?? null, ...change });
-      return {
-        txId,
-        rev,
-        createdIds: created.map((n) => n.id),
-        updatedIds: updated.map((n) => n.id),
-        deletedIds,
-        keyMap: {},
-        bounds: union([
-          ...[...created, ...updated].map((n) => bounds(doc, n)),
-          ...deletedIds.map((id) => bounds(before, before.nodes.get(id) as Node)),
-        ]),
-        warnings: [],
-      };
+      return this.receipt(before, doc, change, { txId, rev, actor, opts });
     });
   }
 
