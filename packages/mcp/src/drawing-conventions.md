@@ -33,6 +33,12 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - Give Layers and Groups a `name`. `tags` and `meta` are yours: use them to find Nodes again with `zibel_node_query`.
 - Children are painted bottom to top in the order you create them.
 
+## Clipping Masks
+
+- To show artwork only inside a shape, draw the shape as a sibling of the artwork, then call `zibel_mask_make` with the shape as `clipNodeId` and the artwork as `contentIds`. They move into a new Group, the Clipping Mask, whose `geometricBounds` are the shape's.
+- The shape becomes the Group's Clipping Path: it clips and is never painted, so it loses its Fills and Strokes, and it cannot be hidden. A text cannot clip yet.
+- `clipping` is read-only to `zibel_node_update`: release with `zibel_mask_release`, which keeps the Group and leaves the shape unpainted.
+
 ## Workflow
 
 1. Before a round of writes, call `zibel_doc_changes` with the `rev` you last saw (or `zibel_doc_get_info` the first time) to learn what a person changed since.
@@ -57,7 +63,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 
 - `zibel_export` with `format: "zibel_json"` returns the whole Document as `.zibel.json` text, the file to save.
 - `zibel_doc_open` with that text as `content` makes a new Document with its own docId; every Node and Artboard keeps its id. A file that fails validation creates nothing, and `INVALID_DOCUMENT` (or the usual colour, path or parent code) names the `path` inside the file.
-- `zibel_doc_open` also takes SVG text, told apart by content: Zibel's own `zibel_export` SVG, a file saved in Inkscape, or plain SVG 1.1, at most 5 MB (else `LIMIT_EXCEEDED`). Layers, pages, names, locks and `z-<id>` ids come back; units become pt, with px counting as pt. What Zibel cannot hold yet (gradients become their first colour; clipping, masks, filters, images and `<use>` are dropped) is listed once per kind in `warnings`; it never fails the open.
+- `zibel_doc_open` also takes SVG text, told apart by content: Zibel's own `zibel_export` SVG, a file saved in Inkscape, or plain SVG 1.1, at most 5 MB (else `LIMIT_EXCEEDED`). Layers, pages, names, locks and `z-<id>` ids come back; units become pt, with px counting as pt. Clipping comes back as Clipping Masks. What Zibel cannot hold yet (gradients become their first colour; a clip it cannot hold, masks, filters, images and `<use>` are dropped) is listed once per kind in `warnings`; it never fails the open.
 - To bring an edited file back into the Document it came from, use `zibel_doc_replace`, not `zibel_doc_open`: it keeps the docId and merges only what the file changed since its export onto what others wrote meanwhile, as one undoable Transaction. An SVG from `zibel_export` knows its rev; for a `.zibel.json`, pass the rev you exported it at as `baseRev`. Guard it with `ifRev` like any write.
 - To add an SVG to a Document you are working on, use `zibel_svg_import`: it places the file as one new Group under the Layer or Group you name, with its layers as Groups and every id new, centred on the parent's Artboard or on `position`, and scaled to fit that Artboard with `fit: true`.
 
@@ -73,7 +79,7 @@ Go from coarse to fine: `zibel_doc_outline` for the Layer tree, `zibel_node_quer
 
 - A failed call returns `{code, message, hint, path}`: `hint` says what to do next and `path` names the field.
 - A value the input schema rejects returns text starting `Input validation error:` that names the field.
-- Common mistakes: an Artboard id as `parentId` (`INVALID_PARENT`), `rgb()` or named colours (`INVALID_COLOR`), lowercase or `H`/`V`/`A` path commands (`INVALID_PATH`), `transform` in a `zibel_node_update` patch (`INVALID_PATCH`: use `zibel_node_transform`), `parentId` in a patch (`INVALID_PATCH`: a Node cannot move to another parent yet).
+- Common mistakes: an Artboard id as `parentId` (`INVALID_PARENT`), `rgb()` or named colours (`INVALID_COLOR`), lowercase or `H`/`V`/`A` path commands (`INVALID_PATH`), `transform` in a `zibel_node_update` patch (`INVALID_PATCH`: use `zibel_node_transform`), `parentId` in a patch (`INVALID_PATCH`: a Node cannot move to another parent yet), `clipping` in a patch (`INVALID_PATCH`: use `zibel_mask_make` or `zibel_mask_release`).
 
 ## Limits
 

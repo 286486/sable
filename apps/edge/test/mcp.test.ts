@@ -31,6 +31,8 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "zibel_doc_outline",
     "zibel_doc_replace",
     "zibel_export",
+    "zibel_mask_make",
+    "zibel_mask_release",
     "zibel_node_create",
     "zibel_node_delete",
     "zibel_node_get",
@@ -43,6 +45,55 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "zibel_tx_commit",
     "zibel_tx_rollback",
   ]);
+});
+
+it("makes a Clipping Mask from a circle over a Group, renders it clipped and releases it", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const { keyMap } = (
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        {
+          type: "group",
+          parentId: defaultLayerId,
+          clientKey: "art",
+          children: [{ type: "rect", x: 0, y: 0, width: 100, height: 100 }],
+        },
+        {
+          type: "ellipse",
+          parentId: defaultLayerId,
+          clientKey: "circle",
+          x: 20,
+          y: 30,
+          width: 40,
+          height: 40,
+        },
+      ],
+    })
+  ).structuredContent;
+  const made = (
+    await call("zibel_mask_make", { docId, clipNodeId: keyMap.circle, contentIds: [keyMap.art] })
+  ).structuredContent;
+  const [maskId] = made.createdIds;
+  expect(made.updatedIds.sort()).toEqual([keyMap.art, keyMap.circle].sort());
+  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text;
+  expect(svg).toContain(`clip-path="url(#clip-z-${maskId})"`);
+  expect(svg).toContain("<clipPath");
+  // The Render Scope of the Clipping Mask is the circle's bounds, not the 100 pt square's.
+  const { viewport } = (
+    await call("zibel_render", { docId, scope: { nodeIds: [maskId] }, scale: 1 })
+  ).structuredContent;
+  expect(viewport.docRect).toMatchObject({ x: 20, y: 30, width: 40, height: 40 });
+
+  await call("zibel_mask_release", { docId, nodeIds: [maskId] });
+  const after = (await call("zibel_export", { docId, format: "svg" })).content[0].text;
+  expect(after).not.toContain("clip-path");
+  const { nodes } = (
+    await call("zibel_node_get", { docId, nodeIds: [keyMap.circle, keyMap.art], detail: "full" })
+  ).structuredContent;
+  expect(nodes[0]).toMatchObject({ parentId: maskId, appearance: { fills: [], strokes: [] } });
+  expect(nodes[0].clipping).toBeUndefined();
+  expect(nodes[1]).toMatchObject({ parentId: maskId });
 });
 
 it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
@@ -431,7 +482,8 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       return tool("zibel_tx_commit", { txId });
     },
     INVALID_DOCUMENT: () => call("zibel_doc_open", { content: "{" }).then(errorOf),
-    INVALID_MASK: null,
+    INVALID_MASK: async () =>
+      tool("zibel_mask_make", { clipNodeId: defaultLayerId, contentIds: [await create(rect)] }),
     // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).
     NOTHING_TO_UNDO: null,
     NOTHING_TO_REDO: null,
