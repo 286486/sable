@@ -2,8 +2,8 @@ import { evictAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { COLOR_PATTERN, type ErrorCode } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
-import exported from "./fixtures/inkscape.svg?raw";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
