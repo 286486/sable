@@ -69,11 +69,10 @@ describe("write tools pass the write and its options apart", () => {
     await call("zibel_node_update", { docId: "d", updates, ...opts });
     // A Fill is always solid so far; the list replaces, and strokes is not sent.
     const fills = [{ type: "solid", color: "#FF0000" }];
-    expect(service.updateNodes).toHaveBeenCalledWith(
-      "d",
-      [updates[0], { nodeId: "b", patch: { appearance: { fills } } }],
-      { ...opts, partial: false },
-    );
+    const [docId, sent, options] = service.updateNodes.mock.calls[0] ?? [];
+    expect([docId, options]).toEqual(["d", { ...opts, partial: false }]);
+    // Strict: a default filled in as an undefined key would still reach the Durable Object.
+    expect(sent).toStrictEqual([updates[0], { nodeId: "b", patch: { appearance: { fills } } }]);
   });
 
   it("node_delete", async () => {
@@ -94,11 +93,15 @@ describe("write tools pass the write and its options apart", () => {
       partial: true,
       ...opts,
     });
-    expect(service.transformNodes).toHaveBeenCalledWith(
-      "d",
-      { nodeIds: ["a"], rotate: 90, pivot: "center", each: false, scaleStrokes: true },
-      { ...opts, partial: true },
-    );
+    const [docId, input, options] = service.transformNodes.mock.calls[0] ?? [];
+    expect([docId, options]).toEqual(["d", { ...opts, partial: true }]);
+    expect(input).toStrictEqual({
+      nodeIds: ["a"],
+      rotate: 90,
+      pivot: "center",
+      each: false,
+      scaleStrokes: true,
+    });
   });
 
   it("doc_replace: content, baseRev, ifRev and intent; no txId or partial", async () => {
