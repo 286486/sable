@@ -8,6 +8,7 @@ const INHERITED = [
   "fill",
   "fill-opacity",
   "fill-rule",
+  "clip-rule",
   "marker-start",
   "marker-mid",
   "marker-end",
