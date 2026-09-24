@@ -2,6 +2,7 @@ import {
   type Appearance,
   type Artboard,
   childrenOf,
+  clippingPath,
   type Document,
   formatNumber,
   formatPath,
@@ -17,7 +18,16 @@ import {
   visibleBounds,
   ZibelError,
 } from "@zibel/core";
-import { paintAttrs, SVG_STROKE, scopeAttr, starAttrs, XMLNS, xmlId, zibel } from "./dialect.ts";
+import {
+  clipId,
+  paintAttrs,
+  SVG_STROKE,
+  scopeAttr,
+  starAttrs,
+  XMLNS,
+  xmlId,
+  zibel,
+} from "./dialect.ts";
 
 // Whitespace as references too: an XML parser turns a raw newline in an attribute into a space.
 export const esc = (s: string) => s.replace(/[&<>"\t\n\r]/g, (c) => ESCAPES[c] ?? c);
@@ -237,14 +247,21 @@ function node(doc: Document, n: Node, walk: Walk): string {
     n.blendMode !== "normal" && `mix-blend-mode:${n.blendMode}`,
   ] as const;
   if (n.type === "layer" || n.type === "group") {
-    const kids = childrenOf(doc, n.id)
-      .map((c) => node(doc, c, { ...walk, inside, hidden }))
-      .join("");
-    const layer = n.type === "layer" ? { "inkscape:groupmode": "layer" } : {};
+    const clip = clippingPath(doc, n);
+    const children = childrenOf(doc, n.id);
+    const kids = children.map((c) => (c === clip ? "" : node(doc, c, { ...walk, inside, hidden })));
     // Outside the scope, a container is written only as the way to a listed Node.
-    return inside || kids
-      ? `<g${attrs({ ...own, ...layer, style: style(...looks) })}>${kids}</g>`
-      : "";
+    if (!inside && !kids.join("")) return "";
+    const layer = n.type === "layer" ? { "inkscape:groupmode": "layer" } : {};
+    // A Clipping Mask's clip sits among its children, where Inkscape keeps it (ADR-0021); it is
+    // written for every scope that draws the Group, and is never drawn itself.
+    if (clip) {
+      const leaf = node(doc, clip, { ...walk, inside: true, hidden, drawn: [] });
+      kids[children.indexOf(clip)] =
+        `<clipPath${attrs({ id: clipId(n.id), clipPathUnits: "userSpaceOnUse" })}>${leaf}</clipPath>`;
+    }
+    const clipPath = clip ? `url(#${clipId(n.id)})` : undefined;
+    return `<g${attrs({ ...own, ...layer, "clip-path": clipPath, style: style(...looks) })}>${kids.join("")}</g>`;
   }
   if (!inside) return "";
   // Text is kerned off:
@@ -266,11 +283,21 @@ function node(doc: Document, n: Node, walk: Walk): string {
   const { fills, strokes } = n.appearance;
   // One Fill and one Stroke are one element, so Inkscape selects one object; a longer Appearance
   // is a <g zibel:stack> painting each Fill, then each Stroke: Illustrator's default stacking.
-  if (fills.length <= 1 && strokes.length <= 1) {
+  // ponytail: a <clipPath> holds shapes, not a <g>, so a painted Clipping Path's stack keeps its
+  // first Fill and Stroke; the rest waits for Clipping Paths that paint (ADR-0021).
+  const clipping = n.type !== "text" && n.clipping === true;
+  if ((fills.length <= 1 && strokes.length <= 1) || clipping) {
     const [f] = fills;
     const [s] = strokes;
     return element(
-      { ...own, ...(f ? paintAttrs("fill", f.color) : { fill: "none" }), ...(s && stroke(s)) },
+      {
+        ...own,
+        ...(f ? paintAttrs("fill", f.color) : { fill: "none" }),
+        ...(s && stroke(s)),
+        // Inside a <clipPath> SVG reads clip-rule, not fill-rule.
+        "clip-rule":
+          clipping && n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : undefined,
+      },
       [...looks],
     );
   }

@@ -1,4 +1,4 @@
-import { bounds, createDocument, createNodes, parseDocument } from "@zibel/core";
+import { bounds, createDocument, createNodes, makeMask, parseDocument } from "@zibel/core";
 import { docRect, scopeRect, toSvg } from "@zibel/io";
 import { expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
@@ -153,4 +153,29 @@ it("clips by an inline clipPath the Group refers to before it is defined", async
   expect(
     (await ink(svg(`${ring} fill-rule="evenodd"/>`))).some(([x, y]) => x === 50 && y === 50),
   ).toBe(true);
+});
+
+it("draws a Clipping Mask's content only inside its Clipping Path", async () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100, background: "#FFFFFF" }],
+  });
+  const [content, clip] = createNodes(doc, [
+    {
+      type: "rect",
+      parentId,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      appearance: { fills: [{ color: "#FF0000" }] },
+    },
+    { type: "ellipse", parentId, x: 40, y: 40, width: 20, height: 20 },
+  ]).nodes;
+  if (!content || !clip) throw new Error("setup");
+  makeMask(doc, { clipNodeId: clip.id, contentIds: [content.id] });
+  const drawn = await ink(toSvg(doc));
+  expect(drawn.some(([x, y]) => x === 50 && y === 50)).toBe(true);
+  expect(drawn.every(([x, y]) => x >= 39 && x <= 60 && y >= 39 && y <= 60)).toBe(true);
 });
