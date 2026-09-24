@@ -2,6 +2,8 @@ import { DOMParser, type Element } from "@xmldom/xmldom";
 import {
   type Appearance,
   type Artboard,
+  BlendMode,
+  cssColor,
   formatPath,
   IDENTITY,
   type Matrix,
@@ -18,6 +20,7 @@ import {
   ZibelError,
 } from "@zibel/core";
 import { generateKeyBetween } from "fractional-indexing";
+import { computeStyle, type Rule, type Style, stylesheet } from "./style.ts";
 
 export type Warning = WriteReceipt["warnings"][number];
 
@@ -32,6 +35,7 @@ export interface OpenedFile {
 export const SVG_NS = "http://www.w3.org/2000/svg";
 export const INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape";
 export const SODIPODI_NS = "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd";
+const XLINK_NS = "http://www.w3.org/1999/xlink";
 
 const invalid = (message: string) =>
   new ZibelError({
@@ -114,7 +118,26 @@ interface Context {
   /** The parent is the root or a Layer, so an Inkscape layer here is a Layer. */
   layerLevel: boolean;
   matrix: Matrix;
+  style: Style;
 }
+
+/** An opacity from `0.5` or `50%`, 1 when missing or unreadable. */
+const alpha = (v: string | undefined) => {
+  const n = v?.trim().endsWith("%") ? Number.parseFloat(v) / 100 : Number(v ?? 1);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
+};
+
+/** `hex` with its own alpha times `a`, as #RRGGBB when opaque. */
+function withAlpha(hex: string, a: number): string {
+  const own = hex.length === 9 ? Number.parseInt(hex.slice(7), 16) / 255 : 1;
+  const byte = Math.round(own * a * 255);
+  return byte >= 255
+    ? hex.slice(0, 7)
+    : `${hex.slice(0, 7)}${byte.toString(16).padStart(2, "0").toUpperCase()}`;
+}
+
+const CAPS = ["butt", "round", "square"];
+const JOINS = ["miter", "round", "bevel"];
 
 /** Everything one SVG file gives a Document, as the walk builds it. */
 class Reader {
@@ -122,6 +145,11 @@ class Reader {
   readonly warnings = new Map<string, Warning>();
   private readonly last = new Map<string | null, string | null>();
   private readonly ids = new Set<string>();
+
+  constructor(
+    private readonly rules: Rule[],
+    private readonly byId: Map<string, Element>,
+  ) {}
   /** The Layer loose root content goes into, made at the first such element. */
   private loose: string | undefined;
 
@@ -146,16 +174,17 @@ class Reader {
   }
 
   /** The properties every Node has, placed under `parentId`. */
-  base(e: Element | null, parentId: string | null, name = "") {
+  base(e: Element | null, parentId: string | null, name = "", style: Style = {}) {
+    const blend = BlendMode.safeParse(style["mix-blend-mode"]);
     return {
       id: this.id(e),
       name,
       parentId,
       index: this.index(parentId),
-      visible: true,
+      visible: style.display !== "none",
       locked: false,
-      opacity: 1,
-      blendMode: "normal" as const,
+      opacity: alpha(style.opacity),
+      blendMode: blend.success ? blend.data : ("normal" as const),
       transform: [...IDENTITY] as Matrix,
       tags: [] as string[],
       meta: {} as Record<string, unknown>,
@@ -177,18 +206,100 @@ class Reader {
   walk(e: Element, ctx: Context) {
     if (e.namespaceURI !== SVG_NS && e.namespaceURI !== null) return;
     const matrix = multiply(ctx.matrix, parseTransform(e.getAttribute("transform")));
+    const style = computeStyle(e, ctx.style, this.rules);
     const tag = e.localName;
     if (tag === "g" || tag === "a" || tag === "switch") {
       const layer = ctx.layerLevel && e.getAttributeNS(INKSCAPE_NS, "groupmode") === "layer";
       const parentId = layer ? ctx.parentId : this.parent(ctx);
-      const node = this.add({ ...this.base(e, parentId), type: layer ? "layer" : "group" });
-      for (const c of elements(e)) this.walk(c, { parentId: node.id, layerLevel: layer, matrix });
+      const node = this.add({
+        ...this.base(e, parentId, "", style),
+        type: layer ? "layer" : "group",
+      });
+      for (const c of elements(e)) {
+        this.walk(c, { parentId: node.id, layerLevel: layer, matrix, style });
+      }
       return;
     }
     const shape = this.shape(e, matrix);
     if (!shape) return;
-    const appearance: Appearance = { fills: [{ type: "solid", color: "#000000" }], strokes: [] };
-    this.add({ ...this.base(e, this.parent(ctx)), ...shape, appearance } as Node);
+    const base = this.base(e, this.parent(ctx), "", style);
+    // visibility inherits, unlike display, so it hides a leaf rather than its Group.
+    if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
+    const k = bakes(matrix) ? matrix[0] : 1;
+    this.add({ ...base, ...shape, appearance: this.appearance(style, k) } as Node);
+  }
+
+  /** Fills and Strokes from resolved style, SVG's defaults where it says nothing. */
+  private appearance(style: Style, k: number): Appearance {
+    const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"]);
+    const stroke = this.paint(style.stroke ?? "none", style, style["stroke-opacity"]);
+    const width = n3((length(style["stroke-width"]) ?? 1) * k);
+    const join = JOINS.includes(style["stroke-linejoin"] ?? "")
+      ? style["stroke-linejoin"]
+      : "miter";
+    const limit = Number(style["stroke-miterlimit"]);
+    let dash = (style["stroke-dasharray"] ?? "none")
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map((v) => length(v) ?? Number.NaN);
+    if (dash.some((v) => !(v >= 0)) || dash.every((v) => v === 0)) dash = [];
+    // An odd list repeats to make it even (SVG 1.1 §11.4).
+    if (dash.length % 2) dash = [...dash, ...dash];
+    return {
+      fills: fill ? [{ type: "solid", color: fill }] : [],
+      strokes:
+        stroke && width > 0
+          ? [
+              {
+                color: stroke,
+                width,
+                cap: (CAPS.includes(style["stroke-linecap"] ?? "")
+                  ? style["stroke-linecap"]
+                  : "butt") as "butt",
+                join: join as "miter",
+                // SVG's default limit is 4, where it shows; for other joins, Zibel's 10.
+                miterLimit: limit >= 1 ? Math.min(limit, 500) : join === "miter" ? 4 : 10,
+                dash: dash.map((v) => n3(v * k)),
+              },
+            ]
+          : [],
+    };
+  }
+
+  /** A fill or stroke value as a colour, or null for none. A gradient gives its first stop. */
+  private paint(value: string, style: Style, opacity: string | undefined): string | null {
+    const url = /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)\s*(.*)$/.exec(value.trim());
+    let hex: string | null;
+    if (url) {
+      const stop = this.firstStop(url[1] ?? "");
+      hex = stop ?? cssColor(url[2] ?? "");
+      if (stop) {
+        this.warn(
+          "GRADIENT_FLATTENED",
+          "",
+          "Gradients are solid Fills and Strokes in their first stop's colour until gradients land (#22).",
+        );
+      } else if (!hex) {
+        this.warn("UNSUPPORTED_PAINT", "", "Patterns and unknown paint servers are dropped.");
+      }
+    } else if (value.trim().toLowerCase() === "currentcolor")
+      hex = cssColor(style.color ?? "black");
+    else hex = cssColor(value);
+    return hex && withAlpha(hex, alpha(opacity));
+  }
+
+  /** The first stop's colour of a gradient, following href to the gradient that has the stops. */
+  private firstStop(id: string, depth = 0): string | null {
+    const g = this.byId.get(id);
+    if (!g || !/Gradient$/.test(g.localName ?? "") || depth > 8) return null;
+    const stop = elements(g).find((c) => c.localName === "stop");
+    if (stop) {
+      const s = computeStyle(stop, {}, this.rules);
+      const hex = cssColor(s["stop-color"] ?? "black");
+      return hex && withAlpha(hex, alpha(s["stop-opacity"]));
+    }
+    const href = g.getAttribute("href") ?? g.getAttributeNS(XLINK_NS, "href");
+    return href?.startsWith("#") ? this.firstStop(href.slice(1), depth + 1) : null;
   }
 
   /** A shape element's parameters in document coordinates, with the transform it keeps. */
@@ -296,12 +407,22 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
     ? { x: vx * scale, y: vy * scale, width: vw * scale, height: vh * scale }
     : { x: 0, y: 0, width: width ?? 300, height: height ?? 150 };
 
-  const reader = new Reader();
+  const all = [...(dom.getElementsByTagName("*") as unknown as Iterable<Element>)];
+  const rules = stylesheet(
+    all
+      .filter((e) => e.localName === "style")
+      .map((e) => e.textContent ?? "")
+      .join("\n"),
+  );
+  const byId = new Map(
+    all.flatMap((e) => (e.getAttribute("id") ? [[e.getAttribute("id") as string, e]] : [])),
+  );
+  const reader = new Reader(rules, byId);
   const matrix: Matrix = [scale, 0, 0, scale, 0, 0];
-  for (const e of elements(root)) reader.walk(e, { parentId: null, layerLevel: true, matrix });
+  const ctx = { parentId: null, layerLevel: true, matrix, style: {} };
+  for (const e of elements(root)) reader.walk(e, ctx);
   // parseDocument wants a Layer at the root, even for a file with nothing in it.
-  if (!reader.nodes.some((n) => n.type === "layer" && n.parentId === null))
-    reader.parent({ parentId: null, layerLevel: true, matrix });
+  if (!reader.nodes.some((n) => n.type === "layer" && n.parentId === null)) reader.parent(ctx);
   const artboards: Artboard[] = [
     {
       id: newId(),
