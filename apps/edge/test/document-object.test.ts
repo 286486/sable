@@ -393,7 +393,8 @@ it("keeps the latest 200 Transactions on the undo stack", async () => {
   expect(await stub("u3").undo("user")).toMatchObject({ error: { code: "NOTHING_TO_UNDO" } });
   // The create and the first move fell off the stack.
   expect(await x()).toBe(1);
-});
+  // 402 round trips take over 4 s of the default 5 s when the whole suite runs in parallel.
+}, 30_000);
 
 it("keeps every rev's delta through undo and redo-clear, and prunes deltas older than 30 days", async () => {
   const { s: doc, rectId: id } = await withRect("dl");
