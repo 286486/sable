@@ -178,3 +178,94 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.rollback).toHaveBeenCalledWith("d", "t");
   });
 });
+
+describe("reads pass their filters and txId, and bad arguments never reach the service", () => {
+  const view = { rev: 1, nodes: [] };
+
+  it("node_get: concise by default", async () => {
+    const { service, call } = await harness({ get: async () => view });
+    await call("zibel_node_get", { docId: "d", nodeIds: ["a"] });
+    await call("zibel_node_get", { docId: "d", nodeIds: ["a"], detail: "full", txId: "t" });
+    expect(service.get.mock.calls).toEqual([
+      ["d", ["a"], "concise", undefined],
+      ["d", ["a"], "full", "t"],
+    ]);
+  });
+
+  it("node_query: every filter, the cursor and the default limit, without docId or txId", async () => {
+    const { service, call } = await harness({ query: async () => ({ ...view, nextCursor: null }) });
+    const rect = { x: 0, y: 0, width: 1, height: 1 };
+    const filters = {
+      types: ["rect"],
+      nameRegex: "^a",
+      tags: ["t"],
+      parentId: "p",
+      withinRect: rect,
+      intersectsRect: rect,
+      cursor: "c",
+    };
+    await call("zibel_node_query", { docId: "d", ...filters, txId: "t" });
+    expect(service.query).toHaveBeenCalledWith("d", { ...filters, limit: 100 }, "t");
+  });
+
+  it("doc_outline: depth 2 with bounds by default; the options pass through", async () => {
+    const { service, call } = await harness({ outline: async () => view });
+    await call("zibel_doc_outline", { docId: "d", txId: "t" });
+    await call("zibel_doc_outline", {
+      docId: "d",
+      rootId: "r",
+      types: ["rect"],
+      depth: 3,
+      includeBounds: false,
+    });
+    expect(service.outline.mock.calls).toEqual([
+      ["d", { depth: 2, includeBounds: true }, "t"],
+      ["d", { rootId: "r", types: ["rect"], depth: 3, includeBounds: false }, undefined],
+    ]);
+  });
+
+  it("doc_changes and doc_get_info", async () => {
+    const { service, call } = await harness({
+      changes: async () => ({ rev: 1, changes: [] }),
+      info: async () => ({
+        docId: "d",
+        name: "D",
+        artboards: [],
+        nodeCount: 0,
+        rev: 1,
+        browsers: 0,
+      }),
+    });
+    await call("zibel_doc_changes", { docId: "d", sinceRev: 0 });
+    expect(service.changes).toHaveBeenCalledWith("d", 0, 100);
+    await call("zibel_doc_get_info", { docId: "d" });
+    expect(service.info).toHaveBeenCalledWith("d");
+  });
+
+  it.each([
+    ["zibel_doc_create", { name: "D", artboards: Array(1001).fill({ width: 1, height: 1 }) }],
+    ["zibel_node_get", { docId: "d", nodeIds: [] }],
+    ["zibel_node_query", { docId: "d", nameRegex: "(" }],
+    ["zibel_node_transform", { docId: "d", nodeIds: ["a"] }],
+    ["zibel_node_transform", { docId: "d", nodeIds: ["a"], matrix: [1, 0, 0, 1, 0, 0], rotate: 9 }],
+    ["zibel_node_transform", { docId: "d", nodeIds: ["a"], matrix: [1, 1, 1, 1, 0, 0] }],
+    ["zibel_render", { docId: "d", scale: 5 }],
+    ["zibel_export", { docId: "d", format: "pdf" }],
+  ])("%s refuses %j by its published schema", async (name, args) => {
+    const { service, call } = await harness();
+    const result = await call(name, args);
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain("Input validation error");
+    for (const method of ["create", "get", "query", "transformNodes", "render", "svg"] as const) {
+      expect(service[method]).not.toHaveBeenCalled();
+    }
+  });
+
+  it("names nameRegex when it does not compile", async () => {
+    const { call } = await harness();
+    const result = await call("zibel_node_query", { docId: "d", nameRegex: "(" });
+    expect(JSON.stringify(result.content)).toMatch(
+      /nameRegex.*regular expression|regular expression.*nameRegex/,
+    );
+  });
+});
