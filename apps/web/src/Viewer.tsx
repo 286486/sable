@@ -1,7 +1,7 @@
 import { bounds, type Document, type Rect, serializeDocument, union } from "@zibel/core";
+import { toSvg } from "@zibel/io/write";
 import { drawDocument } from "@zibel/render/canvas";
 import fontUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
-import { toSvg } from "@zibel/render/svg";
 import { useEffect, useRef, useState } from "react";
 import { Layers } from "./Layers.tsx";
 import { preview } from "./receive.ts";

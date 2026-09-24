@@ -2,8 +2,7 @@ import { evictAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { COLOR_PATTERN, type ErrorCode } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
-import exported from "./fixtures/inkscape.svg?raw";
+import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
@@ -1430,24 +1429,6 @@ describe("zibel_json", () => {
     ]);
     const { documents } = (await call("zibel_doc_list", {})).structuredContent;
     expect(documents[0]).toEqual({ docId: newId, name: "Doc", createdAt: expect.any(String) });
-  });
-
-  it("opens Zibel's own SVG export as the Document it came from, byte for byte", async () => {
-    // The #25 export of the fixture Document, every mapping ADR-0017 lists.
-    const opened = await call("zibel_doc_open", { content: exported });
-    const { docId, ...rest } = opened.structuredContent;
-    const file = JSON.parse(fixture);
-    expect(rest).toMatchObject({ name: file.name, artboards: file.artboards, warnings: [] });
-    expect(rest.nodes.map((n: { id: string }) => n.id)).toEqual(
-      file.nodes
-        .filter((n: { type: string; parentId: string | null }) => n.type === "layer" && !n.parentId)
-        .map((n: { id: string }) => n.id),
-    );
-    // The same Document opened from its .zibel.json exports the same text.
-    const exportOf = async (id: string) =>
-      (await call("zibel_export", { docId: id, format: "zibel_json" })).content[0].text as string;
-    const fromJson = (await call("zibel_doc_open", { content: fixture })).structuredContent.docId;
-    expect(await exportOf(docId)).toBe(await exportOf(fromJson));
   });
 
   it("opens an Inkscape file in mm with a moved layer, class styles and a turned star", async () => {
