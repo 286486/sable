@@ -1,7 +1,8 @@
-import { bounds, createDocument, createNodes } from "@zibel/core";
+import { bounds, createDocument, createNodes, parseDocument } from "@zibel/core";
 import { expect, it } from "vitest";
+import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { svgToPixels, svgToPng } from "./png.ts";
-import { toSvg } from "./svg.ts";
+import { scopeRect, toSvg } from "./svg.ts";
 
 it("rasterises SVG with resvg-wasm inside workerd", async () => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10" fill="#FF0000"/></svg>`;
@@ -62,4 +63,29 @@ it("rounds the pixel size to the nearest pixel and stretches the drawing to it",
     ).width;
   expect(await size(10.2)).toBe(20);
   expect(await size(10.5)).toBe(21);
+});
+
+it("draws the fixture Document with the same pixels as before the Inkscape dialect", async () => {
+  const file = parseDocument(fixture);
+  const doc = {
+    id: "d",
+    version: 1 as const,
+    rev: 0,
+    ...file,
+    nodes: new Map(file.nodes.map((n) => [n.id, n])),
+  };
+  const hash = async (svg: string) => {
+    const { pixels } = await svgToPixels(svg, 2);
+    const digest = await crypto.subtle.digest("SHA-256", pixels);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  };
+  const group = file.nodes.find((n) => n.name === "Turned");
+  expect(await hash(toSvg(doc))).toBe(
+    "4fc51f5b0505183f24597432653530dfa1b9fe23356f7d95e0446280376ec24c",
+  );
+  expect(
+    await hash(
+      toSvg(doc, scopeRect(doc, { nodeIds: [group?.id ?? ""] }), { nodeIds: [group?.id ?? ""] }),
+    ),
+  ).toBe("db787e8c66eef5455ce2bb127ad6b5cb9d4d78eb50af924407cc9d235d35f1ab");
 });
