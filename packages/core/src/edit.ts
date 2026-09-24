@@ -136,7 +136,7 @@ export function mergePatch(target: unknown, patch: unknown): unknown {
   return out;
 }
 
-const zodPath = (path: PropertyKey[]) =>
+export const zodPath = (path: PropertyKey[]) =>
   path.map((k) => (typeof k === "number" ? `[${k}]` : `.${String(k)}`)).join("");
 
 function writableSchema(node: Node) {

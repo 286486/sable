@@ -1184,6 +1184,7 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       await call("zibel_tx_rollback", { docId, txId });
       return tool("zibel_tx_commit", { txId });
     },
+    INVALID_DOCUMENT: null, // #13 unit 5 gives it a zibel_doc_open trigger.
     // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).
     NOTHING_TO_UNDO: null,
     NOTHING_TO_REDO: null,
