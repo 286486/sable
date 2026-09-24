@@ -1,10 +1,13 @@
 import {
   BUNDLED_FONT,
   childrenOf,
+  clippingPath,
   type Document,
   type LeafNode,
   type Node,
+  type Segment,
   shapeSegments,
+  transformSegments,
 } from "@zibel/core";
 
 type Stroke = LeafNode["appearance"]["strokes"][number];
@@ -35,6 +38,7 @@ export interface Canvas2D {
   quadraticCurveTo(x1: number, y1: number, x: number, y: number): void;
   closePath(): void;
   fill(rule?: "nonzero" | "evenodd"): void;
+  clip(rule?: "nonzero" | "evenodd"): void;
   stroke(): void;
   fillText(text: string, x: number, y: number): void;
   strokeText(text: string, x: number, y: number): void;
@@ -59,7 +63,13 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
   ctx.globalAlpha *= n.opacity;
   ctx.transform(...n.transform);
   if (n.type === "layer" || n.type === "group") {
-    for (const c of childrenOf(doc, n.id)) draw(ctx, doc, c);
+    // A Clipping Mask's children draw only inside its Clipping Path, which never paints (ADR-0021).
+    const clip = clippingPath(doc, n);
+    if (clip) {
+      trace(ctx, transformSegments(shapeSegments(clip), clip.transform));
+      ctx.clip(clip.type === "path" && clip.fillRule === "evenodd" ? "evenodd" : "nonzero");
+    }
+    for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, doc, c);
   } else {
     const text = n.type === "text" ? n : null;
     // Tested on n, not text, so the else branch narrows n to a Live Shape or Path.
@@ -69,15 +79,7 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
       // Unkerned, like the SVG, so the drawn width is the advance sum (ADR-0013).
       ctx.fontKerning = "none";
     } else {
-      ctx.beginPath();
-      for (const { cmd, args: a } of shapeSegments(n)) {
-        if (cmd === "M") ctx.moveTo(...(a as [number, number]));
-        else if (cmd === "L") ctx.lineTo(...(a as [number, number]));
-        else if (cmd === "C")
-          ctx.bezierCurveTo(...(a as [number, number, number, number, number, number]));
-        else if (cmd === "Q") ctx.quadraticCurveTo(...(a as [number, number, number, number]));
-        else ctx.closePath();
-      }
+      trace(ctx, shapeSegments(n));
     }
     for (const f of n.appearance.fills) {
       ctx.fillStyle = f.color;
@@ -97,4 +99,16 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
     }
   }
   ctx.restore();
+}
+
+function trace(ctx: Canvas2D, segments: Segment[]) {
+  ctx.beginPath();
+  for (const { cmd, args: a } of segments) {
+    if (cmd === "M") ctx.moveTo(...(a as [number, number]));
+    else if (cmd === "L") ctx.lineTo(...(a as [number, number]));
+    else if (cmd === "C")
+      ctx.bezierCurveTo(...(a as [number, number, number, number, number, number]));
+    else if (cmd === "Q") ctx.quadraticCurveTo(...(a as [number, number, number, number]));
+    else ctx.closePath();
+  }
 }
