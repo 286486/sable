@@ -271,8 +271,10 @@ describe("replaceFile", () => {
     expect(out.updated.map((n) => n.id)).toEqual([b.id]);
     expect(out.warnings).toEqual([expect.objectContaining({ code: "NO_BASE" })]);
     // An SVG whose base the Delta Log no longer reaches.
-    const pruned = replace(doc, recolour(e.svg(), c.id, "#FF0000"), { rebuild: () => null });
+    const later = exportNow(doc).svg();
+    const pruned = replace(doc, recolour(later, c.id, "#FF0000"), { rebuild: () => null });
     expect(pruned.warnings).toEqual([expect.objectContaining({ code: "NO_BASE" })]);
-    expect(fill(doc, c)).toBe("#FF0000");
+    expect(pruned.updated.map((n) => n.id)).toEqual([c.id]);
+    expect([fill(doc, b), fill(doc, c)]).toEqual(["#FF0000", "#FF0000"]);
   });
 });

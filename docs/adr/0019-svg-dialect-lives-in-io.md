@@ -22,6 +22,6 @@ ADR-0017 fixed one SVG dialect for export and import. The writer landed in `pack
 
 ## Consequences
 
-- Dependency order: `core` ← `io` ← `render`. `apps/edge` imports `normalise` from `io`, and `document-object.ts` no longer composes it.
+- Dependency order: `core` ← `io` ← `render`. `apps/edge` no longer composes the round trip: it calls io's `replaceFile` (#47), which holds `normalise`.
 - REQUIREMENTS §8 (the package diagram and the tree) move "SVG 序列化" from `render` to `io`, and F-MCP-02's "core 的 SVG 序列化结果" becomes io's.
 - Replace's merge rules can move beside the round trip they depend on (#47).
