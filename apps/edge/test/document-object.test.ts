@@ -216,6 +216,25 @@ it("commits with bounds covering what it created and where it deleted", async ()
   });
 });
 
+it("reports where a deleted Group's contents were", async () => {
+  const { s, defaultLayerId } = await withRect("u7");
+  const [group = ""] = ok(
+    await s.createNodes(
+      [
+        {
+          type: "group",
+          parentId: defaultLayerId,
+          children: [{ type: "line", x1: 20, y1: 0, x2: 70, y2: 5 }],
+        },
+      ],
+      "agent-a",
+    ),
+  ).createdIds;
+  expect(ok(await s.deleteNodes([group], "agent-a"))).toMatchObject({
+    bounds: { x: 20, y: 0, width: 50, height: 5 },
+  });
+});
+
 const layerChildren = async (s: ReturnType<typeof stub>, txId?: string) => {
   const { nodes } = ok(await s.outline({ depth: 2 }, "agent-a", txId));
   return (nodes[0]?.children ?? []).map((c) => c.id);
