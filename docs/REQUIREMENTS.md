@@ -212,14 +212,13 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 | type | 说明 | 对应 Illustrator |
 |---|---|---|
 | `layer` | 图层容器；有 `color`（选中高亮色）、`isTemplate`。**父级只能是文档根或另一个 `layer`**；`doc_outline` 顶层永远是 Layer 列表 | Layer / Sublayer |
-| `group` | 编组；可出现在 `layer` 或 `group` 内，**不能包含 `layer`** | GroupItem |
+| `group` | 编组；可出现在 `layer` 或 `group` 内，**不能包含 `layer`**。含一个 `clipping: true` 子节点（Clipping Path）即 Clipping Mask，不另设 `clip_group` 类型（ADR-0021） | GroupItem（`clipped`） |
 | `path` | 贝塞尔路径，`d`（SVG 语法）、`closed`、`fillRule`（nonzero / evenodd）。`d` 含多个子路径即 Compound Path（挖洞），不另设 `compound_path` 类型（ADR-0018） | PathItem / CompoundPathItem |
 | `rect` / `ellipse` / `polygon` / `star` / `line` / `arc` / `spiral` | **Live Shape**：保留参数（圆角半径、边数、内外半径、起止角等），随时可"转为路径" | Live Shapes |
 | `text` | 文本框，`kind`：point / area / on_path；`content` 富文本 runs | TextFrameItem |
 | `image` | 置入位图，`src`、`crop`、`embedded` | RasterItem / PlacedItem |
 | `symbol_instance` | 指向 `assets.symbols[*]`，含实例覆盖 | SymbolItem |
 | `compound_shape` | 非破坏性布尔容器（Compound Shape）：`op` + 子节点。术语见 `CONTEXT.md`，不叫 boolean | Compound Shape |
-| `clip_group` | 剪切蒙版组：第一个子节点为 clip path | Clipping set |
 | `mask_group` | 不透明度蒙版组 | Opacity mask |
 | `blend` (P1) | 混合对象：起止子对象 + `steps / spacing / orientation` | Blend |
 | `repeat` (P1) | `mode`: radial / grid / mirror + 参数 | Repeat |
@@ -343,7 +342,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 ### 5.10 遮罩
 
-- **F-MASK-01** 剪切蒙版（Ctrl+7 / Alt+Ctrl+7）：任意矢量对象（含文字、compound path）作为 clip path；建立时 clip path 的 fill / stroke 清空（与 Illustrator 一致），但可在 Appearance 中重新赋予；隔离模式编辑内容；Release。（P0）
+- **F-MASK-01** 剪切蒙版（Ctrl+7 / Alt+Ctrl+7）：任意矢量对象（含文字、compound path）作为 clip path；建立时 clip path 的 fill / stroke 清空（与 Illustrator 一致），但可在 Appearance 中重新赋予；隔离模式编辑内容；Release。（P0）模型与 SVG 映射见 ADR-0021；文字作 clip path、重新赋予的外观被绘制、隔离模式暂缓。
 - **F-MASK-02** 不透明度蒙版：蒙版对象亮度决定透明度（白显黑隐）；Clip / Invert / Link 开关；Transparency 面板缩略图切换编辑目标。（P1）
 - **F-MASK-03** Draw Inside 模式自动生成剪切组。（P1）
 
@@ -603,7 +602,7 @@ flowchart LR
 | `path_boolean` | `docId`, `nodeIds[]`, `op`（unite / subtract / intersect / exclude / divide / trim / merge / crop / outline / minus_back）, `live`（默认 true → `compound_shape` 节点；false → 直接固化） | 回执 | D（false 时删除源） |
 | `path_op` | `docId`, `nodeIds[]`, `op` + 参数：`offset{distance, join, miterLimit}`、`simplify{tolerance, cornerAngle, toLines}`、`outline_stroke`、`join{tolerance}`、`average{axis}`、`add_anchors`、`smooth{amount}`、`split_into_grid{rows, cols, gutter}`、`convert_to_path`、`expand`、`expand_appearance` | 回执 | D |
 | `shape_build` | `docId`, `nodeIds[]`, `regions[]`（点或区域选择）, `mode`: merge / erase | 回执 | Shape Builder 的程序化形式 |
-| `mask_make` / `mask_release` | `docId`, `clipNodeId`, `contentIds[]`, `kind`: clip / opacity, `invert?` | 回执 | |
+| `mask_make` / `mask_release` | `docId`, `clipNodeId`, `contentIds[]`, `kind`: clip / opacity, `invert?`；release 取 `nodeIds[]` | 回执 | clip 见 ADR-0021；opacity 随 F-MASK-02 |
 | `text_edit` | `docId`, `nodeId`, `content?`（纯文本或 runs）, `range?`, `charStyle?`, `paraStyle?`, `fit?`（auto_width / auto_height / fixed） | 回执 + 溢出信息 | D |
 | `text_to_outlines` | `docId`, `nodeIds[]` | 回执 | D |
 | `asset_create` / `asset_update` / `asset_delete` / `asset_list` | `docId`, `kind`（swatch / gradient / pattern / symbol / graphic_style / char_style / para_style / brush / chart_theme）, 定义 | 回执 / 列表 | 更新会同步引用处 |
@@ -973,6 +972,7 @@ zibel/
 | 37 | Agent 身份 | 每个 MCP 客户端一个 token，即一个 Agent Actor | F-COLLAB-07 |
 | 38 | 编辑往返（2026-09-24） | 导入导出是核心功能，以 **Inkscape** 为编辑工具：一个 Inkscape 方言的 SVG 序列化器；打开 / 替换（三方合并）/ 置入三种导入；Inkscape 能表达而 Zibel 不能的，算 Zibel 缺口并补齐；不保留原始 XML 片段 | ADR-0017、#24 |
 | 39 | Compound Path（2026-09-24） | 不设 `compound_path` 节点类型：Compound Path 是 `d` 含多个子路径、带 `fillRule` 的 `path`，SVG 中即一个 `<path fill-rule>` | ADR-0018、#30 |
+| 40 | Clipping Mask（2026-09-24） | 不设 `clip_group` 节点类型：Clipping Mask 是含一个 `clipping: true` 的 Live Shape 或 Path 的 `group`；`mask_make` / `mask_release` 是写它的唯一入口；SVG 中即 `<g clip-path>` 加内联 `<clipPath>`；文字作剪切路径、图层剪切蒙版、带外观的剪切路径暂缓 | ADR-0021、#31 |
 
 **剩余开放问题**
 
