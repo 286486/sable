@@ -88,6 +88,14 @@ export interface DocumentService {
   /** A new Document from `.zibel.json` text, keeping its Node and Artboard ids (ADR-0016). */
   /** `name` is the file's name, for an SVG that names no Document. */
   open(input: { content: string; name?: string; intent?: string }): Promise<OpenedDocument>;
+  /**
+   * Replace (ADR-0017): merges a file exported from `docId`, SVG or `.zibel.json`, back into it
+   * as one Transaction. `baseRev` is the rev it was exported at, default the SVG's `zibel:rev`.
+   */
+  replace(
+    docId: string,
+    input: { content: string; baseRev?: number; ifRev?: number; intent?: string },
+  ): Promise<WriteReceipt>;
   /** Every Document, newest first. */
   list(): Promise<{ documents: DocSummary[] }>;
   info(docId: string): Promise<DocInfo>;

@@ -24,6 +24,8 @@ import {
   overlay,
   queryNodes,
   type Rect,
+  type RenderScope,
+  replaceMerge,
   revert,
   serializeDocument,
   type TransformInput,
@@ -35,6 +37,7 @@ import {
   type WriteReceipt,
   ZibelError,
 } from "@zibel/core";
+import { type OpenedFile, parseSvg } from "@zibel/io";
 import { fit, scopeRect, svgRect, toSvg } from "@zibel/render";
 import {
   type ChangeEntry,
@@ -87,6 +90,8 @@ interface Change {
   created?: Node[];
   updated?: Node[];
   deletedIds?: string[];
+  /** Every Artboard, when the change edits one; not in the Delta Log until Artboard edits are logged. */
+  artboards?: Artboard[];
 }
 
 /**
@@ -368,9 +373,10 @@ export class DocumentObject extends DurableObject<Env> {
         updated = [],
         deletedIds = [],
         skipped = [],
+        artboards,
         ...rest
       } = edit(doc);
-      const change = { created, updated, deletedIds };
+      const change = { created, updated, deletedIds, ...(artboards && { artboards }) };
       const label = rest.summary ?? summary(verb, change);
       const { txId, rev } = this.ctx.storage.transactionSync(() =>
         opts.txId
@@ -532,6 +538,101 @@ export class DocumentObject extends DurableObject<Env> {
         warnings: [],
       };
     });
+  }
+
+  /**
+   * Replace (ADR-0017): merges a file exported from this Document back into it, three-way from the
+   * rev it was exported at, rebuilt from the Delta Log. Without that base, it compares with the
+   * Document as it is now and says so.
+   */
+  replace(
+    file: OpenedFile & { format: "svg" | "zibel_json" },
+    actor: string,
+    opts: Options & { baseRev?: number } = {},
+  ): Result<WriteReceipt> {
+    return this.write(actor, opts, "Replace", (doc) => {
+      const svg = file.format === "svg";
+      if (svg ? file.origin?.docId !== doc.id : !file.nodes.some((n) => doc.nodes.has(n.id))) {
+        throw new ZibelError({
+          code: "INVALID_DOCUMENT",
+          message: svg
+            ? `This SVG was not exported from Document ${doc.id}: its zibel:doc is ${file.origin?.docId ?? "missing"}.`
+            : `This .zibel.json has no Node of Document ${doc.id}.`,
+          hint: "Replace takes a file exported from this Document. Open any other file as a new Document with zibel_doc_open.",
+          path: "content",
+        });
+      }
+      const baseRev = opts.baseRev ?? file.origin?.rev;
+      if (baseRev !== undefined && baseRev > doc.rev) {
+        throw new ZibelError({
+          code: "REV_CONFLICT",
+          message: `The Document is at rev ${doc.rev}, before the file's base rev ${baseRev}.`,
+          hint: "Pass the rev the file was exported at, or leave baseRev out for an SVG.",
+          path: "baseRev",
+          rev: doc.rev,
+        });
+      }
+      const { scope } = file.origin ?? {};
+      const norm = (d: Document) => (svg ? normalise(d, scope) : { ...d, nodes: new Map(d.nodes) });
+      const current = norm(doc);
+      const base = baseRev === undefined ? null : this.rebuild(doc, baseRev);
+      const warnings = [...file.warnings];
+      if (!base) {
+        warnings.push({
+          code: "NO_BASE",
+          message:
+            "No base to merge from, so the file was compared with the Document as it is now: edits made since the export in its scope may be overwritten.",
+        });
+      }
+      const { skipped, ...change } = replaceMerge(
+        doc,
+        { base: base ? norm(base) : current, current },
+        file,
+        scope,
+      );
+      for (const nodeId of skipped) {
+        warnings.push({
+          code: "DELETED_SINCE",
+          nodeId,
+          message: `${nodeId}, or the parent the file puts it in, was deleted after the export; the file's edits to it were not applied.`,
+        });
+      }
+      const nodes = [...change.created, ...change.updated];
+      return {
+        ...change,
+        skipped,
+        warnings,
+        failed: [],
+        bounds: union(nodes.map((n) => bounds(doc, n))),
+      };
+    });
+  }
+
+  /**
+   * The Document at `rev`, by applying the before copies of every later Transaction newest first,
+   * or null when the Delta Log no longer reaches it. A Transaction that changed nothing has no rows
+   * and leaves no gap.
+   */
+  private rebuild(doc: Document, rev: number): Document | null {
+    if (rev < 1) return null;
+    const gap = this.sql
+      .exec(
+        `SELECT 1 FROM tx_log WHERE rev > ? AND rev NOT IN (SELECT rev FROM tx_delta)
+           AND (created_ids != '[]' OR updated_ids != '[]' OR deleted_ids != '[]') LIMIT 1`,
+        rev,
+      )
+      .toArray();
+    if (gap.length > 0) return null;
+    const nodes = new Map(doc.nodes);
+    const rows = this.sql.exec<{ node_id: string; before: string | null }>(
+      "SELECT node_id, before FROM tx_delta WHERE rev > ? ORDER BY rev DESC",
+      rev,
+    );
+    for (const { node_id, before } of rows) {
+      if (before === null) nodes.delete(node_id);
+      else nodes.set(node_id, JSON.parse(before) as Node);
+    }
+    return { ...doc, rev, nodes };
   }
 
   /** Commits the inverse of the latest undoable Transaction (ADR-0011). */
@@ -716,7 +817,7 @@ export class DocumentObject extends DurableObject<Env> {
    * Records the edit in the overlay. `base` is taken from the committed Node on first touch only.
    * Call inside transactionSync.
    */
-  private stage(txId: string, rev: number, change: Required<Change>) {
+  private stage(txId: string, rev: number, change: Required<Omit<Change, "artboards">>) {
     const upsert = (id: string, working: string | null) =>
       this.sql.exec(
         `INSERT INTO tx_nodes (tx_id, node_id, base, working)
@@ -812,6 +913,9 @@ export class DocumentObject extends DurableObject<Env> {
       );
     }
     for (const id of deletedIds) this.sql.exec("DELETE FROM nodes WHERE id = ?", id);
+    if (change.artboards) {
+      this.sql.exec("UPDATE doc SET artboards = ?", JSON.stringify(change.artboards));
+    }
     const ids = (nodes: Node[]) => JSON.stringify(nodes.map((n) => n.id));
     const now = Date.now();
     this.sql.exec(
@@ -845,6 +949,22 @@ export class DocumentObject extends DurableObject<Env> {
       UNDO_DEPTH,
     );
   }
+}
+
+/**
+ * `doc` passed through the export and import a file of `scope` took, so that rounding and the
+ * importer's baking count the same on both sides of Replace's diff (ADR-0017). A nodeIds scope
+ * keeps the ids `doc` still has.
+ */
+function normalise(doc: Document, scope: RenderScope | undefined): Document {
+  let s = scope;
+  if (s && "nodeIds" in s) {
+    const nodeIds = s.nodeIds.filter((id) => doc.nodes.has(id));
+    if (nodeIds.length === 0) return { ...doc, nodes: new Map() };
+    s = { nodeIds };
+  }
+  const { artboards, nodes } = parseSvg(toSvg(doc, svgRect(doc, s), { scope: s }));
+  return { ...doc, artboards, nodes: new Map(nodes.map((n) => [n.id, n])) };
 }
 
 function summary(verb: string, { created = [], updated = [], deletedIds = [] }: Change) {

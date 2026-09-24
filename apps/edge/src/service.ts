@@ -26,6 +26,8 @@ export function documentService(env: Env, actor: string): DocumentService {
       await index(docId, file.name);
       return { ...opened, warnings };
     },
+    replace: async (docId, { content, baseRev, ifRev, intent }) =>
+      unwrap(await doc(docId).replace(parseFile(content), actor, { baseRev, ifRev, intent })),
     list: async () => ({ documents: await listDocuments(env) }),
     info: async (docId) => unwrap(await doc(docId).info()),
     createNodes: async (docId, nodes, opts) =>
