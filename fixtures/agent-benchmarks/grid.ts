@@ -1,11 +1,4 @@
-import { assert, type Check, n3 } from "./mcp.ts";
-
-interface Bounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+import { assert, type Bounds, type Check, n3 } from "./mcp.ts";
 
 const check: Check = async (call, docId) => {
   const { nodes: layers } = (await call("zibel_doc_outline", { docId, depth: 1 }))

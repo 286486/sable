@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import grid from "../../../fixtures/agent-benchmarks/grid.ts";
+import labels from "../../../fixtures/agent-benchmarks/labels.ts";
 import type { Call } from "../../../fixtures/agent-benchmarks/mcp.ts";
 import { call as rpcCall } from "./rpc.ts";
 
@@ -41,5 +42,32 @@ describe("grid", () => {
 
   it("rejects 99 rects", async () => {
     await expect(grid(call, await draw(99), [])).rejects.toThrow("99 rects");
+  });
+});
+
+describe("labels", () => {
+  const draw = async (circleLabelX: number) => {
+    const { docId, defaultLayerId: parentId } = await newDoc(600, 200);
+    const text = (content: string, x: number) => ({ type: "text", parentId, x, y: 105, content });
+    await call("zibel_node_create", {
+      docId,
+      nodes: [
+        { type: "ellipse", parentId, x: 20, y: 70, width: 60, height: 60 },
+        { type: "rect", parentId, x: 200, y: 70, width: 60, height: 60 },
+        { type: "polygon", parentId, cx: 430, cy: 100, radius: 35, sides: 3 },
+        text("Circle", circleLabelX),
+        text("Square", 270),
+        text("Triangle", 470),
+      ],
+    });
+    return docId;
+  };
+
+  it("accepts a label right of each shape", async () => {
+    await expect(labels(call, await draw(90), [])).resolves.toBeUndefined();
+  });
+
+  it("rejects a label overlapping its shape", async () => {
+    await expect(labels(call, await draw(40), [])).rejects.toThrow('"Circle" overlaps the ellipse');
   });
 });

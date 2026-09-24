@@ -38,6 +38,13 @@ export const httpCall =
     return body.result;
   };
 
+export interface Bounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export function assert(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error(message);
 }
