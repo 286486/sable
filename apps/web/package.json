@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@zibel/core": "workspace:*",
+    "@zibel/io": "workspace:*",
     "@zibel/render": "workspace:*",
     "@zibel/sync": "workspace:*",
     "react": "19.3.0",

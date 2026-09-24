@@ -38,8 +38,8 @@ import {
   type WriteReceipt,
   ZibelError,
 } from "@zibel/core";
-import { type OpenedFile, parseSvg } from "@zibel/io";
-import { fit, scopeRect, svgRect, toSvg } from "@zibel/render";
+import { type OpenedFile, parseSvg, scopeRect, svgRect, toSvg } from "@zibel/io";
+import { fit, renderSvg } from "@zibel/render";
 import {
   type ChangeEntry,
   ClientMessage,
@@ -481,7 +481,7 @@ export class DocumentObject extends DurableObject<Env> {
         scale,
         pixelSize,
       } = fit(scopeRect(doc, req.scope), req.scale, req.maxSize);
-      const svg = toSvg(doc, docRect, {
+      const svg = renderSvg(doc, docRect, {
         scope: req.scope,
         background: req.background,
         overlays: req.overlays,

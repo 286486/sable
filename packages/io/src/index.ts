@@ -2,6 +2,7 @@ import { fontWarnings, parseDocument, ZibelError } from "@zibel/core";
 import { type OpenedFile, type Origin, parseSvg, type Warning } from "./svg.ts";
 
 export { MAX_DEPTH, parseSvg } from "./svg.ts";
+export { docRect, type SvgOptions, scopeRect, svgRect, toSvg } from "./write.ts";
 
 export type { OpenedFile, Origin, Warning };
 

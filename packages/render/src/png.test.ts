@@ -1,8 +1,8 @@
 import { bounds, createDocument, createNodes, parseDocument } from "@zibel/core";
+import { docRect, scopeRect, toSvg } from "@zibel/io";
 import { expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { svgToPixels, svgToPng } from "./png.ts";
-import { docRect, scopeRect, toSvg } from "./svg.ts";
 
 it("rasterises SVG with resvg-wasm inside workerd", async () => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10" fill="#FF0000"/></svg>`;

@@ -220,6 +220,9 @@ importers:
       '@zibel/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@zibel/io':
+        specifier: workspace:*
+        version: link:../../packages/io
       '@zibel/render':
         specifier: workspace:*
         version: link:../../packages/render
@@ -296,6 +299,9 @@ importers:
       '@zibel/core':
         specifier: workspace:*
         version: link:../core
+      '@zibel/io':
+        specifier: workspace:*
+        version: link:../io
 
   packages/sync:
     dependencies:
