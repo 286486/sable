@@ -406,7 +406,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 ### 5.16 导入与导出
 
 **导入**
-- **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt。Zibel 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Zibel 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。三种入口：打开（`doc_open`，新 Document）、替换（`doc_replace`，三方合并回原 Document）、置入（`svg_import`，一个 Group）。
+- **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt（px 按 1 pt 计，与 Illustrator 一致）。Zibel 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Zibel 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。三种入口：打开（`doc_open`，新 Document）、替换（`doc_replace`，三方合并回原 Document）、置入（`svg_import`，一个 Group）。
 - **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）
 - **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）在此之前 `.ai` 经 Inkscape 另存 SVG 进入（ADR-0017）。
 - **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心。（P0 SVG 与位图）
@@ -556,7 +556,7 @@ flowchart LR
 |---|---|---|---|
 | `doc_list` | — | 文档摘要列表 | R |
 | `doc_create` | `name`, `artboards[]`（预设名或 w/h）, `template?` | `docId`, 大纲 | |
-| `doc_open` | `content`（`.zibel.json` 或 SVG 文本，按内容识别） | 新 `docId`、大纲 | ADR-0016、ADR-0017 |
+| `doc_open` | `content`（`.zibel.json` 或 SVG 文本，按内容识别；SVG 至多 5 MB） | 新 `docId`、大纲、`warnings`（每类一条） | ADR-0016、ADR-0017 |
 | `doc_replace` | `docId`, `content`（SVG 或 `.zibel.json`）, `baseRev?`, `ifRev?`, `intent?` | 回执；相对基准修订号三方合并，删除只限文件的导出范围，一个可撤销的 Transaction；只接受来自本 Document 的文件 | ADR-0017 |
 | `doc_save` | `docId`, `path?` | 保存位置 | I |
 | `doc_close` | `docId`, `discardChanges?` | — | D |

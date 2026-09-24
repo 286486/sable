@@ -1254,6 +1254,9 @@ it("serves skill://zibel/drawing-conventions as a resource and points at it on i
     "zibel_json",
     "zibel_doc_open",
     "INVALID_DOCUMENT",
+    "SVG",
+    "FONT_MISSING",
+    "LIMIT_EXCEEDED",
   ]) {
     expect(doc.text).toContain(fact);
   }

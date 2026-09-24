@@ -21,6 +21,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - Start with `M x y`. Extra pairs after `M` are implicit `L`. `Z` closes the subpath.
 - Example, a closed triangle and a curve: `M 0 0 L 100 0 L 50 80 Z M 0 100 C 30 60 70 140 100 100`.
 - Prefer a Live Shape (`rect`, `ellipse`, `line`, `polygon`, `star`) to a path when one fits: its parameters stay editable.
+- Only tool input is held to these commands: an SVG opened with `zibel_doc_open` may use any path data, and it is stored in this form.
 
 ## Structure
 
@@ -55,6 +56,11 @@ Read this once before your first write. Tool descriptions cover each call; this 
 
 - `zibel_export` with `format: "zibel_json"` returns the whole Document as `.zibel.json` text, the file to save.
 - `zibel_doc_open` with that text as `content` makes a new Document with its own docId; every Node and Artboard keeps its id. A file that fails validation creates nothing, and `INVALID_DOCUMENT` (or the usual colour, path or parent code) names the `path` inside the file.
+- `zibel_doc_open` also takes SVG text, told apart by content: Zibel's own `zibel_export` SVG, a file saved in Inkscape, or plain SVG 1.1, at most 5 MB (else `LIMIT_EXCEEDED`). Layers, pages, names, locks and `z-<id>` ids come back; units become pt, with px counting as pt. What Zibel cannot hold yet (gradients become their first colour; clipping, masks, filters, images and `<use>` are dropped) is listed once per kind in `warnings`; it never fails the open.
+
+## Text
+
+- `fontFamily` takes any font name and keeps it, so export writes it back. Only Source Sans 3 is bundled: another font renders and measures in it, and the receipt warns `FONT_MISSING`.
 
 ## Reading a Document
 
