@@ -326,3 +326,105 @@ describe("a ZibelError becomes the error result (F-MCP-15)", () => {
     expect(service.render).not.toHaveBeenCalled();
   });
 });
+
+describe("partial (F-MCP-16)", () => {
+  const failed = [
+    {
+      index: 1,
+      code: "NODE_NOT_FOUND",
+      message: "No Node b.",
+      hint: "List ids.",
+      path: "updates[1].nodeId",
+    },
+  ];
+  it.each([
+    ["zibel_node_create", "createNodes", { nodes: [{ type: "layer", name: "L" }] }],
+    ["zibel_node_update", "updateNodes", { updates: [{ nodeId: "a", patch: { name: "x" } }] }],
+    ["zibel_node_delete", "deleteNodes", { nodeIds: ["a"] }],
+    ["zibel_node_transform", "transformNodes", { nodeIds: ["a"], rotate: 1 }],
+  ] as const)("%s passes partial and returns failed intact", async (name, method, args) => {
+    const { service, call } = await harness({ [method]: async () => ({ ...receipt, failed }) });
+    const result = await call(name, { docId: "d", ...args, partial: true });
+    expect(result.structuredContent).toEqual({ ...receipt, failed });
+    expect(service[method].mock.calls[0]?.at(-1)).toMatchObject({ partial: true });
+  });
+});
+
+describe("render and export return an image, SVG text or file text", () => {
+  const viewport = {
+    docRect: { x: 0, y: 0, width: 2, height: 1 },
+    pixelSize: { width: 4, height: 2 },
+    scale: 2,
+  };
+  const png = Uint8Array.of(0x89, 0x50, 0x4e, 0x47);
+  const image = {
+    structuredContent: { viewport },
+    content: [{ type: "image", mimeType: "image/png", data: "iVBORw==" }],
+  };
+  const scope = { artboardId: "A" };
+
+  it("render: the PNG as image content with its viewport", async () => {
+    const { service, call } = await harness({ render: async () => ({ png, viewport }) });
+    const result = await call("zibel_render", {
+      docId: "d",
+      scope,
+      scale: 2,
+      overlays: ["ids"],
+      txId: "t",
+      background: "#112233",
+    });
+    expect(result).toEqual(image);
+    expect(service.render).toHaveBeenCalledWith("d", {
+      scope,
+      scale: 2,
+      maxSize: 1600,
+      overlays: ["ids"],
+      txId: "t",
+      background: "#112233",
+    });
+  });
+
+  it("export png: the same image, without maxSize or overlays", async () => {
+    const { service, call } = await harness({ render: async () => ({ png, viewport }) });
+    const result = await call("zibel_export", {
+      docId: "d",
+      format: "png",
+      scope,
+      scale: 2,
+      txId: "t",
+      background: "#112233",
+    });
+    expect(result).toEqual(image);
+    expect(service.render).toHaveBeenCalledWith("d", {
+      scope,
+      txId: "t",
+      background: "#112233",
+      scale: 2,
+    });
+  });
+
+  it("export svg: text content with docRect, and no scale", async () => {
+    const docRect = { x: 0, y: 0, width: 2, height: 1 };
+    const { service, call } = await harness({ svg: async () => ({ svg: "<svg/>", docRect }) });
+    const result = await call("zibel_export", { docId: "d", format: "svg", scope, scale: 3 });
+    expect(result).toEqual({
+      structuredContent: { docRect },
+      content: [{ type: "text", text: "<svg/>" }],
+    });
+    expect(service.svg).toHaveBeenCalledWith("d", { scope, background: undefined });
+  });
+
+  it("export zibel_json: the file text; scope, scale and background do not apply", async () => {
+    const { service, call } = await harness({ file: async () => ({ text: "{}" }) });
+    const result = await call("zibel_export", {
+      docId: "d",
+      format: "zibel_json",
+      scope,
+      scale: 2,
+      background: "#112233",
+      txId: "t",
+    });
+    expect(result).toEqual({ structuredContent: {}, content: [{ type: "text", text: "{}" }] });
+    expect(service.file).toHaveBeenCalledWith("d", "t");
+  });
+});
