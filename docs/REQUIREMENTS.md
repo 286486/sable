@@ -213,8 +213,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 |---|---|---|
 | `layer` | 图层容器；有 `color`（选中高亮色）、`isTemplate`。**父级只能是文档根或另一个 `layer`**；`doc_outline` 顶层永远是 Layer 列表 | Layer / Sublayer |
 | `group` | 编组；可出现在 `layer` 或 `group` 内，**不能包含 `layer`** | GroupItem |
-| `path` | 贝塞尔路径，`d`（SVG 语法）、`closed`、`fillRule`（nonzero / evenodd） | PathItem |
-| `compound_path` | 多个子路径共同填充（挖洞） | CompoundPathItem |
+| `path` | 贝塞尔路径，`d`（SVG 语法）、`closed`、`fillRule`（nonzero / evenodd）。`d` 含多个子路径即 Compound Path（挖洞），不另设 `compound_path` 类型（ADR-0018） | PathItem / CompoundPathItem |
 | `rect` / `ellipse` / `polygon` / `star` / `line` / `arc` / `spiral` | **Live Shape**：保留参数（圆角半径、边数、内外半径、起止角等），随时可"转为路径" | Live Shapes |
 | `text` | 文本框，`kind`：point / area / on_path；`content` 富文本 runs | TextFrameItem |
 | `image` | 置入位图，`src`、`crop`、`embedded` | RasterItem / PlacedItem |
@@ -296,7 +295,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-BOOL-01** Shape Modes：Unite / Minus Front / Intersect / Exclude。默认生成非破坏性 `compound_shape` 节点（Illustrator 中的 Alt+点击行为），按 Alt 或选项"Expand"直接固化为路径。（P0）
 - **F-BOOL-02** Pathfinders（破坏性）：Divide / Trim / Merge / Crop / Outline / Minus Back。（P0：Divide / Minus Back；P1：其余）
 - **F-BOOL-03** `compound_shape` 节点可嵌套、可 Release（还原子对象）、可 Expand；子对象仍可被 Direct Selection 编辑并实时重算。（P0）
-- **F-BOOL-04** Compound Path Make / Release（Ctrl+8 / Alt+Shift+Ctrl+8），填充规则可切换 nonzero / evenodd。（P0）
+- **F-BOOL-04** Compound Path Make / Release（Ctrl+8 / Alt+Shift+Ctrl+8），填充规则可切换 nonzero / evenodd。Make 把所选 Path 的 `d`（各自 `transform` 并入）合成一个 `path`，Release 按子路径拆开（ADR-0018）。（P0）
 - **F-BOOL-05** Shape Builder（Shift+M）：拖过重叠区域合并，Alt 拖擦除，点击单区域拆分为独立形状；悬停高亮待合并区域；可选"拾取颜色来源"。（P0）
 - **F-BOOL-06** 精度要求：使用 Skia PathOps（CanvasKit）或等价鲁棒算法；对近重合点、自相交、共线段有回归测试集；失败时返回可解释错误而非静默产出错误几何。（P0）
 - **F-BOOL-07** 闭合区域填充（Live Paint 的先行替代）：点击任意由路径围成的封闭区域（允许缝隙容差）直接生成填充路径。（P1）
@@ -335,7 +334,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-TEXT-03** 段落属性：左 / 中 / 右 / 两端对齐、缩进、段前后距、连字符（P2）、制表符（P2）。（P0 对齐缩进）
 - **F-TEXT-04** 区域文字：自动换行、溢出标记、串接文本框（threading，P2）、行列分栏（P2）、Auto Size。（P0 基础）
 - **F-TEXT-05** 路径文字：沿路径起止滑块、翻转、对齐基线 / 上 / 下 / 中、效果（Rainbow / Skew / 3D Ribbon / Stair / Gravity，P2）。（P1）
-- **F-TEXT-06** Create Outlines（Shift+Ctrl+O）：文字转曲为 compound_path 组，逐字形可编辑。（P0）
+- **F-TEXT-06** Create Outlines（Shift+Ctrl+O）：文字转曲为 Path 组，每个字形一个 Path（带洞的字形是多子路径的 Compound Path），逐字形可编辑。（P0）
 - **F-TEXT-07** OpenType 特性：连字、替代字形、数字样式、样式集；Glyphs 面板。（P2）
 - **F-TEXT-08** 字符 / 段落样式。（P1）
 - **F-TEXT-09** 整形引擎：使用 HarfBuzz（WASM）做整形与字形定位，保证 CJK、阿拉伯语、天城文正确；渲染与导出用同一套字形轮廓，保证 WYSIWYG。（P0）
@@ -973,6 +972,7 @@ zibel/
 | 36 | 术语 | Session → **Actor** | `CONTEXT.md` |
 | 37 | Agent 身份 | 每个 MCP 客户端一个 token，即一个 Agent Actor | F-COLLAB-07 |
 | 38 | 编辑往返（2026-09-24） | 导入导出是核心功能，以 **Inkscape** 为编辑工具：一个 Inkscape 方言的 SVG 序列化器；打开 / 替换（三方合并）/ 置入三种导入；Inkscape 能表达而 Zibel 不能的，算 Zibel 缺口并补齐；不保留原始 XML 片段 | ADR-0017、#24 |
+| 39 | Compound Path（2026-09-24） | 不设 `compound_path` 节点类型：Compound Path 是 `d` 含多个子路径、带 `fillRule` 的 `path`，SVG 中即一个 `<path fill-rule>` | ADR-0018、#30 |
 
 **剩余开放问题**
 

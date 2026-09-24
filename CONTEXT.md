@@ -51,7 +51,7 @@ _Avoid_: Control point、Direction point、Bezier point
 _Avoid_: Primitive、Basic shape、Parametric shape
 
 **Compound Path（复合路径）**：
-多条子路径按同一填充规则视为一个 Path，用于挖洞。它是破坏性的：子路径不再各自独立。
+多条子路径按同一填充规则视为一个 Path，用于挖洞。它是破坏性的：子路径不再各自独立。在模型中它就是一个 `path` Node：`d` 含多个子路径，`fillRule` 为 `nonzero`（默认）或 `evenodd`；没有单独的 `compound_path` 类型（ADR-0018）。
 _Avoid_: Compound Shape（另一个概念）、Hole、Cutout
 
 **Compound Shape（复合形状）**：
