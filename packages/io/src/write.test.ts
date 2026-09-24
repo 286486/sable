@@ -201,10 +201,10 @@ it("writes a leaf's matrix on its own element, and a stack's on its <g>", () => 
   );
 });
 
-it("writes Point Type as one <text> in its font family", () => {
+it("writes Point Type as one <text> in its font family, a line tspan per line", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [
-    { type: "text", parentId, x: 10, y: 50, content: "Hi" },
+    { type: "text", parentId, x: 10, y: 50, content: "Hi\n\nHo" },
     {
       type: "text",
       parentId,
@@ -212,16 +212,70 @@ it("writes Point Type as one <text> in its font family", () => {
       y: 20,
       content: 'a<b&"c"',
       fontSize: 24,
+      leading: 30,
       appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#0000FF", width: 2 }] },
     },
   ]);
   const svg = toSvg(doc);
   expect(svg).toMatch(
-    /<text x="10" y="50" font-family="Source Sans 3" font-size="12" id="z-\w+" fill="#000000" style="font-kerning:none" xml:space="preserve">Hi<\/text>/,
+    /<text x="10" y="50" font-family="Source Sans 3" font-size="12" id="z-\w+" fill="#000000" style="font-kerning:none;line-height:1.2" xml:space="preserve"><tspan sodipodi:role="line" x="10" y="50">Hi<\/tspan><tspan sodipodi:role="line" x="10" y="64.4"><\/tspan><tspan sodipodi:role="line" x="10" y="78.8">Ho<\/tspan><\/text>/,
   );
   expect(svg).toMatch(
-    /<text x="0" y="20" font-family="Source Sans 3" font-size="24" id="z-\w+" fill="#FF0000" stroke="#0000FF" stroke-width="2" stroke-miterlimit="10" style="font-kerning:none" xml:space="preserve">a&lt;b&amp;&quot;c&quot;<\/text>/,
+    /<text x="0" y="20" font-family="Source Sans 3" font-size="24" id="z-\w+" fill="#FF0000" stroke="#0000FF" stroke-width="2" stroke-miterlimit="10" style="font-kerning:none;line-height:30px" xml:space="preserve"><tspan sodipodi:role="line" x="0" y="20">a&lt;b&amp;&quot;c&quot;<\/tspan><\/text>/,
   );
+});
+
+const areaText = (content: string, extra: object = {}) => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const [node] = createNodes(doc, [
+    {
+      type: "text",
+      kind: "area",
+      parentId,
+      x: 150,
+      y: 20,
+      width: 100,
+      height: 80,
+      content,
+      ...extra,
+    },
+  ]).nodes;
+  return { svg: toSvg(doc), id: node?.id };
+};
+
+it("writes Area Type as shape-inside a <defs> rect, with a positioned tspan per shown line", () => {
+  const { svg, id } = areaText(
+    "The quick brown fox jumps over the lazy dog again and again.\nNew para",
+  );
+  const lines = [
+    "The quick brown ",
+    "fox jumps over the ",
+    "lazy dog again and ",
+    "again.&#10;",
+    "New para",
+  ]
+    .map((t, i) => `<tspan x="150" y="${[30.25, 44.65, 59.05, 73.45, 87.85][i]}">${t}</tspan>`)
+    .join("");
+  expect(svg).toContain(
+    `<defs><rect id="area-z-${id}" x="150" y="20" width="100" height="80"/></defs><text font-family="Source Sans 3" font-size="12" id="z-${id}" fill="#000000" style="shape-inside:url(#area-z-${id});white-space:pre;font-kerning:none;line-height:1.2" xml:space="preserve">${lines}</text>`,
+  );
+  expect(svg).not.toContain("visibility:hidden");
+});
+
+it("writes Area Type's overflow in a hidden tspan, so every character stays in the file", () => {
+  const { svg } = areaText("one\ntwo\nthree", { height: 20 });
+  expect(svg).toMatch(
+    /y="30.25">one&#10;<\/tspan><tspan style="visibility:hidden">two&#10;three<\/tspan><\/text>/,
+  );
+});
+
+it("writes one <defs> before an Area Type's stack, for every paint to flow in", () => {
+  const { svg, id } = areaText("Hi", {
+    appearance: { fills: [{ color: "#FF0000" }, { color: "#00FF00" }] },
+  });
+  expect(svg.match(/<defs>/g)).toHaveLength(1);
+  expect(svg).toContain(`</defs><g id="z-${id}" zibel:stack="true">`);
+  expect(svg.match(new RegExp(`shape-inside:url\\(#area-z-${id}\\)`, "g"))).toHaveLength(2);
 });
 
 it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape page", () => {

@@ -7,6 +7,7 @@ import {
   formatNumber,
   formatPath,
   IDENTITY,
+  layoutText,
   lookup,
   type Node,
   type Rect,
@@ -14,11 +15,14 @@ import {
   round,
   type ShapeNode,
   shapeSegments,
+  type TextNode,
+  textBox,
   union,
   visibleBounds,
   ZibelError,
 } from "@zibel/core";
 import {
+  areaId,
   clipId,
   paintAttrs,
   SVG_STROKE,
@@ -264,22 +268,15 @@ function node(doc: Document, n: Node, walk: Walk): string {
     return `<g${attrs({ ...own, ...layer, "clip-path": clipPath, style: style(...looks) })}>${kids.join("")}</g>`;
   }
   if (!inside) return "";
-  // Text is kerned off:
-  // resvg honours font-kerning only as a style, and unkerned the drawn width is the advance sum the
-  // bounds report (ADR-0013).
-  const text = n.type === "text";
   const element = (a: Attrs, extra: (string | false)[] = []) =>
-    text
-      ? `<text${attrs({
-          x: n.x,
-          y: n.y,
-          "font-family": n.fontFamily,
-          "font-size": n.fontSize,
-          ...a,
-          style: style(...extra, "font-kerning:none"),
-          "xml:space": "preserve",
-        })}>${esc(n.content)}</text>`
+    n.type === "text"
+      ? text(n, a, extra)
       : `<${shape(n)}${attrs({ ...a, style: style(...extra) })}/>`;
+  // Area Type flows in a frame Inkscape keeps in <defs>, one for all its paints (ADR-0022).
+  const defs =
+    n.type === "text" && n.kind === "area"
+      ? `<defs><rect${attrs({ id: areaId(n.id), ...num(textBox(n)) })}/></defs>`
+      : "";
   const { fills, strokes } = n.appearance;
   // One Fill and one Stroke are one element, so Inkscape selects one object; a longer Appearance
   // is a <g zibel:stack> painting each Fill, then each Stroke: Illustrator's default stacking.
@@ -289,7 +286,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
   if ((fills.length <= 1 && strokes.length <= 1) || clipping) {
     const [f] = fills;
     const [s] = strokes;
-    return element(
+    return `${defs}${element(
       {
         ...own,
         ...(f ? paintAttrs("fill", f.color) : { fill: "none" }),
@@ -299,11 +296,44 @@ function node(doc: Document, n: Node, walk: Walk): string {
           clipping && n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : undefined,
       },
       [...looks],
-    );
+    )}`;
   }
   const paints = [
     ...fills.map((f) => element(paintAttrs("fill", f.color))),
     ...strokes.map((s) => element({ fill: "none", ...stroke(s) })),
   ].join("");
-  return `<g${attrs({ ...own, [zibel("stack")]: "true", style: style(...looks) })}>${paints}</g>`;
+  return `${defs}<g${attrs({ ...own, [zibel("stack")]: "true", style: style(...looks) })}>${paints}</g>`;
+}
+
+/**
+ * One paint of a text, laid out as `layoutText` draws it (ADR-0022): Point Type as Inkscape's line
+ * tspans; Area Type as positioned tspans in its frame, each keeping its trailing spaces and return,
+ * then the overflow, hidden, so the file holds every character. Kerned off: resvg honours
+ * font-kerning only as a style, and unkerned the drawn width is the advance sum the bounds report
+ * (ADR-0013).
+ */
+function text(n: TextNode, a: Attrs, extra: (string | false)[]): string {
+  const { lines, overflow } = layoutText(n);
+  const area = n.kind === "area";
+  const role = area ? {} : { "sodipodi:role": "line" };
+  const tspans = lines.map(
+    (l) => `<tspan${attrs({ ...role, ...num({ x: l.x, y: l.y }) })}>${esc(l.text)}</tspan>`,
+  );
+  if (overflow) tspans.push(`<tspan style="visibility:hidden">${esc(overflow)}</tspan>`);
+  // Auto leading is CSS's unitless 1.2, which also follows the font size.
+  const leading = n.leading === undefined ? "1.2" : `${formatNumber(n.leading)}px`;
+  return `<text${attrs({
+    ...(!area && num({ x: n.x, y: n.y })),
+    "font-family": n.fontFamily,
+    "font-size": n.fontSize,
+    ...a,
+    style: style(
+      ...extra,
+      area && `shape-inside:url(#${areaId(n.id)})`,
+      area && "white-space:pre",
+      "font-kerning:none",
+      `line-height:${leading}`,
+    ),
+    "xml:space": "preserve",
+  })}>${tspans.join("")}</text>`;
 }

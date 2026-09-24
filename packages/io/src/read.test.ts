@@ -381,7 +381,7 @@ it("reads a star with missing parameters as its Path", () => {
   expect(leaves(file)[0]?.type).toBe("path");
 });
 
-it("reads <text> as Point Type, one Node per Inkscape line, keeping the font name", () => {
+it("reads <text> as one Point Type, its Inkscape lines joined by returns, keeping the font name", () => {
   const file = parseFile(
     svg(
       'width="300" height="300"',
@@ -394,7 +394,7 @@ it("reads <text> as Point Type, one Node per Inkscape line, keeping the font nam
         '<text x="0" y="0">   </text>',
     ),
   );
-  const [plain, a, bc, centred, ...rest] = leaves(file);
+  const [plain, abc, centred, ...rest] = leaves(file);
   expect(rest).toEqual([]);
   expect(plain).toMatchObject({
     type: "text",
@@ -406,20 +406,139 @@ it("reads <text> as Point Type, one Node per Inkscape line, keeping the font nam
     fontSize: 14,
     appearance: { fills: [{ color: "#000000" }], strokes: [] },
   });
-  expect(a).toMatchObject({
+  expect(plain).not.toHaveProperty("leading");
+  expect(abc).toMatchObject({
     id: "01M38T29SBZ873XP2NBD2K6CYR",
     x: 10,
     y: 20,
-    content: "a",
+    content: "a\nbc\n",
     fontFamily: "DejaVu Sans",
     fontSize: 11.906,
     appearance: { fills: [{ color: "#FF0000" }] },
   });
-  expect(bc).toMatchObject({ x: 10, y: 30, content: "bc", fontFamily: "DejaVu Sans" });
-  expect(bc?.id).not.toBe(a?.id);
   // Half of "Hi"'s advances at 10 pt: (652 + 246) × 10 / 1000 / 2.
   expect(centred).toMatchObject({ x: 95.51, content: "Hi" });
-  expect(file.warnings).toEqual([expect.objectContaining({ code: "FONT_MISSING", nodeId: a?.id })]);
+  expect(file.warnings).toEqual([
+    expect.objectContaining({ code: "FONT_MISSING", nodeId: abc?.id }),
+  ]);
+});
+
+// Saved by Inkscape 1.2.2 (ADR-0022): line tspans, and flowed text with its positioned fallback
+// lines, overflow included; the frames Inkscape keeps in <defs>.
+const INKSCAPE_TEXT =
+  '<defs><rect id="box" x="150" y="20" width="100" height="80" fill="none" /><rect id="b1" x="10" y="10" width="100" height="40" /><rect id="b2" x="10" y="60" width="50" height="100" /><rect id="b3" x="150" y="10" width="100" height="100" /></defs>' +
+  '<text id="t1" x="20" y="40" font-family="Source Sans 3" font-size="12" style="font-kerning:none;line-height:1.2" xml:space="preserve"><tspan sodipodi:role="line" x="20" y="40" id="tspan2">First line</tspan><tspan sodipodi:role="line" x="20" y="54.4" id="tspan4" /><tspan sodipodi:role="line" x="20" y="68.8" id="tspan6">Third</tspan></text>' +
+  '<text id="t2" font-family="Source Sans 3" font-size="12" style="shape-inside:url(#box);white-space:pre;line-height:1.2" xml:space="preserve"><tspan x="150" y="30.249774" id="tspan26">The quick brown </tspan><tspan x="150" y="44.649776" id="tspan28">fox jumps over the </tspan><tspan x="150" y="59.049777" id="tspan30">lazy dog again and </tspan><tspan x="150" y="73.449779" id="tspan32">again.\n</tspan><tspan x="150" y="87.84978" id="tspan34">New para</tspan></text>' +
+  '<text id="over" font-family="Source Sans 3" font-size="12" style="shape-inside:url(#b1);white-space:pre;line-height:1.2" xml:space="preserve"><tspan x="10" y="20.249774" id="tspan35">one\n</tspan><tspan x="10" y="34.649776" id="tspan37">two\n</tspan><tspan x="10" y="60.249774" id="tspan41"><tspan dx="0 4.0559921 6.5280075 4.0439987 5.9520035 5.9520035" id="tspan39">three\n</tspan></tspan><tspan x="10" y="74.649775" id="tspan45"><tspan dx="0 3.3839951 6.5039978 6.5280075" id="tspan43">four</tspan></tspan></text>' +
+  '<text id="long" font-family="Source Sans 3" font-size="12" style="shape-inside:url(#b2);white-space:pre;line-height:1.2" xml:space="preserve"><tspan x="10" y="170.24977" id="tspan49"><tspan dx="0 6.4080048 6.5280075 6.6600037 5.9520035 4.0439987 5.3519897 6.0479965 3.0599899 2.9520035 3.5039978 3.8759995 6.0479965 6.0479965 2.9520035 3.0599899 2.9520035 4.788002 4.0559921 2.9520035 5.4719925 2.4000092 8.5800018 6.5039978 4.0439987 6.6600037 2.4000092 2.4000092 4.0559921 8.5800018 6.5039978 2.4000092 2.4000092 2.4000092 5.0279999 6.4920044 6.0480042 5.2200012 5.9519958" id="tspan47">Supercalifragilistic word  two   spaces</tspan></tspan></text>' +
+  '<text id="empty" font-family="Source Sans 3" font-size="12" style="shape-inside:url(#b3);white-space:pre;line-height:15px" xml:space="preserve"><tspan x="150" y="20.549774" id="tspan51">a\n</tspan><tspan x="150" y="35.549774" id="tspan53">\n</tspan><tspan x="150" y="50.549774" id="tspan55">b\n</tspan></text>' +
+  '<text id="pt" x="20" y="180" font-family="Source Sans 3" font-size="12" style="line-height:15px" xml:space="preserve"><tspan sodipodi:role="line" x="20" y="180" id="tspan12">First</tspan><tspan sodipodi:role="line" x="20" y="182" id="tspan14">Second</tspan></text>';
+
+it("reads Inkscape's multi-line and flowed text as one Text Node each", () => {
+  const file = parseFile(svg('width="300" height="200" viewBox="0 0 300 200"', INKSCAPE_TEXT));
+  const byName = Object.fromEntries(
+    leaves(file).map((n) => [n.type === "text" ? n.content.slice(0, 7) : n.type, n]),
+  );
+  expect(leaves(file)).toHaveLength(6);
+  expect(file.warnings).toEqual([]);
+  expect(byName["First l"]).toMatchObject({
+    kind: "point",
+    x: 20,
+    y: 40,
+    content: "First line\n\nThird",
+  });
+  expect(byName["First l"]).not.toHaveProperty("leading");
+  expect(byName["The qui"]).toMatchObject({
+    kind: "area",
+    x: 150,
+    y: 20,
+    width: 100,
+    height: 80,
+    content: "The quick brown fox jumps over the lazy dog again and again.\nNew para",
+  });
+  expect(byName["one\ntwo"]).toMatchObject({
+    x: 10,
+    y: 10,
+    width: 100,
+    height: 40,
+    content: "one\ntwo\nthree\nfour",
+  });
+  expect(byName.Superca).toMatchObject({ content: "Supercalifragilistic word  two   spaces" });
+  expect(byName["a\n\nb\n"]).toMatchObject({ kind: "area", leading: 15, content: "a\n\nb\n" });
+  expect(byName["First\nS"]).toMatchObject({ kind: "point", x: 20, y: 180, leading: 15 });
+});
+
+it.each([
+  ["1.25", 15],
+  ["150%", 18],
+  ["15px", 15],
+  ["1.2", undefined],
+  ["normal", undefined],
+])("reads line-height %s as leading %s at 12 pt", (lineHeight, leading) => {
+  const file = parseFile(
+    svg(
+      "",
+      `<text x="0" y="10" font-size="12" style="line-height:${lineHeight}"><tspan sodipodi:role="line">a</tspan><tspan sodipodi:role="line">b</tspan></text>`,
+    ),
+  );
+  expect((leaves(file)[0] as { leading?: number }).leading).toBe(leading);
+});
+
+it("scales Area Type's frame and leading with a baked scale", () => {
+  const file = parseFile(
+    svg(
+      "",
+      '<defs><rect id="f" x="10" y="10" width="100" height="40"/></defs>' +
+        '<text transform="matrix(2 0 0 2 5 0)" font-size="12" style="shape-inside:url(#f);white-space:pre;line-height:15px">a</text>',
+    ),
+  );
+  expect(leaves(file)[0]).toMatchObject({
+    x: 25,
+    y: 20,
+    width: 200,
+    height: 80,
+    fontSize: 24,
+    leading: 30,
+  });
+});
+
+it("warns when Area Type cannot flow as written, and keeps its text", () => {
+  const file = parseFile(
+    svg(
+      "",
+      '<defs><circle id="c" cx="50" cy="50" r="40"/></defs>' +
+        '<text font-size="12" style="shape-inside:url(#c);white-space:pre">in a circle</text>' +
+        '<text x="5" y="5" font-size="12" style="shape-inside:url(#nope);white-space:pre">a\nb</text>' +
+        '<text x="50" y="50" text-anchor="middle"><tspan sodipodi:role="line">a</tspan><tspan sodipodi:role="line">b</tspan></text>' +
+        '<defs><rect id="r" width="50" height="50"/></defs>' +
+        '<text style="shape-inside:url(#r);text-anchor:middle"><title>Note</title>centred</text>',
+    ),
+  );
+  const [circle, missing, centred, area] = leaves(file);
+  expect(area).toMatchObject({ kind: "area", x: 0, y: 0, content: "centred" });
+  // Warnings come once per kind, so the centred Area Type is checked on its own.
+  const alone = parseFile(
+    svg(
+      "",
+      '<defs><rect id="r" width="50" height="50"/></defs><text style="shape-inside:url(#r);text-anchor:end">a</text>',
+    ),
+  );
+  expect(alone.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
+  expect(alone.warnings[0]?.message).toMatch(/^text-anchor/);
+  expect(circle).toMatchObject({
+    kind: "area",
+    x: 10,
+    y: 10,
+    width: 80,
+    height: 80,
+    content: "in a circle",
+  });
+  expect(missing).toMatchObject({ kind: "point", x: 5, y: 5, content: "a\nb" });
+  expect(centred).toMatchObject({ kind: "point", content: "a\nb" });
+  expect(file.warnings.map((w) => [w.code, w.message.split(" ")[0]])).toEqual([
+    ["UNSUPPORTED_ATTRIBUTE", "shape-inside"],
+    ["UNSUPPORTED_ATTRIBUTE", "text-anchor"],
+  ]);
 });
 
 it("keeps fill-rule on what becomes a Path, and drops it without a warning elsewhere", () => {

@@ -4,6 +4,7 @@ import {
   clippingPath,
   type Document,
   type LeafNode,
+  layoutText,
   type Node,
   type Segment,
   shapeSegments,
@@ -71,8 +72,9 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
     }
     for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, doc, c);
   } else {
-    const text = n.type === "text" ? n : null;
-    // Tested on n, not text, so the else branch narrows n to a Live Shape or Path.
+    // Overflowing Area Type is not laid out, so it is not drawn (ADR-0022).
+    const lines = n.type === "text" ? layoutText(n).lines : null;
+    // Tested on n, not lines, so the else branch narrows n to a Live Shape or Path.
     if (n.type === "text") {
       // Every font renders in the bundled one, which its bounds are measured in (ADR-0017).
       ctx.font = `${n.fontSize}px "${BUNDLED_FONT}"`;
@@ -83,7 +85,7 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
     }
     for (const f of n.appearance.fills) {
       ctx.fillStyle = f.color;
-      if (text) ctx.fillText(text.content, text.x, text.y);
+      if (lines) for (const l of lines) ctx.fillText(l.text, l.x, l.y);
       else if (n.type === "path" && n.fillRule === "evenodd") ctx.fill("evenodd");
       else ctx.fill();
     }
@@ -94,7 +96,7 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
       ctx.lineJoin = s.join;
       ctx.miterLimit = s.miterLimit;
       ctx.setLineDash(s.dash);
-      if (text) ctx.strokeText(text.content, text.x, text.y);
+      if (lines) for (const l of lines) ctx.strokeText(l.text, l.x, l.y);
       else ctx.stroke();
     }
   }

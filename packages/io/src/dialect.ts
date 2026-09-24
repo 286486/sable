@@ -43,6 +43,9 @@ export const xmlId = (id: string) => `z-${id}`;
 /** The id of a Clipping Mask's `<clipPath>`: its Group's XML id behind `clip-`. */
 export const clipId = (groupId: string) => `clip-${xmlId(groupId)}`;
 
+/** The id of an Area Type's frame `<rect>` in `<defs>`: its XML id behind `area-` (ADR-0022). */
+export const areaId = (textId: string) => `area-${xmlId(textId)}`;
+
 /** The id `xmlId` wrote, or undefined for any other id. */
 export const idOf = (value: string | null | undefined) =>
   /^z-([0-9A-HJKMNP-TV-Z]{26})$/.exec(value ?? "")?.[1];

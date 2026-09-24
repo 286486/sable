@@ -152,6 +152,55 @@ it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned"
   ]);
 });
 
+it("draws each line of Point Type, one leading apart", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "text",
+      parentId,
+      x: 10,
+      y: 50,
+      content: "Hi\nHo",
+      appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#0000FF", width: 2 }] },
+    },
+  ]);
+  const { ctx, log } = recorder();
+  drawDocument(ctx, doc);
+  expect(log.filter((l) => /^(fill|stroke)Text/.test(l))).toEqual([
+    "fillText Hi 10 50",
+    "fillText Ho 10 64.4",
+    "strokeText Hi 10 50",
+    "strokeText Ho 10 64.4",
+  ]);
+});
+
+it("draws only the lines of Area Type that fit its frame", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "text",
+      kind: "area",
+      parentId,
+      x: 10,
+      y: 20,
+      width: 100,
+      height: 40,
+      content: "one\ntwo\nthree\nfour",
+    },
+  ]);
+  const { ctx, log } = recorder();
+  drawDocument(ctx, doc);
+  const drawn = log.filter((l) => l.startsWith("fillText")).map((l) => l.split(" "));
+  expect(drawn.map(([, text, x]) => [text, x])).toEqual([
+    ["one\n", "10"],
+    ["two\n", "10"],
+  ]);
+  expect(drawn.map(([, , , y]) => Number(y) - 20)).toEqual([
+    expect.closeTo(10.249774, 5),
+    expect.closeTo(24.649774, 5),
+  ]);
+});
+
 it("draws a font Zibel does not bundle in Source Sans 3, as render does", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [

@@ -142,9 +142,13 @@ export const zodPath = (path: PropertyKey[]) =>
 
 function writableSchema(node: Node) {
   if (node.type === "layer" || node.type === "group") return Writable;
-  // A text's kind is fixed: Point Type stays Point Type until Area Type exists.
-  const { type: _, ...parameters } =
-    node.type === "text" ? TextShape.omit({ kind: true }).shape : SHAPES[node.type].shape;
+  if (node.type === "text") {
+    // A text's kind is fixed, and only Area Type has a frame, which it cannot drop (ADR-0022).
+    const { type: _, kind: __, width, height, ...text } = TextShape.shape;
+    const frame = node.kind === "area" ? { width: width.unwrap(), height: height.unwrap() } : {};
+    return Writable.extend(text).extend(frame).extend({ appearance: AppearanceInput });
+  }
+  const { type: _, ...parameters } = SHAPES[node.type].shape;
   return Writable.extend(parameters).extend({ appearance: AppearanceInput });
 }
 
@@ -160,11 +164,13 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
   for (const key of Object.keys(patch)) {
     const readOnly =
       (Object.hasOwn(READ_ONLY, key) ? READ_ONLY[key] : undefined) ??
-      (key === "d" && node.type === "text"
-        ? "A text has no outline until Create Outlines; change content instead."
-        : key === "d" && node.type !== "path"
-          ? "A Live Shape's d is derived from its parameters; change those instead."
-          : undefined);
+      (key === "kind" && node.type === "text"
+        ? "A text's kind is fixed (ADR-0022); create a text of the other kind and delete this one."
+        : key === "d" && node.type === "text"
+          ? "A text has no outline until Create Outlines; change content instead."
+          : key === "d" && node.type !== "path"
+            ? "A Live Shape's d is derived from its parameters; change those instead."
+            : undefined);
     if (readOnly) throw invalid(`.${key}`, `${key} is read-only.`, readOnly);
     if (!Object.hasOwn(schema.shape, key)) {
       throw invalid(
@@ -188,7 +194,8 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
         : issue.message,
     );
   }
-  const next = { ...node, ...parsed.data } as Node;
+  // From the merge, so null deletes an optional key such as leading.
+  const next = { ...merged, ...parsed.data } as Node;
   // SVG clips everything away through a hidden clip path; Illustrator unclips (ADR-0021).
   if ("clipping" in next && next.clipping && !next.visible) {
     throw invalid(

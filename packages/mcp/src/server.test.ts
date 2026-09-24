@@ -40,6 +40,16 @@ describe("write tools pass the write and its options apart", () => {
       { type: "star", parentId: "p", cx: 0, cy: 0, outerRadius: 5, innerRadius: 2, points: 5 },
       { type: "path", parentId: "p", d: "M 0 0 L 1 1" },
       { type: "text", parentId: "p", x: 0, y: 0, content: "Hi" },
+      {
+        type: "text",
+        kind: "area",
+        parentId: "p",
+        x: 0,
+        y: 0,
+        width: 50,
+        height: 20,
+        content: "a\nb",
+      },
     ];
     const result = await call("zibel_node_create", { docId: "d", nodes, ...opts });
     expect(result.structuredContent).toEqual(receipt);
@@ -55,6 +65,7 @@ describe("write tools pass the write and its options apart", () => {
       { type: "star" },
       { type: "path", fillRule: "nonzero" },
       { type: "text", kind: "point", fontFamily: "Source Sans 3", fontSize: 12 },
+      { type: "text", kind: "area", width: 50, height: 20, content: "a\nb", fontSize: 12 },
     ]);
     await call("zibel_node_create", { docId: "d", nodes: [nodes[2]] });
     expect(service.createNodes.mock.calls[1]?.[2]).toEqual({ partial: false });
@@ -535,6 +546,8 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   }
   expect(described("zibel_node_create")).not.toContain("origin top-left");
   expect(described("zibel_node_create")).toContain("text {");
+  expect(described("zibel_node_create")).toContain("TEXT_OVERFLOW");
+  expect(described("zibel_node_update")).toContain("leading");
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({
       readOnlyHint: expect.any(Boolean),

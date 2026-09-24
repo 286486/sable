@@ -43,6 +43,45 @@ it("draws text in the bundled font, inside the bounds node_get reports", async (
   expect(drawn.filter((p) => !inside(p))).toEqual([]);
 });
 
+/** The runs of consecutive rows that hold ink: one per drawn line of text. */
+const bands = (drawn: [number, number][]) =>
+  [...new Set(drawn.map(([, y]) => y))]
+    .sort((a, b) => a - b)
+    .filter((y, i, ys) => ys[i - 1] !== y - 1).length;
+
+it("draws each line of Point Type and each shown line of Area Type, inside their bounds", async () => {
+  const draw = async (input: object) => {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+    });
+    const [text] = createNodes(doc, [{ parentId: defaultLayerId, ...input } as never]).nodes;
+    const b = text && bounds(doc, text);
+    if (!b) throw new Error("setup");
+    const drawn = await ink(toSvg(doc));
+    const inside = ([x, y]: [number, number]) =>
+      b.x - 1 <= x && x < b.x + b.width + 1 && b.y - 1 <= y && y < b.y + b.height + 1;
+    return { lines: bands(drawn), outside: drawn.filter((p) => !inside(p)) };
+  };
+  expect(await draw({ type: "text", x: 20, y: 25, content: "Hg\nHg\nHg", fontSize: 24 })).toEqual({
+    lines: 3,
+    outside: [],
+  });
+  // 60 pt holds four 14.4 pt lines; the fifth overflows and is not drawn.
+  expect(
+    await draw({
+      type: "text",
+      kind: "area",
+      x: 20,
+      y: 10,
+      width: 100,
+      height: 60,
+      content: "one two three four five six seven eight nine ten eleven twelve thirteen fourteen",
+    }),
+  ).toEqual({ lines: 4, outside: [] });
+});
+
 it("keeps runs of spaces, so the drawn width follows the advance sum", async () => {
   const svg = (content: string) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100"><rect width="400" height="100" fill="#FFFFFF"/>` +
@@ -126,9 +165,10 @@ it("draws the fixture Document with known pixels", async () => {
   // moved 28 of its antialiased edge pixels at 2x by up to 10/255.
   // The whole Document again, by #27: the fixture gained a Sublayer, a multiply rect, a two-Stroke
   // path with a translucent Stroke and a hidden ellipse. Writing alpha as fill-opacity did not
-  // move a pixel. Again by #30: the fixture gained an evenodd ring; by #31, a Clipping Mask.
+  // move a pixel. Again by #30: the fixture gained an evenodd ring; by #31, a Clipping Mask; by #33,
+  // a multi-line Point Type and an Area Type (writing text as line tspans moved no pixel).
   expect(await hash(toSvg(doc, docRect(doc)))).toBe(
-    "4cc5e29db61b5636db9f394f8785fdb471a7b84a84f3f65ccd2115948c96c201",
+    "5793280a8ec851b815aea337ae42382566f48f1d372c37d35208dfc8d9a22862",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

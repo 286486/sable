@@ -702,6 +702,71 @@
       "width": 60,
       "x": 120,
       "y": 115
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#CC0000",
+            "type": "solid"
+          },
+          {
+            "color": "#0000CC80",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Flowed\nin a box of text",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 9,
+      "height": 50,
+      "id": "01M38T29SNAREATYPEFW0WED00",
+      "index": "aI",
+      "kind": "area",
+      "leading": 11,
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "width": 42,
+      "x": 257,
+      "y": 2
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Point\n\nType",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 8,
+      "id": "01M38T29SNP0NTTYPEXMVXT1XT",
+      "index": "aH",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 324,
+      "y": 162
     }
   ]
 }

@@ -233,7 +233,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "polygon {cx, cy, radius, sides}: radius is center to vertex.",
         "star {cx, cy, outerRadius, innerRadius, points}.",
         "path {d, fillRule}: SVG path data with absolute M, L, C, Q and Z only. Several subpaths with fillRule evenodd cut holes (a Compound Path); default nonzero.",
-        "text {x, y, content, fontSize}: Point Type; x, y is where the baseline of the first character starts. content is one line, no line breaks; fontSize is in pt, default 12. fontFamily is any font name, kept as written; only Source Sans 3 is bundled, so others render in it and the receipt warns FONT_MISSING.",
+        'text {x, y, content, fontSize, leading}: Point Type; x, y is where the baseline of the first character starts, and content breaks only at \\n. With kind "area" and width, height it is Area Type: x, y, width, height is its frame, content wraps at spaces, and what does not fit is not drawn and warns TEXT_OVERFLOW. fontSize is in pt, default 12; leading is the distance between baselines in pt, omitted for Auto (120% of fontSize). fontFamily is any font name, kept as written; only Source Sans 3 is bundled, so others render in it and the receipt warns FONT_MISSING.',
         "Live Shapes, paths and text take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}; omit it for a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke.",
         "Give each node a clientKey to find its new id in the receipt's keyMap.",
         "At most 2000 Nodes per call, counting inline children.",
@@ -297,7 +297,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Update Nodes",
       description: [
         "Change Nodes with one JSON Merge Patch (RFC 7396) each: objects merge, null deletes a key, arrays and everything else replace.",
-        "Writable on every Node: name, visible, locked, opacity (0-1), blendMode (stored, not rendered yet), tags, meta. A Live Shape or path also takes its parameters (see zibel_node_create) and appearance; a path takes d; a text takes content, fontSize, x, y and appearance.",
+        "Writable on every Node: name, visible, locked, opacity (0-1), blendMode (stored, not rendered yet), tags, meta. A Live Shape or path also takes its parameters (see zibel_node_create) and appearance; a path takes d; a text takes content, fontSize, leading (null for Auto), x, y and appearance, and an Area Type also width and height; a text's kind is fixed.",
         "fills and strokes replace as a whole list, so send every Fill or Stroke you want to keep.",
         "Move, rotate or scale with zibel_node_transform; transform, type, parentId and derived bounds are read-only.",
         coordinates,
@@ -410,7 +410,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "Read Nodes by id, in document coordinates.",
         "concise (default): id, type, name, parentId, visible, locked, childCount and geometricBounds.",
         "full adds every stored property (Live Shape parameters, text content and font, appearance, transform, opacity, blendMode, tags, meta), the outline d and closed of a Live Shape or path (a text has none), visibleBounds (including Strokes) and worldTransform.",
-        "A text's geometricBounds run from its font's ascender to its descender, as wide as its characters.",
+        "A Point Type's geometricBounds run from its first line's ascender to its last line's descender, as wide as its widest line; an Area Type's are its frame.",
         coordinates,
       ].join(" "),
       inputSchema: {

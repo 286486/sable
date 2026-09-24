@@ -142,20 +142,30 @@ const { rect, ...others } = SHAPES;
 export const Shape = z.discriminatedUnion("type", [rect, ...Object.values(others)]);
 export type Shape = z.output<typeof Shape>;
 
-/** Point Type (ADR-0013): one line from the baseline origin, measured in the one bundled font. */
+/**
+ * A text (ADR-0013, ADR-0022): Point Type from its baseline origin, or Area Type in its frame,
+ * measured in the one bundled font. `textFrame` checks that the frame matches the kind.
+ */
 export const TextShape = z.object({
   type: z.literal("text"),
-  kind: z.literal("point").default("point"),
-  x: z.number().describe("Where the baseline of the first character starts."),
-  y: z.number().describe("The baseline."),
+  kind: z
+    .enum(["point", "area"])
+    .default("point")
+    .describe("point breaks only at hard returns; area wraps inside its width and height."),
+  x: z
+    .number()
+    .describe("Point Type: where the first baseline starts. Area Type: the frame's left."),
+  y: z.number().describe("Point Type: the first baseline. Area Type: the frame's top."),
+  width: z.number().positive().optional().describe("Area Type only: the frame's width."),
+  height: z.number().positive().optional().describe("Area Type only: the frame's height."),
   content: z
     .string()
     .min(1)
     .max(10_000)
     .refine(
-      // Control characters (tab, return) and line separators draw as spaces but measure as .notdef.
-      (s) => !/[\p{Cc}\u2028\u2029]/u.test(s),
-      "One line of printable characters: a hard return or tab is not laid out yet; create one text per line.",
+      // Tabs, \r and line separators draw as spaces but measure as .notdef.
+      (s) => !/[^\P{Cc}\n]|[\u2028\u2029]/u.test(s),
+      "Printable characters and \\n for a hard return; a tab or \\r is not laid out yet.",
     ),
   fontFamily: z
     .string()
@@ -165,7 +175,29 @@ export const TextShape = z.object({
       "Any font name, kept as written; only Source Sans 3 is bundled, and others render in it.",
     ),
   fontSize: z.number().positive().default(12).describe("In pt."),
+  leading: z
+    .number()
+    .positive()
+    .optional()
+    .describe("Distance between baselines in pt; omit for Auto, 120% of fontSize."),
 });
+/** Area Type needs its frame, and Point Type has none (ADR-0022). */
+export function textFrame(
+  t: { kind?: string; width?: number; height?: number },
+  ctx: z.RefinementCtx,
+) {
+  for (const key of ["width", "height"] as const) {
+    if (t.kind === "area" && t[key] === undefined) {
+      ctx.addIssue({ code: "custom", path: [key], message: "Area Type needs width and height." });
+    } else if (t.kind !== "area" && t[key] !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: [key],
+        message: "width and height belong to Area Type; set kind to area and pass both.",
+      });
+    }
+  }
+}
 export type TextShape = z.output<typeof TextShape>;
 
 const clientKey = z
@@ -197,7 +229,7 @@ const TextItem = TextShape.extend({
   appearance: AppearanceInput.optional().describe(
     "Omit for Illustrator's default type Appearance, a black Fill and no Stroke; {} paints nothing.",
   ),
-});
+}).superRefine(textFrame);
 const LEAF_ITEMS = [
   RectItem,
   EllipseItem,

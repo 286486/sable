@@ -131,6 +131,34 @@ it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3
   expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
 });
 
+it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", async () => {
+  const doc = await newDoc();
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "text",
+        kind: "area",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 10,
+        width: 100,
+        height: 20,
+        content: "one\ntwo\nthree",
+      },
+    ],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  expect(created.structuredContent.warnings).toEqual([
+    expect.objectContaining({ code: "TEXT_OVERFLOW", nodeId: id }),
+  ]);
+  const updated = await call("zibel_node_update", {
+    docId: doc.docId,
+    updates: [{ nodeId: id, patch: { height: 80 } }],
+  });
+  expect(updated.structuredContent.warnings).toEqual([]);
+});
+
 it("creates a rect in the default Layer and reads it back from doc_outline", async () => {
   const doc = await newDoc();
   expect(doc).toMatchObject({
