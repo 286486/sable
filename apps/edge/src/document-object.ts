@@ -146,7 +146,7 @@ export class DocumentObject extends DurableObject<Env> {
     nodes: Node[];
     actor: string;
     intent?: string;
-  }): Result<OpenedDocument> {
+  }): Result<Omit<OpenedDocument, "warnings">> {
     return guard(() => {
       const doc: Document = {
         id: input.docId,

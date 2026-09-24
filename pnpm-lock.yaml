@@ -202,6 +202,9 @@ importers:
       '@zibel/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@zibel/io':
+        specifier: workspace:*
+        version: link:../../packages/io
       '@zibel/mcp':
         specifier: workspace:*
         version: link:../../packages/mcp

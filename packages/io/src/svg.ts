@@ -311,7 +311,8 @@ class Reader {
       return;
     }
     if (e.getAttributeNS(ZIBEL_NS, "background")) return;
-    const k = bakes(matrix) ? matrix[0] : 1;
+    /** What Stroke widths scale by: the leaf's scale when it bakes into the parameters. */
+    const scaleOf = (m: Matrix) => (bakes(m) ? m[0] : 1);
     type Piece = { shape: Record<string, unknown> | null; appearance: Appearance };
     let pieces: Piece[];
     if (stack) {
@@ -320,7 +321,7 @@ class Reader {
       const paints = elements(e).map((c) => {
         const s = computeStyle(c, style, this.rules);
         const m = multiply(matrix, parseTransform(c.getAttribute("transform")));
-        return { shape: this.shape(c, m, s), look: this.appearance(s, k) };
+        return { shape: this.shape(c, m, s), look: this.appearance(s, scaleOf(this.placed(c, m))) };
       });
       pieces = [
         {
@@ -335,10 +336,12 @@ class Reader {
       // Point Type is one line, so each Inkscape line is a Node of its own.
       pieces = this.lines(e, style).map((line) => ({
         shape: this.text(line, line.style, matrix),
-        appearance: this.appearance(line.style, k),
+        appearance: this.appearance(line.style, scaleOf(matrix)),
       }));
-    } else
-      pieces = [{ shape: this.shape(e, matrix, style), appearance: this.appearance(style, k) }];
+    } else {
+      const appearance = this.appearance(style, scaleOf(this.placed(e, matrix)));
+      pieces = [{ shape: this.shape(e, matrix, style), appearance }];
+    }
     pieces = pieces.filter((p) => p.shape);
     if (pieces.length) this.unsupported(e, style);
     pieces.forEach(({ shape, appearance }, i) => {
@@ -551,6 +554,13 @@ class Reader {
     };
   }
 
+  /** The matrix a leaf is drawn with: its ancestors' and its own, and a star's turn. */
+  private placed(e: Element, outer: Matrix): Matrix {
+    const star = e.localName === "path" ? this.star(e) : undefined;
+    // A star turned in Inkscape keeps its turn as a matrix about its centre, as Zibel writes it.
+    return star ? multiply(outer, star.turn) : outer;
+  }
+
   /** A shape element's parameters in document coordinates, with the transform it keeps. */
   private shape(e: Element, outer: Matrix, style: Style): Record<string, unknown> | null {
     if (e.localName === "text") {
@@ -558,8 +568,7 @@ class Reader {
       return line ? this.text(line, line.style, outer) : null;
     }
     const star = e.localName === "path" ? this.star(e) : undefined;
-    // A star turned in Inkscape keeps its turn as a matrix about its centre, as Zibel writes it.
-    const m = star ? multiply(outer, star.turn) : outer;
+    const m = this.placed(e, outer);
     const num = (name: string) => length(e.getAttribute(name)) ?? 0;
     const bake = bakes(m);
     const [k, , , , tx, ty] = bake ? m : IDENTITY;

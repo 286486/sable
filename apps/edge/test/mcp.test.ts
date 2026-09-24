@@ -2,6 +2,8 @@ import { evictAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { COLOR_PATTERN, type ErrorCode } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
+import exported from "./fixtures/inkscape.svg?raw";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
@@ -1339,6 +1341,7 @@ describe("zibel_json", () => {
       name: "Doc",
       artboards: doc.artboards,
       rev: 1,
+      warnings: [],
       nodes: [
         expect.objectContaining({
           id: parentId,
@@ -1368,6 +1371,82 @@ describe("zibel_json", () => {
     ]);
     const { documents } = (await call("zibel_doc_list", {})).structuredContent;
     expect(documents[0]).toEqual({ docId: newId, name: "Doc", createdAt: expect.any(String) });
+  });
+
+  it("opens Zibel's own SVG export as the Document it came from, byte for byte", async () => {
+    // The #25 export of the fixture Document, every mapping ADR-0017 lists.
+    const opened = await call("zibel_doc_open", { content: exported });
+    const { docId, ...rest } = opened.structuredContent;
+    const file = JSON.parse(fixture);
+    expect(rest).toMatchObject({ name: file.name, artboards: file.artboards, warnings: [] });
+    expect(rest.nodes.map((n: { id: string }) => n.id)).toEqual(
+      file.nodes
+        .filter((n: { type: string; parentId: string | null }) => n.type === "layer" && !n.parentId)
+        .map((n: { id: string }) => n.id),
+    );
+    // The same Document opened from its .zibel.json exports the same text.
+    const exportOf = async (id: string) =>
+      (await call("zibel_export", { docId: id, format: "zibel_json" })).content[0].text as string;
+    const fromJson = (await call("zibel_doc_open", { content: fixture })).structuredContent.docId;
+    expect(await exportOf(docId)).toBe(await exportOf(fromJson));
+  });
+
+  it("opens an Inkscape file in mm with a moved layer, class styles and a turned star", async () => {
+    const svg = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<svg width="100mm" height="50mm" viewBox="0 0 100 50" xmlns="http://www.w3.org/2000/svg"',
+      ' xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"',
+      ' xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" sodipodi:docname="drawing.svg">',
+      "<defs><style>.a{fill:rgb(0,128,255)}</style></defs>",
+      '<g inkscape:groupmode="layer" id="layer1" inkscape:label="Layer 1" transform="translate(10,5)">',
+      '<rect id="rect123" class="a" x="0" y="0" width="20" height="10"/>',
+      '<path sodipodi:type="star" id="path456" sodipodi:sides="5" sodipodi:cx="50" sodipodi:cy="20"',
+      ' sodipodi:r1="10" sodipodi:r2="4" sodipodi:arg1="0" sodipodi:arg2="0.62831853"',
+      ' inkscape:flatsided="false" inkscape:rounded="0" inkscape:randomized="0" d="M 60 20 L 50 30 Z"',
+      ' style="fill:#ff0000;stroke:#000000;stroke-width:0.5"/>',
+      "</g></svg>",
+    ].join("\n");
+    const opened = (await call("zibel_doc_open", { content: svg })).structuredContent;
+    expect(opened).toMatchObject({
+      name: "drawing",
+      artboards: [{ frame: { x: 0, y: 0, width: 283.465, height: 141.732 } }],
+      warnings: [],
+    });
+    const layer = opened.nodes[0];
+    expect(layer).toMatchObject({ name: "Layer 1", type: "layer", childCount: 2 });
+    const outline = (await call("zibel_doc_outline", { docId: opened.docId })).structuredContent;
+    const ids = outline.nodes[0].children.map((c: { id: string }) => c.id);
+    const [rect, star] = (
+      await call("zibel_node_get", { docId: opened.docId, nodeIds: ids, detail: "full" })
+    ).structuredContent.nodes;
+    expect(rect.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(rect).toMatchObject({
+      type: "rect",
+      x: 28.346,
+      y: 14.173,
+      width: 56.693,
+      height: 28.346,
+      appearance: { fills: [{ color: "#0080FF" }], strokes: [] },
+    });
+    // The turn stays a matrix, in user units, the layer's move and the mm scale included.
+    expect(star).toMatchObject({ type: "star", cx: 50, cy: 20, outerRadius: 10, points: 5 });
+    expect(star.transform).toEqual([0, 2.834646, -2.834646, 0, 226.771654, -70.866142]);
+    expect(star.appearance.strokes[0]).toMatchObject({ color: "#000000", width: 0.5 });
+  });
+
+  it("refuses an SVG over 5 MB, or one that is not well-formed, and creates nothing", async () => {
+    const count = async () => (await call("zibel_doc_list", {})).structuredContent.documents.length;
+    const before = await count();
+    const big = `<svg xmlns="http://www.w3.org/2000/svg"><desc>${"x".repeat(5 * 1024 * 1024)}</desc></svg>`;
+    expect(errorOf(await call("zibel_doc_open", { content: big }))).toMatchObject({
+      code: "LIMIT_EXCEEDED",
+      hint: expect.stringMatching(/\S/),
+    });
+    expect(errorOf(await call("zibel_doc_open", { content: "<svg><g></svg>" }))).toMatchObject({
+      code: "INVALID_DOCUMENT",
+      path: "content",
+    });
+    expect(await count()).toBe(before);
   });
 
   it("returns a validation error with a path and creates nothing for a malformed file", async () => {
