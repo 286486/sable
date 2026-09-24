@@ -104,3 +104,81 @@ it("never runs or keeps a script or an event attribute", () => {
     }),
   ).not.toMatch(/alert/);
 });
+
+/** The Nodes of a file by parent, each as the fields a test names. */
+const byParent = (file: ReturnType<typeof parseFile>, parentId: string | null) =>
+  file.nodes.filter((n) => n.parentId === parentId).sort((a, b) => (a.index < b.index ? -1 : 1));
+
+it("reads every shape element into a Live Shape or Path, in one Layer, in document order", () => {
+  const file = parseFile(
+    svg(
+      'width="100" height="100" viewBox="0 0 100 100"',
+      '<rect id="path123" x="1" y="2" width="3" height="4" rx="1"/>' +
+        '<g transform="translate(10,20)"><circle cx="5" cy="5" r="5"/>' +
+        '<path d="m 0 0 l 10 0 a 5 5 0 0 1 -10 0 z" transform="rotate(90)"/></g>' +
+        '<polygon points="0,0 10,0 5,8"/><polyline points="0 0 5 5"/>' +
+        '<line x1="0" y1="0" x2="3" y2="4"/><ellipse cx="50" cy="50" rx="10" ry="5"/>' +
+        '<rect id="z-01M38T29SBZ873XP2NBD2K6CYR" x="0" y="0" width="10" height="10"/>',
+    ),
+  );
+  const [layer, ...rest] = byParent(file, null);
+  expect(rest).toEqual([]);
+  expect(layer).toMatchObject({ type: "layer", name: "Layer 1" });
+  const kids = byParent(file, layer?.id ?? "");
+  expect(kids.map((n) => [n.type, n.index])).toEqual([
+    ["rect", "a0"],
+    ["group", "a1"],
+    ["path", "a2"],
+    ["path", "a3"],
+    ["line", "a4"],
+    ["ellipse", "a5"],
+    ["rect", "a6"],
+  ]);
+  const [rect, group, polygon, polyline, line, ellipse, kept] = kids;
+  expect(rect?.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  expect(rect).toMatchObject({ x: 1, y: 2, width: 3, height: 4, radius: 1 });
+  expect(kept?.id).toBe("01M38T29SBZ873XP2NBD2K6CYR");
+  expect(polygon).toMatchObject({ d: "M 0 0 L 10 0 L 5 8 Z" });
+  expect(polyline).toMatchObject({ d: "M 0 0 L 5 5" });
+  expect(line).toMatchObject({ x1: 0, y1: 0, x2: 3, y2: 4 });
+  expect(ellipse).toMatchObject({ x: 40, y: 45, width: 20, height: 10 });
+  // A move bakes into the parameters; a turn stays a matrix, the Group's included (ADR-0007).
+  const [circle, turned] = byParent(file, group?.id ?? "");
+  expect(group?.transform).toEqual([1, 0, 0, 1, 0, 0]);
+  expect(circle).toMatchObject({
+    type: "ellipse",
+    x: 10,
+    y: 20,
+    width: 10,
+    height: 10,
+    transform: [1, 0, 0, 1, 0, 0],
+  });
+  expect(turned?.transform).toEqual([0, 1, -1, 0, 10, 20]);
+  expect(turned?.type === "path" && turned.d).toMatch(/^M 0 0 L 10 0( C [-\d. ]+)+ Z$/);
+});
+
+it("scales user units to pt into the parameters, and keeps a skew as a matrix", () => {
+  const file = parseFile(
+    svg(
+      'width="200" height="200" viewBox="0 0 100 100"',
+      '<rect x="1" y="2" width="3" height="4" rx="1"/>' +
+        '<rect x="1" y="2" width="3" height="4" transform="skewX(45)"/>' +
+        '<g transform="matrix(1 0 0 1 5 0) scale(2)"><line x1="0" y1="0" x2="1" y2="1"/></g>',
+    ),
+  );
+  const [layer] = byParent(file, null);
+  const [scaled, skewed, group] = byParent(file, layer?.id ?? "");
+  expect(scaled).toMatchObject({ x: 2, y: 4, width: 6, height: 8, radius: 2 });
+  expect(skewed).toMatchObject({ x: 1, y: 2, width: 3, height: 4, transform: [2, 0, 2, 2, 0, 0] });
+  expect(byParent(file, group?.id ?? "")[0]).toMatchObject({ x1: 10, y1: 0, x2: 14, y2: 4 });
+});
+
+it("gives a second element with the same z- id a new id", () => {
+  const id = "z-01M38T29SBZ873XP2NBD2K6CYR";
+  const file = parseFile(
+    svg("", `<rect id="${id}" width="1" height="1"/><rect id="${id}" width="1" height="1"/>`),
+  );
+  const ids = file.nodes.filter((n) => n.type === "rect").map((n) => n.id);
+  expect(ids[0]).toBe(id.slice(2));
+  expect(ids[1]).not.toBe(id.slice(2));
+});
