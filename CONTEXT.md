@@ -68,6 +68,14 @@ _Avoid_: Label、Text box、Text element
 从一个点开始、只在硬回车处换行的 Text，`kind: "point"`。那个点是第一个字符基线的起点。
 _Avoid_: Point text、Label、Single-line text
 
+**Area Type（区域文字）**：
+在一个矩形框内自动换行的 Text，`kind: "area"`，`x, y, width, height` 就是那个框。放不下的文字是溢出（Overflow），不绘制，写入时回执警告 `TEXT_OVERFLOW`（ADR-0022）。
+_Avoid_: Text box、Paragraph text、Flowed text
+
+**Leading（行距）**：
+Text 相邻两行基线之间的距离，单位 pt。未设置即 Auto，为字号的 120%，随字号变化。
+_Avoid_: Line height、Line spacing
+
 ## 实时对象
 
 **Live Object（实时对象）**：
