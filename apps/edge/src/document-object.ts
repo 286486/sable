@@ -64,6 +64,9 @@ const USER = "user";
 /** Transactions the undo stack keeps (F-HIST-01). */
 const UNDO_DEPTH = 200;
 
+/** How long the Delta Log keeps a Transaction's delta, so Replace can rebuild its base (ADR-0017). */
+const DELTA_DAYS = 30;
+
 /**
  * How a commit moves the undo and redo stacks (ADR-0011): an edit pushes onto the undo stack and
  * clears redo; an undo or redo pops `popped` and pushes onto `stack`. `label` names the edit in
@@ -101,7 +104,7 @@ export class DocumentObject extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS tx_log (
         rev INTEGER PRIMARY KEY, tx_id TEXT NOT NULL, actor TEXT NOT NULL, summary TEXT NOT NULL,
         created_ids TEXT NOT NULL, updated_ids TEXT NOT NULL, deleted_ids TEXT NOT NULL,
-        intent TEXT
+        intent TEXT, at INTEGER
       );
       -- ponytail: ended tx rows are kept for TX_EXPIRED and never pruned; prune with history_list.
       CREATE TABLE IF NOT EXISTS tx (
@@ -111,13 +114,18 @@ export class DocumentObject extends DurableObject<Env> {
         tx_id TEXT NOT NULL, node_id TEXT NOT NULL, base TEXT, working TEXT,
         PRIMARY KEY (tx_id, node_id)
       );
-      -- ADR-0011: each committed Transaction's Node copies before and after, while it is undoable.
+      -- The Delta Log (ADR-0011, ADR-0017): each committed Transaction's Node copies before and after,
+      -- kept for DELTA_DAYS whether or not the undo and redo stacks still point at it.
       CREATE TABLE IF NOT EXISTS tx_delta (
         rev INTEGER NOT NULL, node_id TEXT NOT NULL, before TEXT, after TEXT,
         PRIMARY KEY (rev, node_id)
       );
       CREATE TABLE IF NOT EXISTS history (rev INTEGER PRIMARY KEY, stack TEXT NOT NULL, label TEXT NOT NULL);
     `);
+    // Documents made before the Delta Log have no commit times; their old rows are never pruned.
+    const cols = this.sql.exec<{ name: string }>("PRAGMA table_info(tx_log)").toArray();
+    if (!cols.some((c) => c.name === "at"))
+      this.sql.exec("ALTER TABLE tx_log ADD COLUMN at INTEGER");
   }
 
   create(input: {
@@ -805,8 +813,9 @@ export class DocumentObject extends DurableObject<Env> {
     }
     for (const id of deletedIds) this.sql.exec("DELETE FROM nodes WHERE id = ?", id);
     const ids = (nodes: Node[]) => JSON.stringify(nodes.map((n) => n.id));
+    const now = Date.now();
     this.sql.exec(
-      "INSERT INTO tx_log VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tx_log VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       rev,
       txId,
       actor,
@@ -815,12 +824,17 @@ export class DocumentObject extends DurableObject<Env> {
       ids(updated),
       JSON.stringify(deletedIds),
       intent ?? null,
+      now,
+    );
+    this.sql.exec(
+      "DELETE FROM tx_delta WHERE rev IN (SELECT rev FROM tx_log WHERE at < ?)",
+      now - DELTA_DAYS * 86_400_000,
     );
     if (step) this.push(rev, step);
     return { txId, rev };
   }
 
-  /** Moves the stacks for the Transaction just committed at `rev`, and drops unreachable deltas. */
+  /** Moves the stacks for the Transaction just committed at `rev`. */
   private push(rev: number, { label, stack, popped }: Step) {
     if (popped === undefined) this.sql.exec("DELETE FROM history WHERE stack = 'redo'");
     else this.sql.exec("DELETE FROM history WHERE rev = ?", popped);
@@ -830,7 +844,6 @@ export class DocumentObject extends DurableObject<Env> {
          (SELECT rev FROM history WHERE stack = 'undo' ORDER BY rev DESC LIMIT ?)`,
       UNDO_DEPTH,
     );
-    this.sql.exec("DELETE FROM tx_delta WHERE rev NOT IN (SELECT rev FROM history)");
   }
 }
 
