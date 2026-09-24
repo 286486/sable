@@ -1,11 +1,94 @@
+import {
+  type Artboard,
+  applyRows,
+  type Document,
+  type Node,
+  type RenderScope,
+  same,
+  type TxRow,
+  ZibelError,
+} from "@zibel/core";
 import { generateNKeysBetween } from "fractional-indexing";
-import type { Artboard, Document, Node, RenderScope } from "./schema.ts";
-import { applyRows, same, type TxRow } from "./tx.ts";
+import { type OpenedFile, parseSvg, type Warning } from "./read.ts";
+import { toSvg } from "./write.ts";
 
-/** A file's contents as the importer read it. */
-export interface ReplaceFile {
-  artboards: Artboard[];
-  nodes: Node[];
+/**
+ * Replace (ADR-0017): merges `file`, exported from `doc` and edited since, back into `doc` in place.
+ * The base is the Document at `opts.baseRev`, else the SVG's `zibel:rev`, which `rebuild` returns
+ * from the Delta Log, or null once it no longer reaches it; without a base the file is compared
+ * with `doc` as it is, with a NO_BASE warning. Throws INVALID_DOCUMENT for a file from another
+ * Document and REV_CONFLICT for a base rev `doc` has not reached, before changing anything.
+ */
+export function replaceFile(
+  doc: Document,
+  file: OpenedFile & { format: "svg" | "zibel_json" },
+  opts: { baseRev?: number; rebuild: (rev: number) => Document | null },
+): {
+  created: Node[];
+  updated: Node[];
+  deletedIds: string[];
+  artboards?: Artboard[];
+  skipped: string[];
+  warnings: Warning[];
+} {
+  const svg = file.format === "svg";
+  if (svg ? file.origin?.docId !== doc.id : !file.nodes.some((n) => doc.nodes.has(n.id))) {
+    throw new ZibelError({
+      code: "INVALID_DOCUMENT",
+      message: svg
+        ? `This SVG was not exported from Document ${doc.id}: its zibel:doc is ${file.origin?.docId ?? "missing"}.`
+        : `This .zibel.json has no Node of Document ${doc.id}.`,
+      hint: "Replace takes a file exported from this Document. Open any other file as a new Document with zibel_doc_open.",
+      path: "content",
+    });
+  }
+  const baseRev = opts.baseRev ?? file.origin?.rev;
+  if (baseRev !== undefined && baseRev > doc.rev) {
+    throw new ZibelError({
+      code: "REV_CONFLICT",
+      message: `The Document is at rev ${doc.rev}, before the file's base rev ${baseRev}.`,
+      hint: "Pass the rev the file was exported at, or leave baseRev out for an SVG.",
+      path: "baseRev",
+      rev: doc.rev,
+    });
+  }
+  const { scope } = file.origin ?? {};
+  const norm = (d: Document) => (svg ? normalise(d, scope) : { ...d, nodes: new Map(d.nodes) });
+  const current = norm(doc);
+  const base = baseRev === undefined ? null : opts.rebuild(baseRev);
+  const warnings = [...file.warnings];
+  if (!base) {
+    warnings.push({
+      code: "NO_BASE",
+      message:
+        "No base to merge from, so the file was compared with the Document as it is now: edits made since the export in its scope may be overwritten.",
+    });
+  }
+  const change = merge(doc, { base: base ? norm(base) : current, current }, file, scope);
+  for (const nodeId of change.skipped) {
+    warnings.push({
+      code: "DELETED_SINCE",
+      nodeId,
+      message: `${nodeId}, or the parent the file puts it in, was deleted after the export; the file's edits to it were not applied.`,
+    });
+  }
+  return { ...change, warnings };
+}
+
+/**
+ * `doc` passed through the export and import a file of `scope` took, so that rounding and the
+ * importer's baking count the same on both sides of Replace's diff (ADR-0017). A nodeIds scope
+ * keeps the ids `doc` still has.
+ */
+export function normalise(doc: Document, scope: RenderScope | undefined): Document {
+  let s = scope;
+  if (s && "nodeIds" in s) {
+    const nodeIds = s.nodeIds.filter((id) => doc.nodes.has(id));
+    if (nodeIds.length === 0) return { ...doc, nodes: new Map() };
+    s = { nodeIds };
+  }
+  const { artboards, nodes } = parseSvg(toSvg(doc, undefined, { scope: s }));
+  return { ...doc, artboards, nodes: new Map(nodes.map((n) => [n.id, n])) };
 }
 
 /**
@@ -28,10 +111,10 @@ export interface ReplaceFile {
  * Artboards are compared with `norm.current` until Artboard edits are logged (F-VIEW-06), and only
  * those whose id the Document has are updated.
  */
-export function replaceMerge(
+function merge(
   doc: Document,
   norm: { base: Document; current: Document },
-  file: ReplaceFile,
+  file: { artboards: Artboard[]; nodes: Node[] },
   scope?: RenderScope,
 ): {
   created: Node[];
