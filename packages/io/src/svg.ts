@@ -14,6 +14,7 @@ import {
   newId,
   normalizePath,
   parseDocument,
+  type RenderScope,
   round,
   type Segment,
   textBox,
@@ -32,6 +33,16 @@ export interface OpenedFile {
   artboards: Artboard[];
   nodes: Node[];
   warnings: Warning[];
+  /** Where a Zibel SVG export came from, for Replace: its `zibel:doc`, `zibel:rev` and `zibel:scope`. */
+  origin?: Origin;
+}
+
+export interface Origin {
+  docId: string;
+  /** Absent when `zibel:rev` is not a whole number: then there is no base to merge from. */
+  rev?: number;
+  /** Absent at doc scope. */
+  scope?: RenderScope;
 }
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
@@ -768,5 +779,23 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
   const file = parseDocument(
     JSON.stringify({ version: MIGRATIONS.length + 1, name, artboards, nodes: reader.nodes }),
   );
-  return { ...file, warnings: [...reader.warnings.values()] };
+  const docId = root.getAttributeNS(ZIBEL_NS, "doc");
+  const origin = docId ? readOrigin(docId, root) : undefined;
+  return { ...file, warnings: [...reader.warnings.values()], ...(origin && { origin }) };
+}
+
+/** The inverse of the `zibel:rev` and `zibel:scope` that `toSvg` writes. */
+function readOrigin(docId: string, root: Element): Origin {
+  const rev = Number(root.getAttributeNS(ZIBEL_NS, "rev") || Number.NaN);
+  const [kind, value = ""] = (root.getAttributeNS(ZIBEL_NS, "scope") ?? "").split(/:(.*)/s);
+  const [x = 0, y = 0, width = 0, height = 0] = numbers(value);
+  const scope: RenderScope | undefined =
+    kind === "artboard"
+      ? { artboardId: value }
+      : kind === "nodes"
+        ? { nodeIds: value.split(",") }
+        : kind === "rect"
+          ? { rect: { x, y, width, height } }
+          : undefined;
+  return { docId, ...(Number.isInteger(rev) && { rev }), ...(scope && { scope }) };
 }

@@ -502,3 +502,22 @@ it("ignores an unreadable transform and drops an element scaled to nothing", () 
   expect(leaves(file)).toMatchObject([{ x: 2, transform: [1, 0, 0, 1, 0, 0] }]);
   expect(file.warnings.map((w) => w.code)).toEqual(["INVALID_TRANSFORM", "INVALID_TRANSFORM"]);
 });
+
+it("reads where a Zibel export came from: zibel:doc, zibel:rev and zibel:scope", () => {
+  const origin = (attrs: string) => parseFile(svg(`viewBox="0 0 10 10" ${attrs}`)).origin;
+  expect(origin('zibel:doc="D" zibel:rev="7" zibel:scope="doc"')).toEqual({ docId: "D", rev: 7 });
+  expect(origin('zibel:doc="D" zibel:rev="7" zibel:scope="nodes:a,b"')).toEqual({
+    docId: "D",
+    rev: 7,
+    scope: { nodeIds: ["a", "b"] },
+  });
+  expect(origin('zibel:doc="D" zibel:rev="7" zibel:scope="artboard:A"')).toMatchObject({
+    scope: { artboardId: "A" },
+  });
+  expect(origin('zibel:doc="D" zibel:rev="7" zibel:scope="rect:1,2,3.5,4"')).toMatchObject({
+    scope: { rect: { x: 1, y: 2, width: 3.5, height: 4 } },
+  });
+  // A rev that is not a whole number gives no base to merge from.
+  expect(origin('zibel:doc="D" zibel:rev="x"')).toEqual({ docId: "D" });
+  expect(origin("")).toBeUndefined();
+});
