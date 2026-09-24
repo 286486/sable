@@ -24,6 +24,8 @@ const INHERITED = [
   "color",
   "visibility",
   "text-anchor",
+  "line-height",
+  "white-space",
 ];
 /** Every property import reads. */
 const PROPERTIES = [
@@ -32,6 +34,7 @@ const PROPERTIES = [
   "display",
   "mix-blend-mode",
   "clip-path",
+  "shape-inside",
   "mask",
   "filter",
   "stop-color",

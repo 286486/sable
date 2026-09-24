@@ -14,9 +14,13 @@ import {
   newId,
   normalizePath,
   parseDocument,
+  pathBounds,
+  type Rect,
   type RenderScope,
   round,
   type Segment,
+  type Shape,
+  shapeSegments,
   textBox,
   transformSegments,
   type WriteReceipt,
@@ -127,6 +131,29 @@ const bakes = ([a, b, c, d]: Matrix) =>
   Math.abs(b) < 1e-9 && Math.abs(c) < 1e-9 && a > 0 && Math.abs(a - d) < 1e-9;
 
 /** Elements that draw, and those that only define or describe and are skipped without a word. */
+/** The id in `url(#id)`, as `clip-path` and `shape-inside` name an element. */
+const urlId = (value: string) => /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(value.trim())?.[1];
+
+/**
+ * `line-height` as leading in pt (ADR-0022): unitless 1.2, `normal` or none is Auto; another number
+ * or percentage is that multiple of the font size; a length scales with the text.
+ */
+function lineHeight(value: string | undefined, fontSize: number, k: number) {
+  const v = value?.trim() ?? "normal";
+  const factor = /^[\d.]+$/.test(v)
+    ? Number(v)
+    : v.endsWith("%")
+      ? Number(v.slice(0, -1)) / 100
+      : NaN;
+  const leading =
+    v === "normal" || factor === 1.2
+      ? undefined
+      : factor
+        ? factor * fontSize
+        : (length(v) ?? 0) * k;
+  return leading && leading > 0 ? n3(leading) : undefined;
+}
+
 const DRAWN = new Set([
   "g",
   "a",
@@ -210,9 +237,9 @@ class Reader {
   }
 
   /** A `z-<ULID>` id comes back as that Node's; any other id is a new Node (ADR-0017). */
-  private id(e: Element | null, again = false) {
+  private id(e: Element | null) {
     const kept = idOf(e?.getAttribute("id"));
-    if (kept && this.ids.has(kept) && !again) {
+    if (kept && this.ids.has(kept)) {
       this.warn(
         "DUPLICATE_ID",
         "",
@@ -246,16 +273,10 @@ class Reader {
   }
 
   /** The properties every Node has, placed under `parentId`. */
-  base(
-    e: Element | null,
-    parentId: string | null,
-    name?: string,
-    style: Style = {},
-    again = false,
-  ) {
+  base(e: Element | null, parentId: string | null, name?: string, style: Style = {}) {
     const blend = BlendMode.safeParse(style["mix-blend-mode"]);
     return {
-      id: this.id(e, again),
+      id: this.id(e),
       name: name ?? e?.getAttributeNS(NS.inkscape, "label") ?? "",
       parentId,
       index: this.index(parentId),
@@ -346,8 +367,8 @@ class Reader {
     if (zibelAttr(e, "background")) return;
     /** What Stroke widths scale by: the leaf's scale when it bakes into the parameters. */
     const scaleOf = (m: Matrix) => (bakes(m) ? m[0] : 1);
-    type Piece = { shape: Record<string, unknown> | null; appearance: Appearance };
-    let pieces: Piece[];
+    let shape: Record<string, unknown> | null;
+    let appearance: Appearance;
     if (stack) {
       // One Node painted several times: its geometry from the first paint, its Fills, then its
       // Strokes, in order (ADR-0017).
@@ -356,40 +377,30 @@ class Reader {
         const m = multiply(matrix, parseTransform(c.getAttribute("transform")));
         return { shape: this.shape(c, m, s), look: this.appearance(s, scaleOf(this.placed(c, m))) };
       });
-      pieces = [
-        {
-          shape: paints.find((p) => p.shape)?.shape ?? null,
-          appearance: {
-            fills: paints.flatMap((p) => p.look.fills),
-            strokes: paints.flatMap((p) => p.look.strokes),
-          },
-        },
-      ];
+      shape = paints.find((p) => p.shape)?.shape ?? null;
+      appearance = {
+        fills: paints.flatMap((p) => p.look.fills),
+        strokes: paints.flatMap((p) => p.look.strokes),
+      };
     } else if (tag === "text") {
-      // Point Type is one line, so each Inkscape line is a Node of its own.
-      pieces = this.lines(e, style).map((line) => ({
-        shape: this.text(line, line.style, matrix),
-        appearance: this.appearance(line.style, scaleOf(matrix)),
-      }));
+      const text = this.text(e, style, matrix);
+      shape = text?.shape ?? null;
+      appearance = this.appearance(text?.style ?? style, scaleOf(matrix));
     } else {
-      const appearance = this.appearance(style, scaleOf(this.placed(e, matrix)));
-      pieces = [{ shape: this.shape(e, matrix, style), appearance }];
+      shape = this.shape(e, matrix, style);
+      appearance = this.appearance(style, scaleOf(this.placed(e, matrix)));
     }
-    pieces = pieces.filter((p) => p.shape);
-    if (!pieces.length) return;
+    if (!shape) return;
     this.unsupported(e, style);
     // A clipped leaf, as Inkscape's Set Clip writes one, becomes a Clipping Mask of its own.
     const clip = this.clipOf(style, false);
     const parentId = clip
       ? this.add({ ...this.base(null, this.parent(ctx)), type: "group" }).id
       : this.parent(ctx);
-    pieces.forEach(({ shape, appearance }, i) => {
-      // A text's later lines are new Nodes, not duplicates of its id.
-      const base = this.base(e, parentId, undefined, style, i > 0);
-      // visibility inherits, unlike display, so it hides a leaf rather than its Group.
-      if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
-      this.add({ ...base, ...shape, appearance } as Node);
-    });
+    const base = this.base(e, parentId, undefined, style);
+    // visibility inherits, unlike display, so it hides a leaf rather than its Group.
+    if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
+    this.add({ ...base, ...shape, appearance } as Node);
     if (clip) this.clipping(clip, parentId, matrix);
   }
 
@@ -401,7 +412,7 @@ class Reader {
   private clipOf(style: Style, layer: boolean): Element | undefined {
     const value = style["clip-path"];
     if (!value || value === "none") return undefined;
-    const id = /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(value.trim())?.[1];
+    const id = urlId(value);
     const el = id === undefined ? undefined : this.byId.get(id);
     const inner = el ? elements(el).filter((c) => !SILENT.has(c.localName ?? "")) : [];
     const [only] = inner;
@@ -461,53 +472,107 @@ class Reader {
     }
   }
 
-  /** The lines of a <text>: Inkscape's line tspans, else the whole text as one. */
-  private lines(e: Element, style: Style) {
-    const preserve = e.getAttribute("xml:space") === "preserve";
-    const clean = (t: string) =>
-      preserve ? t.replace(/[\t\n\r]/g, " ") : t.replace(/\s+/g, " ").trim();
-    const first = (el: Element, name: string) => numbers(el.getAttribute(name))[0];
-    const [x = 0, y = 0] = [first(e, "x"), first(e, "y")];
+  /**
+   * A `<text>` as one text Node and the style its characters take (ADR-0022): Area Type when it
+   * flows in a frame, else Point Type from Inkscape's line tspans or the whole text as one line.
+   */
+  private text(e: Element, style: Style, m: Matrix) {
+    const bake = bakes(m);
+    const [k, , , , tx, ty] = bake ? m : IDENTITY;
     const tspans = elements(e).filter(
       (c) => c.localName === "tspan" && c.getAttributeNS(NS.sodipodi, "role") === "line",
     );
-    const lines = tspans.length
-      ? tspans.map((t) => ({
-          x: first(t, "x") ?? x,
-          y: first(t, "y") ?? y,
-          content: clean(t.textContent ?? ""),
-          style: computeStyle(t, style, this.rules),
-        }))
-      : [{ x, y, content: clean(e.textContent ?? ""), style }];
-    return lines.filter((l) => l.content);
-  }
-
-  /** One line of Point Type, its start moved for text-anchor by its measured width. */
-  private text(line: { x: number; y: number; content: string }, style: Style, m: Matrix) {
-    const bake = bakes(m);
-    const [k, , , , tx, ty] = bake ? m : IDENTITY;
-    const fontSize = n3((length(style["font-size"]) ?? 12) * k);
-    const family = style["font-family"]
+    const [line] = tspans;
+    const own = line ? computeStyle(line, style, this.rules) : style;
+    const fontSize = n3((length(own["font-size"]) ?? 12) * k);
+    const family = own["font-family"]
       ?.split(",")[0]
       ?.trim()
       .replace(/^['"]|['"]$/g, "");
-    const { content } = line;
-    let x = k * line.x + tx;
-    const anchor = style["text-anchor"];
-    if (anchor === "middle" || anchor === "end") {
-      const width = textBox({ x: 0, y: 0, content, fontSize }).width;
-      x -= anchor === "middle" ? width / 2 : width;
-    }
-    return {
+    const leading = lineHeight(own["line-height"], fontSize, k);
+    const text = {
       type: "text",
-      kind: "point",
-      x: n3(x),
-      y: n3(k * line.y + ty),
-      content,
       fontFamily: family || BUNDLED_FONT,
       fontSize,
+      ...(leading !== undefined && { leading }),
       transform: bake ? [...IDENTITY] : round(m),
     };
+    // Returns are kept where white-space keeps them; control characters and separators Zibel cannot
+    // lay out draw as spaces, as SVG draws them.
+    const pre = /^(pre|pre-wrap|pre-line|break-spaces)$/.test(style["white-space"] ?? "");
+    const clean = (t: string) => {
+      const s = t
+        .replace(/\r\n?/g, "\n")
+        .replace(pre ? /[^\P{Cc}\n]|[\u2028\u2029]/gu : /[\p{Cc}\u2028\u2029]/gu, " ");
+      return pre || e.getAttribute("xml:space") === "preserve" ? s : s.replace(/\s+/g, " ").trim();
+    };
+    const frame = this.frame(style);
+    if (frame) {
+      // The layout is recomputed from the characters; Inkscape's positioned lines are its fallback.
+      const content = clean(e.textContent ?? "");
+      if (!content.trim()) return null;
+      const shape = {
+        ...text,
+        kind: "area",
+        x: n3(k * frame.x + tx),
+        y: n3(k * frame.y + ty),
+        width: n3(k * frame.width),
+        height: n3(k * frame.height),
+        content,
+      };
+      return { shape, style };
+    }
+    const lines = (tspans.length ? tspans : [e]).map((t) => clean(t.textContent ?? ""));
+    const content = tspans.length ? lines.join("\n") : (lines[0] ?? "");
+    if (!content.trim()) return null;
+    const first = (name: string) =>
+      numbers(line?.getAttribute(name) ?? null)[0] ?? numbers(e.getAttribute(name))[0] ?? 0;
+    let x = k * first("x") + tx;
+    const anchor = own["text-anchor"];
+    if (anchor === "middle" || anchor === "end") {
+      const [top = ""] = content.split("\n");
+      const width = textBox({ x: 0, y: 0, content: top, fontSize }).width;
+      x -= anchor === "middle" ? width / 2 : width;
+      if (content.includes("\n")) {
+        this.warn(
+          "UNSUPPORTED_ATTRIBUTE",
+          "text-anchor",
+          "text-anchor middle or end on several lines is not supported yet; the lines are left-aligned at the first line's start.",
+        );
+      }
+    }
+    const shape = { ...text, kind: "point", x: n3(x), y: n3(k * first("y") + ty), content };
+    return { shape, style: own };
+  }
+
+  /**
+   * The frame a text's `shape-inside` names, in the text's user space: a `<rect>` exactly, any
+   * other shape by its bounding box with a warning; undefined for Point Type (ADR-0022).
+   */
+  private frame(style: Style): Rect | undefined {
+    const value = style["shape-inside"];
+    if (!value || value === "none") return undefined;
+    const id = urlId(value);
+    const el = id === undefined ? undefined : this.byId.get(id);
+    const size = (name: string) => length(el?.getAttribute(name) ?? null) ?? 0;
+    if (
+      el?.localName === "rect" &&
+      !el.getAttribute("transform") &&
+      size("width") > 0 &&
+      size("height") > 0
+    ) {
+      return { x: size("x"), y: size("y"), width: size("width"), height: size("height") };
+    }
+    this.warn(
+      "UNSUPPORTED_ATTRIBUTE",
+      "shape-inside",
+      "shape-inside flows text only in a rectangle: in another shape it flows in the shape's bounding box, and naming nothing it imports as Point Type.",
+    );
+    const shape = el && this.shape(el, parseTransform(el.getAttribute("transform")), {});
+    const box =
+      shape &&
+      pathBounds(transformSegments(shapeSegments(shape as Shape), shape.transform as Matrix));
+    return box && box.width > 0 && box.height > 0 ? box : undefined;
   }
 
   /** Fills and Strokes from resolved style, SVG's defaults where it says nothing. */
@@ -652,10 +717,7 @@ class Reader {
 
   /** A shape element's parameters in document coordinates, with the transform it keeps. */
   private shape(e: Element, outer: Matrix, style: Style): Record<string, unknown> | null {
-    if (e.localName === "text") {
-      const [line] = this.lines(e, style);
-      return line ? this.text(line, line.style, outer) : null;
-    }
+    if (e.localName === "text") return this.text(e, style, outer)?.shape ?? null;
     const star = e.localName === "path" ? this.star(e) : undefined;
     const m = this.placed(e, outer);
     const num = (name: string) => length(e.getAttribute(name)) ?? 0;
