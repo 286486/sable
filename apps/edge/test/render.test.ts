@@ -178,7 +178,7 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     'sodipodi:type="star" sodipodi:sides="5" sodipodi:cx="260" sodipodi:cy="150" sodipodi:r1="35" sodipodi:r2="15"',
     'inkscape:flatsided="false"',
     `${z("SFMVZ9S4MNJSJD618Z")} fill="#66CCAA" stroke="#004433"`,
-    `<g ${z("SF5XG8X1F6BB53G505")} zibel:stack="true"><path d="M 330 110 L 410 110 L 370 150 Z" fill="#FF000080"/>`,
+    `<g ${z("SF5XG8X1F6BB53G505")} zibel:stack="true"><path d="M 330 110 L 410 110 L 370 150 Z" fill="#FF0000" fill-opacity="0.502"/>`,
     '<text x="20" y="195" font-family="Source Sans 3" font-size="14"',
     'zibel:tags="[&quot;badge&quot;,&quot;export&quot;]" zibel:meta="{&quot;quote\\&quot;d&quot;:[1,2],&quot;source&quot;:&quot;fixture&quot;}"',
   ]) {

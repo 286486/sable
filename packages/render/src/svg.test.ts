@@ -99,11 +99,34 @@ it("paints an Appearance stack bottom to top in a <g zibel:stack>, with Stroke a
     `<g id="z-${line?.id}" zibel:stack="true"><line x1="0" y1="0" x2="10" y2="0" fill="#111111"/>`,
   );
   const colors = [...svg.matchAll(/(?:fill|stroke)="(#\w+)"/g)].map((m) => m[1]);
-  expect(colors).toEqual(["#111111", "#222222", "#333333", "#44444480"]);
+  expect(colors).toEqual(["#111111", "#222222", "#333333", "#444444"]);
   expect(svg).toContain(
     'stroke="#333333" stroke-width="4" stroke-linecap="round" stroke-linejoin="bevel" stroke-dasharray="4 2"/>',
   );
-  expect(svg).toContain('stroke="#44444480" stroke-width="1" stroke-miterlimit="10"/>');
+  expect(svg).toContain(
+    'stroke="#444444" stroke-opacity="0.502" stroke-width="1" stroke-miterlimit="10"/>',
+  );
+});
+
+it("writes a colour's alpha as fill-opacity and stroke-opacity, which Inkscape 1.2 reads", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    {
+      type: "rect",
+      parentId,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      appearance: { fills: [{ color: "#FF000080" }], strokes: [{ color: "#00000060" }] },
+    },
+  ]);
+  const svg = toSvg(doc, undefined, { background: "#11223340" });
+  expect(svg).toContain(
+    'fill="#FF0000" fill-opacity="0.502" stroke="#000000" stroke-opacity="0.376"',
+  );
+  expect(svg).toContain('fill="#112233" fill-opacity="0.251" zibel:background="true"');
+  expect(svg).not.toMatch(/="#\w{8}"/);
 });
 
 it("writes an empty Appearance as fill none, and a hidden or translucent Node's style", () => {

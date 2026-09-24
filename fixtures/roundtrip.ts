@@ -2,13 +2,32 @@
 // `wrangler dev` and must come back equal (ADR-0017, REQUIREMENTS §7.2). Needs `inkscape` ≥ 1.2.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { inflateSync } from "node:zlib";
 import { httpCall } from "./agent-benchmarks/mcp.ts";
 import { startServer } from "./wrangler.ts";
 
 const PORT = 8791;
 const STATE = ".wrangler/roundtrip";
 const FIXTURES = join(import.meta.dirname, "documents");
+const WHITE = "#FFFFFF";
+/** A pixel differs when a channel is off by more than this; a fixture fails at 1% of pixels. */
+const TOLERANCE = 32;
+const MAX_DIFFERENT = 0.01;
+
+// Inkscape must draw text in the bundled font, as resvg does (ADR-0013), not a system fallback.
+const FONTS_CONF = resolve(STATE, "fonts.conf");
+mkdirSync(STATE, { recursive: true });
+writeFileSync(
+  FONTS_CONF,
+  `<?xml version="1.0"?>
+<fontconfig>
+  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
+  <dir>${resolve(import.meta.dirname, "../packages/render/fonts")}</dir>
+  <cachedir>${resolve(STATE, "fontconfig")}</cachedir>
+</fontconfig>
+`,
+);
 
 interface Doc {
   name: string;
@@ -17,7 +36,10 @@ interface Doc {
 }
 
 function inkscape(...args: string[]) {
-  const run = spawnSync("inkscape", args, { encoding: "utf8" });
+  const run = spawnSync("inkscape", args, {
+    encoding: "utf8",
+    env: { ...process.env, FONTCONFIG_FILE: FONTS_CONF },
+  });
   if (run.error) throw run.error;
   // Inkscape writes Gtk warnings to stderr on every call, so only the exit code tells.
   if (run.status !== 0) throw new Error(`inkscape ${args.join(" ")}: ${run.stderr}`);
@@ -60,6 +82,68 @@ function firstDifference(want: Doc, got: Doc): string | undefined {
   }
 }
 
+interface Image {
+  width: number;
+  height: number;
+  data: Uint8Array;
+}
+
+/** Decodes an RGBA8 non-interlaced PNG, what resvg writes and Inkscape does with RGBA_8. */
+function decodePng(png: Buffer): Image {
+  let width = 0;
+  let height = 0;
+  const idat: Buffer[] = [];
+  for (let pos = 8; pos < png.length; pos += 12 + png.readUInt32BE(pos)) {
+    const type = png.toString("latin1", pos + 4, pos + 8);
+    const data = png.subarray(pos + 8, pos + 8 + png.readUInt32BE(pos));
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      if (data[8] !== 8 || data[9] !== 6 || data[12] !== 0)
+        throw new Error(
+          `PNG is not RGBA8: depth ${data[8]}, colour ${data[9]}, interlace ${data[12]}`,
+        );
+    } else if (type === "IDAT") idat.push(data);
+  }
+  const raw = inflateSync(Buffer.concat(idat));
+  const stride = width * 4;
+  const out = new Uint8Array(height * stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    const src = raw.subarray(y * (stride + 1) + 1);
+    const row = y * stride;
+    for (let i = 0; i < stride; i++) {
+      const a = i >= 4 ? (out[row + i - 4] ?? 0) : 0;
+      const b = y ? (out[row - stride + i] ?? 0) : 0;
+      const c = i >= 4 && y ? (out[row - stride + i - 4] ?? 0) : 0;
+      const p = a + b - c;
+      const paeth =
+        Math.abs(p - a) <= Math.abs(p - b) && Math.abs(p - a) <= Math.abs(p - c)
+          ? a
+          : Math.abs(p - b) <= Math.abs(p - c)
+            ? b
+            : c;
+      const predictor = [0, a, b, (a + b) >> 1, paeth][filter ?? 0] ?? 0;
+      out[row + i] = ((src[i] ?? 0) + predictor) & 255;
+    }
+  }
+  return { width, height, data: out };
+}
+
+/** The share of pixels where any channel differs by more than TOLERANCE. */
+function differentPixels(a: Image, b: Image): number {
+  if (a.width !== b.width || a.height !== b.height)
+    throw new Error(`resvg ${a.width}x${a.height} px, Inkscape ${b.width}x${b.height} px`);
+  let n = 0;
+  for (let i = 0; i < a.data.length; i += 4)
+    for (let k = 0; k < 4; k++)
+      if (Math.abs((a.data[i + k] ?? 0) - (b.data[i + k] ?? 0)) > TOLERANCE) {
+        n++;
+        break;
+      }
+  return n / (a.width * a.height);
+}
+
 async function main() {
   const version = spawnSync("inkscape", ["--version"], { encoding: "utf8" });
   if ((version.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
@@ -90,28 +174,57 @@ async function main() {
       const fixture = file.slice(0, -".zibel.json".length);
       const dir = join(STATE, fixture);
       mkdirSync(join(dir, "inkscape"), { recursive: true });
-      let error: string | undefined;
+      let line: string;
       try {
         const original = await open(readFileSync(join(FIXTURES, file), "utf8"));
+        const { docId } = original;
         // Inkscape names the Document after the file it reads, and Open reads the name back from it.
         const exported = join(dir, `${original.name}.svg`);
-        writeFileSync(exported, await text({ docId: original.docId, format: "svg" }));
+        writeFileSync(exported, await text({ docId, format: "svg" }));
         const saved = join(dir, "inkscape", `${original.name}.svg`);
         inkscape("--export-type=svg", `--export-filename=${saved}`, exported);
         const reopened = await open(readFileSync(saved, "utf8"));
-        if (reopened.warnings.length)
-          throw new Error(`warnings: ${JSON.stringify(reopened.warnings)}`);
         const [want, got] = await Promise.all(
           [original, reopened].map(
             async (d) => JSON.parse(await text({ docId: d.docId, format: "zibel_json" })) as Doc,
           ),
         );
-        error = firstDifference(want, got);
+        const structure = reopened.warnings.length
+          ? `warnings: ${JSON.stringify(reopened.warnings)}`
+          : firstDifference(want, got);
+
+        // resvg's PNG of the whole Document, and Inkscape's of an export framed to the same rect:
+        // -C draws the viewBox at 1 px per pt, which --export-area (in px) does not.
+        const png = await call("zibel_export", { docId, format: "png", background: WHITE });
+        const { docRect } = png.structuredContent.viewport;
+        writeFileSync(join(dir, "resvg.png"), Buffer.from(png.content[0]?.data ?? "", "base64"));
+        writeFileSync(
+          join(dir, "pixels.svg"),
+          await text({ docId, format: "svg", scope: { rect: docRect } }),
+        );
+        inkscape(
+          "--export-type=png",
+          "-C",
+          "-d",
+          "72",
+          `--export-background=${WHITE}`,
+          "--export-background-opacity=1",
+          "--export-png-color-mode=RGBA_8",
+          `--export-filename=${join(dir, "inkscape.png")}`,
+          join(dir, "pixels.svg"),
+        );
+        const ratio = differentPixels(
+          decodePng(readFileSync(join(dir, "resvg.png"))),
+          decodePng(readFileSync(join(dir, "inkscape.png"))),
+        );
+        const pixels = `pixels ${(ratio * 100).toFixed(2)}%${ratio < MAX_DIFFERENT ? "" : " FAIL"}`;
+        if (structure || ratio >= MAX_DIFFERENT) failed++;
+        line = `structure ${structure ? `FAIL ${structure}` : "pass"}  ${pixels}`;
       } catch (e) {
-        error = (e as Error).message;
+        failed++;
+        line = `FAIL  ${(e as Error).message}`;
       }
-      if (error) failed++;
-      console.log([fixture.padEnd(12), error ? `FAIL  ${error}` : "pass"].join("  "));
+      console.log(`${fixture.padEnd(12)}  ${line}`);
     }
   } finally {
     server.stop();
