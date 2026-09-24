@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import grid from "../../../fixtures/agent-benchmarks/grid.ts";
 import labels from "../../../fixtures/agent-benchmarks/labels.ts";
 import type { Call } from "../../../fixtures/agent-benchmarks/mcp.ts";
+import transaction from "../../../fixtures/agent-benchmarks/transaction.ts";
 import { call as rpcCall } from "./rpc.ts";
 
 /** The benchmark assertions' Call, through the Worker; a failed call throws, as over HTTP. */
@@ -69,5 +70,56 @@ describe("labels", () => {
 
   it("rejects a label overlapping its shape", async () => {
     await expect(labels(call, await draw(40), [])).rejects.toThrow('"Circle" overlaps the ellipse');
+  });
+});
+
+describe("transaction", () => {
+  const tools = [
+    "zibel_doc_create",
+    "zibel_tx_begin",
+    "zibel_node_create",
+    "zibel_node_create",
+    "zibel_tx_commit",
+    "zibel_render",
+  ];
+  const house = (parentId: string) => [
+    { type: "rect", parentId, x: 50, y: 120, width: 200, height: 150 },
+    { type: "path", parentId, d: "M 40 120 L 150 40 L 260 120 Z" },
+    { type: "rect", parentId, x: 130, y: 200, width: 40, height: 70 },
+    { type: "rect", parentId, x: 70, y: 150, width: 40, height: 30 },
+    { type: "rect", parentId, x: 190, y: 150, width: 40, height: 30 },
+  ];
+
+  it("accepts one Transaction with five shapes", async () => {
+    const { docId, defaultLayerId } = await newDoc(300, 300);
+    const [body, roof, ...rest] = house(defaultLayerId);
+    const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
+    await call("zibel_node_create", { docId, txId, nodes: [body, roof] });
+    await call("zibel_node_create", { docId, txId, nodes: rest });
+    await call("zibel_tx_commit", { docId, txId });
+    await expect(transaction(call, docId, tools)).resolves.toBeUndefined();
+  });
+
+  it("rejects two commits", async () => {
+    const { docId, defaultLayerId } = await newDoc(300, 300);
+    const [body, ...rest] = house(defaultLayerId);
+    await call("zibel_node_create", { docId, nodes: [body] });
+    await call("zibel_node_create", { docId, nodes: rest });
+    await expect(transaction(call, docId, tools)).rejects.toThrow("2 changes after rev 1");
+  });
+
+  it("rejects a render only before the commit", async () => {
+    const { docId, defaultLayerId } = await newDoc(300, 300);
+    const { txId } = (await call("zibel_tx_begin", { docId })).structuredContent;
+    await call("zibel_node_create", { docId, txId, nodes: house(defaultLayerId) });
+    await call("zibel_tx_commit", { docId, txId });
+    const early = [
+      "zibel_tx_begin",
+      "zibel_node_create",
+      "zibel_node_create",
+      "zibel_render",
+      "zibel_tx_commit",
+    ];
+    await expect(transaction(call, docId, early)).rejects.toThrow("no zibel_render after");
   });
 });
