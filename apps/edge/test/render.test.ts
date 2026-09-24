@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { call, errorOf } from "./rpc.ts";
 
 type Rect = { x: number; y: number; width: number; height: number };
@@ -149,25 +150,17 @@ it("draws overlays and a background into the image, at the same size", async () 
   expect(await png({ background: "#112233" })).not.toBe(plain);
 });
 
-it("exports a known scene as SVG text that matches the stored file", async () => {
-  const doc = await newDoc([{ width: 200, height: 100, background: "#FFFFFF" }]);
-  await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [
-      redRect(doc.defaultLayerId),
-      { type: "text", parentId: doc.defaultLayerId, x: 80, y: 40, content: "Hi" },
-      {
-        type: "group",
-        parentId: doc.defaultLayerId,
-        children: [{ type: "line", x1: 100, y1: 60, x2: 180, y2: 90 }],
-      },
-    ],
-  });
-  const result = await call("zibel_export", { docId: doc.docId, format: "svg" });
-  expect(result.structuredContent).toEqual({ docRect: { x: 0, y: 0, width: 200, height: 100 } });
+it("exports the fixture Document as Inkscape SVG that matches the stored file", async () => {
+  const { docId, artboards } = (await call("zibel_doc_open", { content: fixture }))
+    .structuredContent as { docId: string; artboards: { frame: Rect }[] };
+  const result = await call("zibel_export", { docId, format: "svg" });
+  // The viewBox is the first Artboard, the page Inkscape binds to the viewport.
+  expect(result.structuredContent).toEqual({ docRect: artboards[0]?.frame });
   expect(result.content).toHaveLength(1);
   expect(result.content[0].type).toBe("text");
-  await expect(result.content[0].text).toMatchFileSnapshot("./fixtures/export-scene.svg");
+  const svg: string = result.content[0].text;
+  expect(svg).toContain(`zibel:doc="${docId}" zibel:rev="1" zibel:scope="doc"`);
+  await expect(svg.replace(docId, "DOC")).toMatchFileSnapshot("./fixtures/inkscape.svg");
 });
 
 it("exports PNG as image content with its viewport, in the same scopes", async () => {

@@ -2,7 +2,7 @@ import { bounds, createDocument, createNodes, parseDocument } from "@zibel/core"
 import { expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { svgToPixels, svgToPng } from "./png.ts";
-import { scopeRect, toSvg } from "./svg.ts";
+import { docRect, scopeRect, toSvg } from "./svg.ts";
 
 it("rasterises SVG with resvg-wasm inside workerd", async () => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10" fill="#FF0000"/></svg>`;
@@ -65,6 +65,12 @@ it("rounds the pixel size to the nearest pixel and stretches the drawing to it",
   expect(await size(10.5)).toBe(21);
 });
 
+it("reads the root's pt as one pixel per point at scale 1", async () => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="10pt" height="5pt" viewBox="0 0 10 5"/>`;
+  expect(await svgToPixels(svg, 1)).toMatchObject({ width: 10, height: 5 });
+  expect(await svgToPixels(svg, 2)).toMatchObject({ width: 20, height: 10 });
+});
+
 it("draws the fixture Document with the same pixels as before the Inkscape dialect", async () => {
   const file = parseDocument(fixture);
   const doc = {
@@ -79,13 +85,11 @@ it("draws the fixture Document with the same pixels as before the Inkscape diale
     const digest = await crypto.subtle.digest("SHA-256", pixels);
     return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
   };
-  const group = file.nodes.find((n) => n.name === "Turned");
-  expect(await hash(toSvg(doc))).toBe(
+  const turned = { nodeIds: [file.nodes.find((n) => n.name === "Turned")?.id ?? ""] };
+  expect(await hash(toSvg(doc, docRect(doc)))).toBe(
     "4fc51f5b0505183f24597432653530dfa1b9fe23356f7d95e0446280376ec24c",
   );
-  expect(
-    await hash(
-      toSvg(doc, scopeRect(doc, { nodeIds: [group?.id ?? ""] }), { nodeIds: [group?.id ?? ""] }),
-    ),
-  ).toBe("db787e8c66eef5455ce2bb127ad6b5cb9d4d78eb50af924407cc9d235d35f1ab");
+  expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned }))).toBe(
+    "db787e8c66eef5455ce2bb127ad6b5cb9d4d78eb50af924407cc9d235d35f1ab",
+  );
 });

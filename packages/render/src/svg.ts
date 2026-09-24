@@ -97,9 +97,18 @@ export function fit(rect: Rect, scale: number, maxSize?: number) {
   };
 }
 
+/**
+ * The rect an SVG `export` of `scope` covers: the scope's, but at doc scope the first Artboard.
+ * Inkscape binds the page at (0,0) to the viewBox and resizes it on save, so the viewBox is the
+ * file's first page and the other Artboards are pages outside it (ADR-0017).
+ */
+export function svgRect(doc: Document, scope?: RenderScope): Rect {
+  return scope ? scopeRect(doc, scope) : (doc.artboards[0]?.frame ?? docRect(doc));
+}
+
 export interface SvgOptions {
-  /** Draw only these Nodes and what they contain, and no Artboard backgrounds (nodeIds scope). */
-  nodeIds?: string[];
+  /** The Render Scope drawn (default: the Document). A nodeIds scope draws only those Nodes and what they contain, and no Artboard backgrounds. */
+  scope?: RenderScope;
   /** A colour filling the whole rect beneath everything. */
   background?: string;
   /** Render Overlays drawn over the artwork, sized in pixels at `scale` (ADR-0014). */
@@ -115,24 +124,71 @@ interface Walk {
   drawn: Node[];
 }
 
-/** SVG of `rect` in document coordinates (default: every Artboard). Layers become `<g>` in stacking order. */
-export function toSvg(doc: Document, rect: Rect = docRect(doc), opts: SvgOptions = {}): string {
-  const { x, y, width, height } = rect;
-  const scope = opts.nodeIds && new Set(opts.nodeIds);
+const NS = {
+  xmlns: "http://www.w3.org/2000/svg",
+  "xmlns:inkscape": "http://www.inkscape.org/namespaces/inkscape",
+  "xmlns:sodipodi": "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd",
+  "xmlns:zibel": "https://zibel.dev/ns/svg",
+};
+
+const scopeName = (scope?: RenderScope) =>
+  !scope
+    ? "doc"
+    : "artboardId" in scope
+      ? `artboard:${scope.artboardId}`
+      : "nodeIds" in scope
+        ? `nodes:${scope.nodeIds.join(",")}`
+        : `rect:${[scope.rect.x, scope.rect.y, scope.rect.width, scope.rect.height].join(",")}`;
+
+/**
+ * SVG of `rect` in document coordinates, in Inkscape's dialect (ADR-0017): `render` and `export`
+ * both write it. The default rect is what an SVG `export` of the scope covers.
+ */
+export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string {
+  const { scope } = opts;
+  const { x, y, width, height } = rect ?? svgRect(doc, scope);
+  const nodeIds = scope && "nodeIds" in scope ? new Set(scope.nodeIds) : undefined;
+  // Inkscape resizes the page at (0,0) to the viewBox, so a file carries only the pages that fit
+  // it: every Artboard at doc scope, one at artboard scope, none for a selection or a rect.
+  const pages = !scope
+    ? doc.artboards
+    : "artboardId" in scope
+      ? doc.artboards.filter((a) => a.id === scope.artboardId)
+      : [];
+  const namedview = pages.length
+    ? `<sodipodi:namedview inkscape:document-units="pt">${pages
+        .map(
+          (a) =>
+            `<inkscape:page${attrs({ ...a.frame, id: `z-${a.id}`, "inkscape:label": a.name })}/>`,
+        )
+        .join("")}</sodipodi:namedview>`
+    : `<sodipodi:namedview inkscape:document-units="pt"/>`;
   const background = [
-    opts.background ? `<rect${attrs({ ...rect, fill: opts.background })}/>` : "",
-    ...(scope ? [] : doc.artboards)
+    opts.background ? `<rect${attrs({ x, y, width, height, fill: opts.background })}/>` : "",
+    ...(nodeIds ? [] : doc.artboards)
       .filter((a) => a.background)
-      .map((a) => `<rect${attrs({ ...a.frame, fill: a.background })}/>`),
+      .map(
+        (a) =>
+          `<rect${attrs({ ...a.frame, fill: a.background, "zibel:artboard": a.id, "sodipodi:insensitive": "true" })}/>`,
+      ),
   ].join("");
   const drawn: Node[] = [];
   const body = childrenOf(doc, null)
-    .map((n) => node(doc, n, { scope, inside: !scope, drawn }))
+    .map((n) => node(doc, n, { scope: nodeIds, inside: !nodeIds, drawn }))
     .join("");
   const overlay = opts.overlays?.length
     ? overlays(doc, drawn, new Set(opts.overlays), opts.scale ?? 1)
     : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg"${attrs({ width, height, viewBox: `${x} ${y} ${width} ${height}` })}>${background}${body}${overlay}</svg>`;
+  const root = attrs({
+    ...NS,
+    width: `${width}pt`,
+    height: `${height}pt`,
+    viewBox: `${x} ${y} ${width} ${height}`,
+    "zibel:doc": doc.id,
+    "zibel:rev": doc.rev,
+    "zibel:scope": scopeName(scope),
+  });
+  return `<svg${root}>${namedview}${background}${body}${overlay}</svg>`;
 }
 
 // Magenta boxes and labels, cyan Artboard edges: colours artwork rarely uses, and neither is the

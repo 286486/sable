@@ -6,7 +6,7 @@ import {
   shapeSegments,
 } from "@zibel/core";
 import { expect, it } from "vitest";
-import { fit, scopeRect, toSvg } from "./svg.ts";
+import { fit, scopeRect, svgRect, toSvg } from "./svg.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -135,6 +135,51 @@ it("writes Point Type as one <text> per Fill, then per Stroke, in the bundled fo
   expect(svg).toContain(
     '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="#FF0000">a&lt;b&amp;&quot;c&quot;</text>' +
       '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="none" stroke="#0000FF" stroke-width="2" stroke-miterlimit="10">a&lt;b&amp;&quot;c&quot;</text>',
+  );
+});
+
+it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape page", () => {
+  const { doc } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [
+      { width: 200, height: 100 },
+      { name: "Card & back", x: 300, y: 0, width: 50, height: 50, background: "#FFEEDD" },
+    ],
+  });
+  doc.rev = 7;
+  const [one, two] = doc.artboards;
+  if (!one || !two) throw new Error("setup");
+  const svg = toSvg(doc);
+  expect(svg).toMatch(
+    new RegExp(
+      '^<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" ' +
+        'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:zibel="https://zibel.dev/ns/svg" ' +
+        'width="200pt" height="100pt" viewBox="0 0 200 100" zibel:doc="d" zibel:rev="7" zibel:scope="doc">' +
+        '<sodipodi:namedview inkscape:document-units="pt">' +
+        `<inkscape:page x="0" y="0" width="200" height="100" id="z-${one.id}" inkscape:label="Artboard 1"/>` +
+        `<inkscape:page x="300" y="0" width="50" height="50" id="z-${two.id}" inkscape:label="Card &amp; back"/>` +
+        "</sodipodi:namedview>" +
+        `<rect x="300" y="0" width="50" height="50" fill="#FFEEDD" zibel:artboard="${two.id}" sodipodi:insensitive="true"/><g`,
+    ),
+  );
+  // Inkscape resizes the page at (0,0) to the viewBox: the export's viewBox is its first page.
+  expect(svgRect(doc)).toEqual(one.frame);
+  expect(svgRect(doc, { artboardId: two.id })).toEqual(two.frame);
+  const second = toSvg(doc, svgRect(doc, { artboardId: two.id }), {
+    scope: { artboardId: two.id },
+  });
+  expect(second).toContain(`zibel:scope="artboard:${two.id}"`);
+  expect(second.match(/<inkscape:page /g)).toHaveLength(1);
+  expect(second).toContain(`<inkscape:page x="300" y="0" width="50" height="50" id="z-${two.id}"`);
+  const layer = [...doc.nodes.keys()];
+  const nodes = toSvg(doc, { x: 0, y: 0, width: 1, height: 1 }, { scope: { nodeIds: layer } });
+  expect(nodes).toContain(`width="1pt" height="1pt" viewBox="0 0 1 1"`);
+  expect(nodes).toContain(`zibel:scope="nodes:${layer.join(",")}"`);
+  expect(nodes).toContain('<sodipodi:namedview inkscape:document-units="pt"/>');
+  const rect = { x: 1, y: 2, width: 3, height: 4 };
+  expect(toSvg(doc, rect, { scope: { rect } })).toContain(
+    'zibel:scope="rect:1,2,3,4"><sodipodi:namedview inkscape:document-units="pt"/><rect',
   );
 });
 
@@ -276,28 +321,30 @@ function scene() {
 it("draws only the listed Nodes and what they contain, inside their ancestors", () => {
   const { doc, a, inA } = scene();
   const rect = { x: 0, y: 0, width: 10, height: 10 };
-  const group = toSvg(doc, rect, { nodeIds: [a.id] });
+  const group = toSvg(doc, rect, { scope: { nodeIds: [a.id] } });
   expect(group).toMatch(
-    /<svg[^>]*><g><g><path[^>]*#AA0000"\/><path[^>]*#00AA00"[^>]*\/><\/g><\/g><\/svg>$/,
+    /<svg[^>]*><sodipodi:namedview[^>]*\/><g><g><path[^>]*#AA0000"\/><path[^>]*#00AA00"[^>]*\/><\/g><\/g><\/svg>$/,
   );
   expect(group).not.toContain("#0000AA");
   // A selection export has no Artboard background.
   expect(group).not.toContain("#FFFFFF");
-  expect(toSvg(doc, rect, { nodeIds: [inA.id] })).toMatch(
-    /<svg[^>]*><g><g><path[^>]*#AA0000"\/><\/g><\/g><\/svg>$/,
+  expect(toSvg(doc, rect, { scope: { nodeIds: [inA.id] } })).toMatch(
+    /<svg[^>]*><sodipodi:namedview[^>]*\/><g><g><path[^>]*#AA0000"\/><\/g><\/g><\/svg>$/,
   );
   a.visible = false;
-  expect(toSvg(doc, rect, { nodeIds: [inA.id] })).toMatch(/<svg[^>]*><\/svg>$/);
+  expect(toSvg(doc, rect, { scope: { nodeIds: [inA.id] } })).toMatch(
+    /<svg[^>]*><sodipodi:namedview[^>]*\/><\/svg>$/,
+  );
 });
 
 it("fills the whole rect with background beneath the Artboard backgrounds", () => {
   const { doc, a } = scene();
   const rect = { x: -5, y: -5, width: 300, height: 200 };
   expect(toSvg(doc, rect, { background: "#112233" })).toMatch(
-    /<svg[^>]*><rect x="-5" y="-5" width="300" height="200" fill="#112233"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF"\/><g>/,
+    /<\/sodipodi:namedview><rect x="-5" y="-5" width="300" height="200" fill="#112233"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF" zibel:artboard="\w+" sodipodi:insensitive="true"\/><g>/,
   );
-  expect(toSvg(doc, rect, { background: "#112233", nodeIds: [a.id] })).toMatch(
-    /<svg[^>]*><rect[^>]*fill="#112233"\/><g>/,
+  expect(toSvg(doc, rect, { background: "#112233", scope: { nodeIds: [a.id] } })).toMatch(
+    /<svg[^>]*><sodipodi:namedview[^>]*\/><rect[^>]*fill="#112233"\/><g>/,
   );
 });
 
@@ -323,7 +370,11 @@ it("labels every drawn Node but Layers with its id and bounds, sized in pixels",
 it("gives hidden Nodes and Nodes outside the scope no overlay, and outlines Artboards", () => {
   const { doc, a, b, inA } = scene();
   inA.visible = false;
-  const svg = toSvg(doc, undefined, { nodeIds: [a.id], overlays: ["ids", "artboards"], scale: 4 });
+  const svg = toSvg(doc, undefined, {
+    scope: { nodeIds: [a.id] },
+    overlays: ["ids", "artboards"],
+    scale: 4,
+  });
   expect(svg).toContain(`>${a.id}</text>`);
   expect(svg).not.toContain(inA.id);
   expect(svg).not.toContain(b.id);
