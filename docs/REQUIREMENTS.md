@@ -582,7 +582,7 @@ flowchart LR
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
 | `node_create` | `docId`, `nodes[]`：每项含 `type`、`parentId`（**必填**，某个 `layer` 或 `group` 的 id；`doc_create` 的回执含默认图层 id，Agent 永远有可用父级；不接受 artboardId）、`index?`、类型专属几何（rect: x/y/w/h/radius；ellipse；polygon；star；line；path: `d`；text: content/kind/box；image: src；group: children[] 内联嵌套）、`appearance`、`name`、`tags`、`meta` | `WriteReceipt`（含每个输入项对应的新 id，顺序一致） | 批量，一次可建数百节点 |
-| `svg_import` | `docId`, `svg`（文本）, `parentId`, `position?`, `fit?` | 生成节点树的回执与大纲 | 置入：整体一个 Group，SVG 图层变 Group，页面忽略，全部新 id（ADR-0017） |
+| `svg_import` | `docId`, `svg`（文本）, `parentId`, `position?`, `fit?` | 生成节点树的回执与大纲 | 置入：整体一个 Group，SVG 图层变 Group，页面忽略，全部新 id；`position` 为 Group 几何边界中心的文档坐标，默认父级所在画板的中心；`fit: true` 等比缩放（含描边）以放进该画板（ADR-0017） |
 | `image_place` | `docId`, `src`（data URL / http URL / 本地路径）, `parentId`, `frame?`, `embed`, `asTemplate?` | 回执 | openWorldHint 若为 URL |
 | `freehand_stroke` | `docId`, `parentId`, `points[]`（x, y, pressure?）, `tool`（pencil / brush / blob）, `fidelity`, `width`, `appearance` | 生成路径回执 | |
 | `text_create` | 归入 `node_create` type=text；此处保留别名，便于发现 | | |
