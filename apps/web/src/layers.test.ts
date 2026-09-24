@@ -91,7 +91,7 @@ it("auto-names a text by its content", () => {
   expect(
     autoName(createDocument({ id: "d", name: "D", artboards: [] }).doc, {
       type: "text",
-      content: "Q3 revenue",
+      content: "Q3\nrevenue",
     } as Node),
   ).toBe("Q3 revenue");
 });

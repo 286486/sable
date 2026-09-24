@@ -69,6 +69,9 @@ Read this once before your first write. Tool descriptions cover each call; this 
 
 ## Text
 
+- Point Type (`kind: "point"`, the default) starts its first baseline at `x, y` and breaks lines only at `\n` in `content`.
+- Area Type (`kind: "area"` with `width` and `height`) wraps `content` at spaces inside the frame `x, y, width, height`. Text that does not fit, including a word wider than the frame, is not drawn, and the receipt warns `TEXT_OVERFLOW`: enlarge the frame or shorten the content.
+- `leading` is the distance between baselines in pt; omit it for Auto, 120% of `fontSize`. `node_update` with `leading: null` returns to Auto.
 - `fontFamily` takes any font name and keeps it, so export writes it back. Only Source Sans 3 is bundled: another font renders and measures in it, and the receipt warns `FONT_MISSING`.
 
 ## Reading a Document

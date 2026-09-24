@@ -18,7 +18,7 @@ const AUTO_NAMES: Record<Exclude<Node["type"], "text">, string> = {
  */
 export const autoName = (doc: Document, node: Node) =>
   node.type === "text"
-    ? node.content
+    ? node.content.replaceAll("\n", " ")
     : clippingPath(doc, node)
       ? "<Clip Group>"
       : "clipping" in node && node.clipping
