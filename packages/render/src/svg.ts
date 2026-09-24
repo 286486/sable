@@ -1,4 +1,5 @@
 import {
+  type Appearance,
   bounds,
   childrenOf,
   type Document,
@@ -19,8 +20,17 @@ import {
 /** The longest side `render` and `export` rasterise (REQUIREMENTS §7). */
 export const MAX_RENDER_SIDE = 4096;
 
-const esc = (s: string) =>
-  s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
+// Whitespace as references too: an XML parser turns a raw newline in an attribute into a space.
+const esc = (s: string) => s.replace(/[&<>"\t\n\r]/g, (c) => ESCAPES[c] ?? c);
+const ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "\t": "&#9;",
+  "\n": "&#10;",
+  "\r": "&#13;",
+};
 
 type Attrs = Record<string, string | number | undefined>;
 
@@ -120,6 +130,8 @@ export interface SvgOptions {
 interface Walk {
   scope: Set<string> | undefined;
   inside: boolean;
+  /** Inside a hidden Node: written, but not drawn. */
+  hidden?: boolean;
   /** Collects the Nodes drawn, but Layers, for the overlays. */
   drawn: Node[];
 }
@@ -238,56 +250,76 @@ function overlays(doc: Document, drawn: Node[], on: Set<RenderOverlay>, scale: n
   ].join("");
 }
 
+const stroke = (s: Appearance["strokes"][number]): Attrs => ({
+  stroke: s.color,
+  "stroke-width": s.width,
+  "stroke-linecap": s.cap === "butt" ? undefined : s.cap,
+  "stroke-linejoin": s.join === "miter" ? undefined : s.join,
+  // SVG's default miter limit is 4, Illustrator's is 10: always write it for miter joins.
+  "stroke-miterlimit": s.join === "miter" ? s.miterLimit : undefined,
+  "stroke-dasharray": s.dash.length > 0 ? s.dash.join(" ") : undefined,
+});
+
+const style = (...parts: (string | false)[]) => parts.filter(Boolean).join(";") || undefined;
+
 function node(doc: Document, n: Node, walk: Walk): string {
-  if (!n.visible) return "";
+  // A hidden Node is written, so Inkscape shows it in the Layers panel, but never drawn.
+  const hidden = walk.hidden || !n.visible;
   const inside = walk.inside || walk.scope?.has(n.id) === true;
-  if (inside && n.type !== "layer") walk.drawn.push(n);
-  const group = {
-    opacity: n.opacity === 1 ? undefined : n.opacity,
+  if (inside && !hidden && n.type !== "layer") walk.drawn.push(n);
+  const own = {
+    id: `z-${n.id}`,
+    "inkscape:label": n.name || undefined,
+    "sodipodi:insensitive": n.locked ? "true" : undefined,
+    "zibel:tags": n.tags.length > 0 ? JSON.stringify(n.tags) : undefined,
+    "zibel:meta": Object.keys(n.meta).length > 0 ? JSON.stringify(n.meta) : undefined,
     transform: n.transform.every((v, i) => v === IDENTITY[i])
       ? undefined
       : `matrix(${n.transform.map(formatNumber).join(" ")})`,
   };
+  const looks = [
+    !n.visible && "display:none",
+    n.opacity !== 1 && `opacity:${n.opacity}`,
+    n.blendMode !== "normal" && `mix-blend-mode:${n.blendMode}`,
+  ] as const;
   if (n.type === "layer" || n.type === "group") {
     const kids = childrenOf(doc, n.id)
-      .map((c) => node(doc, c, { ...walk, inside }))
+      .map((c) => node(doc, c, { ...walk, inside, hidden }))
       .join("");
-    // Outside the scope, a container is drawn only as the way to a listed Node.
-    return inside || kids ? `<g${attrs(group)}>${kids}</g>` : "";
+    const layer = n.type === "layer" ? { "inkscape:groupmode": "layer" } : {};
+    // Outside the scope, a container is written only as the way to a listed Node.
+    return inside || kids
+      ? `<g${attrs({ ...own, ...layer, style: style(...looks) })}>${kids}</g>`
+      : "";
   }
   if (!inside) return "";
-  // A leaf is painted once per Fill, then once per Stroke: Illustrator's default stacking, Fills
-  // below Strokes. A Live Shape or Path is a <path> of the same outline node_get reports as d.
-  const paint =
-    n.type === "text"
-      ? (a: Attrs) =>
-          `<text${attrs({
-            x: n.x,
-            y: n.y,
-            "font-family": n.fontFamily,
-            "font-size": n.fontSize,
-            // resvg honours font-kerning only as a style; unkerned, the drawn width is the
-            // advance sum the bounds report (ADR-0013).
-            style: "font-kerning:none",
-            "xml:space": "preserve",
-            ...a,
-          })}>${esc(n.content)}</text>`
-      : (a: Attrs) => `<path${attrs({ d: formatPath(shapeSegments(n)), ...a })}/>`;
+  // A Live Shape or Path is a <path> of the same outline node_get reports as d. Text is kerned off:
+  // resvg honours font-kerning only as a style, and unkerned the drawn width is the advance sum the
+  // bounds report (ADR-0013).
+  const text = n.type === "text";
+  const element = (a: Attrs, extra: (string | false)[] = []) =>
+    text
+      ? `<text${attrs({
+          x: n.x,
+          y: n.y,
+          "font-family": n.fontFamily,
+          "font-size": n.fontSize,
+          ...a,
+          style: style(...extra, "font-kerning:none"),
+          "xml:space": "preserve",
+        })}>${esc(n.content)}</text>`
+      : `<path${attrs({ d: formatPath(shapeSegments(n)), ...a, style: style(...extra) })}/>`;
+  const { fills, strokes } = n.appearance;
+  // One Fill and one Stroke are one element, so Inkscape selects one object; a longer Appearance
+  // is a <g zibel:stack> painting each Fill, then each Stroke: Illustrator's default stacking.
+  if (fills.length <= 1 && strokes.length <= 1) {
+    const [f] = fills;
+    const [s] = strokes;
+    return element({ ...own, fill: f?.color ?? "none", ...(s && stroke(s)) }, [...looks]);
+  }
   const paints = [
-    ...n.appearance.fills.map((f) => paint({ fill: f.color })),
-    ...n.appearance.strokes.map((s) =>
-      paint({
-        fill: "none",
-        stroke: s.color,
-        "stroke-width": s.width,
-        "stroke-linecap": s.cap === "butt" ? undefined : s.cap,
-        "stroke-linejoin": s.join === "miter" ? undefined : s.join,
-        // SVG's default miter limit is 4, Illustrator's is 10: always write it for miter joins.
-        "stroke-miterlimit": s.join === "miter" ? s.miterLimit : undefined,
-        "stroke-dasharray": s.dash.length > 0 ? s.dash.join(" ") : undefined,
-      }),
-    ),
+    ...fills.map((f) => element({ fill: f.color })),
+    ...strokes.map((s) => element({ fill: "none", ...stroke(s) })),
   ].join("");
-  const wrap = attrs(group);
-  return wrap && paints ? `<g${wrap}>${paints}</g>` : paints;
+  return `<g${attrs({ ...own, "zibel:stack": "true", style: style(...looks) })}>${paints}</g>`;
 }
