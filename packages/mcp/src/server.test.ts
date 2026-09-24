@@ -1,3 +1,4 @@
+import { ZibelError } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness } from "./harness.ts";
 
@@ -267,5 +268,61 @@ describe("reads pass their filters and txId, and bad arguments never reach the s
     expect(JSON.stringify(result.content)).toMatch(
       /nameRegex.*regular expression|regular expression.*nameRegex/,
     );
+  });
+});
+
+const errorOf = (result: unknown) =>
+  JSON.parse((result as { content: { text: string }[] }).content[0]?.text ?? "null");
+
+describe("a ZibelError becomes the error result (F-MCP-15)", () => {
+  it("carries every field of the error, and no structuredContent", async () => {
+    const data = {
+      code: "REV_CONFLICT" as const,
+      message: "The Document is at rev 2.",
+      hint: "Read zibel_doc_changes, then retry with ifRev 2.",
+      path: "ifRev",
+      rev: 2,
+      nodeIds: ["a"],
+    };
+    const { call } = await harness({
+      createNodes: async () => {
+        throw new ZibelError(data);
+      },
+    });
+    const result = await call("zibel_node_create", {
+      docId: "d",
+      nodes: [{ type: "layer", name: "L" }],
+    });
+    expect(result).toEqual({
+      isError: true,
+      content: [{ type: "text", text: JSON.stringify(data) }],
+    });
+    expect(errorOf(result)).toEqual(data);
+  });
+
+  it("does not dress another error as one", async () => {
+    const { call } = await harness({
+      info: async () => {
+        throw new Error("boom");
+      },
+    });
+    expect(await call("zibel_doc_get_info", { docId: "d" })).toEqual({
+      isError: true,
+      content: [{ type: "text", text: "boom" }],
+    });
+  });
+
+  it.each([
+    ["zibel_render", {}],
+    ["zibel_export", { format: "png" }],
+  ])("%s refuses a background that is not #RRGGBB[AA] before rendering", async (name, args) => {
+    const { service, call } = await harness();
+    const result = await call(name, { docId: "d", background: "red", ...args });
+    expect(errorOf(result)).toMatchObject({
+      code: "INVALID_COLOR",
+      path: "background",
+      hint: expect.stringContaining("#FF0000"),
+    });
+    expect(service.render).not.toHaveBeenCalled();
   });
 });
