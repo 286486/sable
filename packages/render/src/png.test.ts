@@ -52,6 +52,16 @@ it("keeps runs of spaces, so the drawn width follows the advance sum", async () 
   expect((await right("a    b")) - (await right("a  b"))).toBeCloseTo(40, -0.5);
 });
 
+it("draws a font Zibel does not bundle in Source Sans 3", async () => {
+  const svg = (family: string) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#FFFFFF"/>` +
+    `<text x="0" y="80" font-family="${family}" font-size="60">Hi</text></svg>`;
+  const bundled = await ink(svg("Source Sans 3"));
+  expect(bundled.length).toBeGreaterThan(0);
+  expect(await ink(svg("Helvetica"))).toEqual(bundled);
+  expect(await ink(svg("'DejaVu Serif', serif"))).toEqual(bundled);
+});
+
 it("rounds the pixel size to the nearest pixel and stretches the drawing to it", async () => {
   // Why fit() widens the rect to whole pixels: at 10.2 pt × 2 resvg draws 20 px, not 20.4.
   const size = async (width: number) =>
