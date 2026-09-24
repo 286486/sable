@@ -313,7 +313,6 @@ export class DocumentObject extends DurableObject<Env> {
         keyMap,
         warnings: fontWarnings(nodes),
         failed,
-        bounds: union(nodes.map((n) => bounds(doc, n))),
       };
     });
   }
@@ -325,7 +324,6 @@ export class DocumentObject extends DurableObject<Env> {
         updated: nodes,
         warnings: fontWarnings(nodes),
         failed,
-        bounds: union(nodes.map((n) => bounds(doc, n))),
       };
     });
   }
@@ -333,7 +331,7 @@ export class DocumentObject extends DurableObject<Env> {
   transformNodes(input: TransformInput, actor: string, opts: Options = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Transform", (doc) => {
       const { nodes, warnings, failed } = transformNodes(doc, input, opts);
-      return { updated: nodes, warnings, failed, bounds: union(nodes.map((n) => bounds(doc, n))) };
+      return { updated: nodes, warnings, failed };
     });
   }
 
@@ -352,7 +350,6 @@ export class DocumentObject extends DurableObject<Env> {
     verb: string,
     edit: (doc: Document) => Change & {
       keyMap?: Record<string, string>;
-      bounds: Rect | null;
       warnings?: WriteReceipt["warnings"];
       failed: Failed[];
       /** Replaces the summary made from `verb`. */
@@ -365,15 +362,16 @@ export class DocumentObject extends DurableObject<Env> {
       const committed = this.load();
       const doc = this.view(committed, actor, opts.txId);
       this.checkRev(committed, opts.ifRev);
+      // Core edits store new Node objects in doc.nodes, so a copy of the Map keeps the Document before.
+      const before = { ...doc, nodes: new Map(doc.nodes) };
       const {
-        keyMap = {},
-        bounds,
-        warnings = [],
+        keyMap,
+        warnings,
         failed,
         created = [],
         updated = [],
         deletedIds = [],
-        skipped = [],
+        skipped,
         artboards,
         ...rest
       } = edit(doc);
@@ -384,23 +382,60 @@ export class DocumentObject extends DurableObject<Env> {
           ? this.stage(opts.txId, committed.rev, change)
           : this.commit(actor, label, opts.intent, change, step),
       );
-      if (!opts.txId) {
-        const { intent = null, commandId } = opts;
-        const skippedIds = skipped.length > 0 ? skipped : undefined;
-        this.broadcast({ type: "tx", rev, txId, actor, intent, ...change, commandId, skippedIds });
-      }
-      return {
+      return this.receipt(before, doc, change, {
         txId,
         rev,
-        createdIds: created.map((n) => n.id),
-        updatedIds: updated.map((n) => n.id),
-        deletedIds,
+        actor,
+        opts,
         keyMap,
-        bounds,
         warnings,
-        ...(opts.partial && { failed }),
-      };
+        skipped,
+        failed: opts.partial ? failed : undefined,
+      });
     });
+  }
+
+  /**
+   * The WriteReceipt of a write, and its `tx` broadcast unless it was staged in a Transaction.
+   * `bounds` covers the created and updated Nodes after the write and the deleted Nodes before it
+   * (CONTEXT.md, WriteReceipt), whichever entry point made the change.
+   */
+  private receipt(
+    before: Document,
+    after: Document,
+    change: Required<Omit<Change, "artboards">> & Pick<Change, "artboards">,
+    meta: {
+      txId: string;
+      rev: number;
+      actor: string;
+      opts: Options;
+      keyMap?: Record<string, string>;
+      warnings?: WriteReceipt["warnings"];
+      skipped?: string[];
+      failed?: Failed[];
+    },
+  ): WriteReceipt {
+    const { created, updated, deletedIds } = change;
+    const { txId, rev, actor, opts, skipped = [] } = meta;
+    if (!opts.txId) {
+      const { intent = null, commandId } = opts;
+      const skippedIds = skipped.length > 0 ? skipped : undefined;
+      this.broadcast({ type: "tx", rev, txId, actor, intent, ...change, commandId, skippedIds });
+    }
+    return {
+      txId,
+      rev,
+      createdIds: created.map((n) => n.id),
+      updatedIds: updated.map((n) => n.id),
+      deletedIds,
+      keyMap: meta.keyMap ?? {},
+      bounds: union([
+        ...[...created, ...updated].map((n) => bounds(after, n)),
+        ...deletedIds.map((id) => bounds(before, before.nodes.get(id) as Node)),
+      ]),
+      warnings: meta.warnings ?? [],
+      ...(meta.failed && { failed: meta.failed }),
+    };
   }
 
   /** Reads see the overlay of `txId` when given (ADR-0008); `rev` is always the committed one. */
@@ -556,8 +591,7 @@ export class DocumentObject extends DurableObject<Env> {
         baseRev: opts.baseRev,
         rebuild: (rev) => this.rebuild(doc, rev),
       });
-      const nodes = [...change.created, ...change.updated];
-      return { ...change, failed: [], bounds: union(nodes.map((n) => bounds(doc, n))) };
+      return { ...change, failed: [] };
     });
   }
 
@@ -582,12 +616,7 @@ export class DocumentObject extends DurableObject<Env> {
       }
       const { groupId, created } = placeNodes(doc, file, opts);
       nodes = outline(doc, { rootId: groupId, depth: 2 });
-      return {
-        created,
-        warnings: file.warnings,
-        failed: [],
-        bounds: bounds(doc, created[0] as Node),
-      };
+      return { created, warnings: file.warnings, failed: [] };
     });
     return "error" in receipt ? receipt : { ...receipt, nodes };
   }
@@ -665,12 +694,10 @@ export class DocumentObject extends DurableObject<Env> {
       (doc) => {
         const { skipped, ...change } = revert(doc, delta);
         const gone = skipped.length > 0 ? `; skipped, deleted since: ${skipped.join(", ")}` : "";
-        const nodes = [...change.created, ...change.updated];
         return {
           ...change,
           skipped,
           failed: [],
-          bounds: union(nodes.map((n) => bounds(doc, n))),
           summary: `${verb} "${top.label}"${gone}`,
         };
       },

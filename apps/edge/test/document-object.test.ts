@@ -189,6 +189,14 @@ async function withRect(docId: string) {
   return { s: stub(docId), defaultLayerId, rectId };
 }
 
+it("reports where a redone delete took the Node from", async () => {
+  const { s, rectId } = await withRect("u6");
+  const at = { x: 0, y: 0, width: 10, height: 10 };
+  ok(await s.deleteNodes([rectId], "agent-a"));
+  expect(ok(await s.undo("user"))).toMatchObject({ createdIds: [rectId], bounds: at });
+  expect(ok(await s.redo("user"))).toMatchObject({ deletedIds: [rectId], bounds: at });
+});
+
 const layerChildren = async (s: ReturnType<typeof stub>, txId?: string) => {
   const { nodes } = ok(await s.outline({ depth: 2 }, "agent-a", txId));
   return (nodes[0]?.children ?? []).map((c) => c.id);
@@ -364,7 +372,11 @@ it("undoes and redoes as new Transactions, back to the Document's creation", asy
   expect(await stub("u2").redo("user")).toMatchObject({ error: { code: "NOTHING_TO_REDO" } });
 
   ok(await stub("u2").undo("user"));
-  expect(ok(await stub("u2").undo("user"))).toMatchObject({ deletedIds: [id] });
+  // Undoing the create reports where the Node was.
+  expect(ok(await stub("u2").undo("user"))).toMatchObject({
+    deletedIds: [id],
+    bounds: { x: 0, y: 0, width: 10, height: 10 },
+  });
   expect(await x()).toBeNull();
   expect(await stub("u2").undo("user")).toMatchObject({ error: { code: "NOTHING_TO_UNDO" } });
 
