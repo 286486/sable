@@ -430,7 +430,9 @@ it("keeps fill-rule on what becomes a Path, and drops it without a warning elsew
       `<path d="${d}" fill-rule="evenodd"/><path d="${d}" style="fill-rule:evenodd"/>` +
         '<g fill-rule="evenodd"><polygon points="0 0 9 0 9 9"/></g>' +
         `<g zibel:stack="true" style="fill-rule:evenodd"><path d="${d}" fill="#FF0000"/><path d="${d}" fill="#0000FF"/></g>` +
-        `<path d="${d}"/><rect fill-rule="evenodd" width="1" height="1"/>`,
+        `<path d="${d}"/><rect fill-rule="evenodd" width="1" height="1"/>` +
+        // Zibel's own export of a two-Fill evenodd Path: the rule on each paint.
+        `<g zibel:stack="true"><path d="${d}" fill-rule="evenodd" fill="#FF0000"/><path d="${d}" fill-rule="evenodd" fill="#0000FF"/></g>`,
     ),
   );
   expect(leaves(file).map((n) => [n.type, "fillRule" in n ? n.fillRule : undefined])).toEqual([
@@ -440,6 +442,7 @@ it("keeps fill-rule on what becomes a Path, and drops it without a warning elsew
     ["path", "evenodd"],
     ["path", "nonzero"],
     ["rect", undefined],
+    ["path", "evenodd"],
   ]);
   expect(leaves(file)[3]).toMatchObject({ appearance: { fills: [{}, {}] } });
   expect(file.warnings).toEqual([]);
