@@ -411,7 +411,7 @@ it("writes each Node id into the SVG it hands the Worker to rasterise, with the 
   const { svg } = ok(await stub("ids").raster("agent-a", { scale: 1, overlays: ["ids"] }));
   expect(receipt.createdIds).toHaveLength(3);
   for (const id of receipt.createdIds) expect(svg).toContain(`>${id}</text>`);
-  expect(svg).not.toContain(parentId);
+  expect(svg).not.toContain(`>${parentId}</text>`);
 });
 
 it("queries Nodes as a Transaction sees them, and reports DOC_NOT_FOUND", async () => {

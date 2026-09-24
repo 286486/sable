@@ -1,7 +1,8 @@
-import { bounds, createDocument, createNodes } from "@zibel/core";
+import { bounds, createDocument, createNodes, parseDocument } from "@zibel/core";
 import { expect, it } from "vitest";
+import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { svgToPixels, svgToPng } from "./png.ts";
-import { toSvg } from "./svg.ts";
+import { docRect, scopeRect, toSvg } from "./svg.ts";
 
 it("rasterises SVG with resvg-wasm inside workerd", async () => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><rect width="10" height="10" fill="#FF0000"/></svg>`;
@@ -62,4 +63,35 @@ it("rounds the pixel size to the nearest pixel and stretches the drawing to it",
     ).width;
   expect(await size(10.2)).toBe(20);
   expect(await size(10.5)).toBe(21);
+});
+
+it("reads the root's pt as one pixel per point at scale 1", async () => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="10pt" height="5pt" viewBox="0 0 10 5"/>`;
+  expect(await svgToPixels(svg, 1)).toMatchObject({ width: 10, height: 5 });
+  expect(await svgToPixels(svg, 2)).toMatchObject({ width: 20, height: 10 });
+});
+
+it("draws the fixture Document with known pixels", async () => {
+  const file = parseDocument(fixture);
+  const doc = {
+    id: "d",
+    version: 1 as const,
+    rev: 0,
+    ...file,
+    nodes: new Map(file.nodes.map((n) => [n.id, n])),
+  };
+  const hash = async (svg: string) => {
+    const { pixels } = await svgToPixels(svg, 2);
+    const digest = await crypto.subtle.digest("SHA-256", pixels);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  };
+  const turned = { nodeIds: [file.nodes.find((n) => n.name === "Turned")?.id ?? ""] };
+  // Changed once, by #25: a native <rect rx> or <circle> draws the exact outline where the <path>
+  // before it rounded control points to 3 decimals, which moved 3 edge pixels by up to 16/255.
+  expect(await hash(toSvg(doc, docRect(doc)))).toBe(
+    "dc0372d1d7a380ea3e80f7d2ad145af58c78f0f4411ba20eea4878ea158974ab",
+  );
+  expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned }))).toBe(
+    "db787e8c66eef5455ce2bb127ad6b5cb9d4d78eb50af924407cc9d235d35f1ab",
+  );
 });

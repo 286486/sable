@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
 import { call, errorOf } from "./rpc.ts";
 
 type Rect = { x: number; y: number; width: number; height: number };
@@ -149,25 +150,47 @@ it("draws overlays and a background into the image, at the same size", async () 
   expect(await png({ background: "#112233" })).not.toBe(plain);
 });
 
-it("exports a known scene as SVG text that matches the stored file", async () => {
-  const doc = await newDoc([{ width: 200, height: 100, background: "#FFFFFF" }]);
-  await call("zibel_node_create", {
-    docId: doc.docId,
-    nodes: [
-      redRect(doc.defaultLayerId),
-      { type: "text", parentId: doc.defaultLayerId, x: 80, y: 40, content: "Hi" },
-      {
-        type: "group",
-        parentId: doc.defaultLayerId,
-        children: [{ type: "line", x1: 100, y1: 60, x2: 180, y2: 90 }],
-      },
-    ],
-  });
-  const result = await call("zibel_export", { docId: doc.docId, format: "svg" });
-  expect(result.structuredContent).toEqual({ docRect: { x: 0, y: 0, width: 200, height: 100 } });
+it("exports the fixture Document as Inkscape SVG that matches the stored file", async () => {
+  const { docId, artboards } = (await call("zibel_doc_open", { content: fixture }))
+    .structuredContent as { docId: string; artboards: { frame: Rect }[] };
+  const result = await call("zibel_export", { docId, format: "svg" });
+  // The viewBox is the first Artboard, the page Inkscape binds to the viewport.
+  expect(result.structuredContent).toEqual({ docRect: artboards[0]?.frame });
   expect(result.content).toHaveLength(1);
   expect(result.content[0].type).toBe("text");
-  await expect(result.content[0].text).toMatchFileSnapshot("./fixtures/export-scene.svg");
+  const svg: string = result.content[0].text;
+  expect(svg).toContain(`zibel:doc="${docId}" zibel:rev="1" zibel:scope="doc"`);
+  // Each mapping of ADR-0017, by the fixture's fixed ids.
+  const z = (id: string) => `id="z-01M38T29${id}"`;
+  for (const part of [
+    'width="300pt" height="200pt" viewBox="0 0 300 200"',
+    '<sodipodi:namedview inkscape:document-units="pt">',
+    `<inkscape:page x="0" y="0" width="300" height="200" ${z("S8GTJN2S1004N4Q1BH")} inkscape:label="Artboard 1"/>`,
+    `<inkscape:page x="320" y="0" width="120" height="120" ${z("S9V6NZ3YY4ARKXBP1G")} inkscape:label="Artboard 2"/>`,
+    'fill="#FFF4D6" zibel:artboard="01M38T29S9V6NZ3YY4ARKXBP1G" sodipodi:insensitive="true"/>',
+    `<g ${z("SH6VR2ZZQ4C3WAHQMX")} inkscape:label="Guides" sodipodi:insensitive="true" inkscape:groupmode="layer" style="display:none">`,
+    `<rect x="20" y="20" width="120" height="70" rx="12" ry="12" ${z("SBZ873XP2NBD2K6CYR")} inkscape:label="Card"`,
+    `<ellipse cx="205" cy="45" rx="45" ry="25" ${z("SDPGEMM6AY4DF6ZSGG")}`,
+    `<circle cx="190" cy="120" r="30" ${z("SDXC0F0T3ESSQD0P4P")}`,
+    `<line x1="20" y1="110" x2="140" y2="180" ${z("SE45Q1MFZT7V62RNER")}`,
+    'sodipodi:type="star" sodipodi:sides="6" sodipodi:cx="60" sodipodi:cy="150" sodipodi:r1="30"',
+    'inkscape:flatsided="true"',
+    'sodipodi:type="star" sodipodi:sides="5" sodipodi:cx="260" sodipodi:cy="150" sodipodi:r1="35" sodipodi:r2="15"',
+    'inkscape:flatsided="false"',
+    `${z("SFMVZ9S4MNJSJD618Z")} fill="#66CCAA" stroke="#004433"`,
+    `<g ${z("SF5XG8X1F6BB53G505")} zibel:stack="true"><path d="M 330 110 L 410 110 L 370 150 Z" fill="#FF000080"/>`,
+    '<text x="20" y="195" font-family="Source Sans 3" font-size="14"',
+    'zibel:tags="[&quot;badge&quot;,&quot;export&quot;]" zibel:meta="{&quot;quote\\&quot;d&quot;:[1,2],&quot;source&quot;:&quot;fixture&quot;}"',
+  ]) {
+    expect(svg).toContain(part);
+  }
+  await expect(svg.replace(docId, "DOC")).toMatchFileSnapshot("./fixtures/inkscape.svg");
+  // resvg in the Worker draws the same file, namespaces and all, over every Artboard.
+  expect(await render({ docId })).toEqual({
+    docRect: { x: 0, y: 0, width: 440, height: 200 },
+    pixelSize: { width: 440, height: 200 },
+    scale: 1,
+  });
 });
 
 it("exports PNG as image content with its viewport, in the same scopes", async () => {

@@ -185,7 +185,7 @@ _Avoid_: Bot、AI、Model、Assistant
 ## 渲染与导出
 
 **Render Scope（渲染范围）**：
-`render` 与 `export` 画出的那块区域：整个 Document（所有 Artboard 的并集）、一个 Artboard、若干 Node（取它们的 visible bounds，且只画这些 Node）或一个文档坐标矩形。它决定 `docRect`。
+`render` 与 `export` 画出的那块区域：整个 Document（所有 Artboard 的并集）、一个 Artboard、若干 Node（取它们的 visible bounds，且只画这些 Node）或一个文档坐标矩形。它决定 `docRect`；唯独 SVG `export` 在整个 Document 范围时，`viewBox` 与 `docRect` 取位于 (0,0) 的 Artboard，没有则取第一个，其余 Artboard 作为视口外的页面（ADR-0017）。
 _Avoid_: Region、Crop、Viewport（那是返回的映射）
 
 **Viewport（视口元数据）**：

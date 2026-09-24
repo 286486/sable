@@ -413,7 +413,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-IO-05** 原生 `.zibel.json` 与 `.svg` 打开（文档列表页"打开文件"）；文档页工具栏"从文件更新…"走替换。（P0）
 
 **导出**
-- **F-IO-06** SVG 导出（P0）：范围（文档 / 画板 / 选中对象）、精度（小数位 1–7）、样式写法（presentation attributes / inline style / `<style>` 类）、文字处理（保留 `<text>` / 转曲 / 嵌入字体子集 P1）、是否包含 `id` 与 `data-*`、是否压缩（SVGO）、是否响应式（去 width/height 留 viewBox）。默认输出 Inkscape 方言、可编辑：`render` 与 `export` 共用一个序列化器；Layer / 锁定 / 隐藏 / 名称 / Artboard（`<inkscape:page>`）/ `tags` / `meta` 都写入；一个 Fill 加一个 Stroke 的叶子写成一个元素；矩形、椭圆、线写原生元素，多边形与星形写 Inkscape 星形对象；文字保留 `<text>` 与原字体名（映射表见 ADR-0017）。其余实时对象展开导出；效果映射到 SVG filter 或栅格化。
+- **F-IO-06** SVG 导出（P0）：范围（文档 / 画板 / 选中对象）、精度（小数位 1–7）、样式写法（presentation attributes / inline style / `<style>` 类）、文字处理（保留 `<text>` / 转曲 / 嵌入字体子集 P1）、是否包含 `id` 与 `data-*`、是否压缩（SVGO）、是否响应式（去 width/height 留 viewBox）。默认输出 Inkscape 方言、可编辑：`render` 与 `export` 共用一个序列化器；Layer / 锁定 / 隐藏 / 名称 / Artboard（`<inkscape:page>`）/ `tags` / `meta` 都写入；一个 Fill 加一个 Stroke 的叶子写成一个元素；矩形、椭圆、线写原生元素，多边形与星形写 Inkscape 星形对象；文字保留 `<text>` 与原字体名；`viewBox` 是文件的第一个页面，整个 Document 导出时取位于 (0,0) 的 Artboard，没有则取第一个（映射表见 ADR-0017）。其余实时对象展开导出；效果映射到 SVG filter 或栅格化。
 - **F-IO-07** PNG / JPG / WebP 导出：范围、倍率（1x / 2x / 3x / 自定义 DPI）、背景透明 / 颜色、裁切到画板或到对象 bounds 加边距。（P0）
 - **F-IO-08** PDF 导出：矢量保留、字体嵌入、多画板多页。（P1）
 - **F-IO-09** Export for Screens 式批量导出：多画板 × 多格式 × 多倍率一次导出为 zip。（P1）

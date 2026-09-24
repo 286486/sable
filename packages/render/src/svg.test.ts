@@ -6,14 +6,14 @@ import {
   shapeSegments,
 } from "@zibel/core";
 import { expect, it } from "vitest";
-import { fit, scopeRect, toSvg } from "./svg.ts";
+import { fit, scopeRect, svgRect, toSvg } from "./svg.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
 
-it("serialises the Artboards with a rect's Fill below its Stroke", () => {
+it("writes a leaf with one Fill and one Stroke as one element", () => {
   const { doc, defaultLayerId } = newDoc();
-  createNodes(doc, [
+  const [rect] = createNodes(doc, [
     {
       type: "rect",
       parentId: defaultLayerId,
@@ -23,16 +23,13 @@ it("serialises the Artboards with a rect's Fill below its Stroke", () => {
       height: 30,
       appearance: { fills: [{ color: "#FF0000" }], strokes: [{ color: "#000000", width: 2 }] },
     },
-  ]);
-  const svg = toSvg(doc);
-  expect(svg).toContain('viewBox="0 0 200 100"');
-  expect(svg).toContain(
-    '<g><path d="M 10 10 L 60 10 L 60 40 L 10 40 Z" fill="#FF0000"/>' +
-      '<path d="M 10 10 L 60 10 L 60 40 L 10 40 Z" fill="none" stroke="#000000" stroke-width="2" stroke-miterlimit="10"/></g>',
+  ]).nodes;
+  expect(toSvg(doc)).toContain(
+    `<rect x="10" y="10" width="50" height="30" id="z-${rect?.id}" fill="#FF0000" stroke="#000000" stroke-width="2" stroke-miterlimit="10"/></g>`,
   );
 });
 
-it("serialises every node type with the same d that node_get returns", () => {
+it("writes rect, ellipse and line as their own elements, and other shapes as the d node_get returns", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const { nodes } = createNodes(doc, [
     {
@@ -44,23 +41,43 @@ it("serialises every node type with the same d that node_get returns", () => {
       ],
     },
     { type: "ellipse", parentId, x: 0, y: 0, width: 20, height: 10 },
+    { type: "ellipse", parentId, x: 40, y: 0, width: 10, height: 10 },
+    { type: "rect", parentId, x: 0, y: 0, width: 4, height: 10, radius: 5 },
     { type: "polygon", parentId, cx: 50, cy: 50, radius: 10, sides: 5 },
     { type: "star", parentId, cx: 80, cy: 50, outerRadius: 10, innerRadius: 4, points: 5 },
     { type: "path", parentId, d: "M 0 0 Q 10 20 20 0 Z" },
     { type: "layer" },
   ]);
   const svg = toSvg(doc);
-  const leaves = nodes.filter((n): n is ShapeNode => "appearance" in n);
-  expect(leaves).toHaveLength(6);
-  for (const n of leaves) expect(svg).toContain(`d="${formatPath(shapeSegments(n))}"`);
+  const paths = nodes.filter(
+    (n): n is ShapeNode => n.type === "polygon" || n.type === "star" || n.type === "path",
+  );
+  expect(paths).toHaveLength(3);
+  for (const n of paths) expect(svg).toContain(`d="${formatPath(shapeSegments(n))}"`);
+  expect(svg).toContain('<rect x="0" y="0" width="10" height="10" rx="2" ry="2" id=');
+  expect(svg).toContain(
+    '<path sodipodi:type="star" sodipodi:sides="5" sodipodi:cx="50" sodipodi:cy="50" sodipodi:r1="10" sodipodi:r2="8.09" ' +
+      'sodipodi:arg1="-1.5707963267948966" sodipodi:arg2="-0.9424777960769379" inkscape:flatsided="true" ' +
+      'inkscape:rounded="0" inkscape:randomized="0" d="M 50 40 L 59.511 46.91 L 55.878 58.09',
+  );
+  expect(svg).toContain(
+    '<path sodipodi:type="star" sodipodi:sides="5" sodipodi:cx="80" sodipodi:cy="50" sodipodi:r1="10" sodipodi:r2="4" ' +
+      'sodipodi:arg1="-1.5707963267948966" sodipodi:arg2="-0.9424777960769379" inkscape:flatsided="false" ' +
+      'inkscape:rounded="0" inkscape:randomized="0" d="M 80 40 L 82.351 46.764',
+  );
+  expect(svg).toContain('<line x1="0" y1="0" x2="5" y2="5" id=');
+  expect(svg).toContain('<ellipse cx="10" cy="5" rx="10" ry="5" id=');
+  expect(svg).toContain('<circle cx="45" cy="5" r="5" id=');
+  // The radius is clamped to half the shorter side.
+  expect(svg).toContain('<rect x="0" y="0" width="4" height="10" rx="2" ry="2" id=');
   // Layer 1 > Group > [rect, Group > line]; the second top-level Layer is empty.
-  expect(svg).toMatch(/<g><g><path[^>]*\/><path[^>]*\/><g><path/);
-  expect(svg).toMatch(/<g><\/g><\/svg>$/);
+  expect(svg).toMatch(/<g [^>]*inkscape:groupmode="layer"><g [^>]*><rect[^>]*\/><g [^>]*><line/);
+  expect(svg).toMatch(/<g [^>]*inkscape:groupmode="layer"><\/g><\/svg>$/);
 });
 
-it("paints stacked Fills and Strokes bottom to top, with Stroke attributes only when set", () => {
+it("paints an Appearance stack bottom to top in a <g zibel:stack>, with Stroke attributes only when set", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
-  createNodes(doc, [
+  const [line] = createNodes(doc, [
     {
       type: "line",
       parentId,
@@ -76,8 +93,11 @@ it("paints stacked Fills and Strokes bottom to top, with Stroke attributes only 
         ],
       },
     },
-  ]);
+  ]).nodes;
   const svg = toSvg(doc);
+  expect(svg).toContain(
+    `<g id="z-${line?.id}" zibel:stack="true"><line x1="0" y1="0" x2="10" y2="0" fill="#111111"/>`,
+  );
   const colors = [...svg.matchAll(/(?:fill|stroke)="(#\w+)"/g)].map((m) => m[1]);
   expect(colors).toEqual(["#111111", "#222222", "#333333", "#44444480"]);
   expect(svg).toContain(
@@ -86,7 +106,7 @@ it("paints stacked Fills and Strokes bottom to top, with Stroke attributes only 
   expect(svg).toContain('stroke="#44444480" stroke-width="1" stroke-miterlimit="10"/>');
 });
 
-it("emits nothing for an empty Appearance or a hidden Node, and wraps a translucent one", () => {
+it("writes an empty Appearance as fill none, and a hidden or translucent Node's style", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const [bare, hidden, faded] = createNodes(doc, [
     { type: "rect", parentId, x: 0, y: 0, width: 1, height: 1, appearance: {} },
@@ -96,10 +116,48 @@ it("emits nothing for an empty Appearance or a hidden Node, and wraps a transluc
   if (!bare || !hidden || !faded) throw new Error("setup");
   hidden.visible = false;
   faded.opacity = 0.5;
-  expect(toSvg(doc)).toMatch(/<g><g opacity="0.5"><path[^>]*\/><path[^>]*\/><\/g><\/g><\/svg>$/);
+  faded.blendMode = "multiply";
+  const svg = toSvg(doc);
+  expect(svg).toContain(`id="z-${bare.id}" fill="none"/>`);
+  expect(svg).toContain(
+    `id="z-${hidden.id}" fill="#FFFFFF" stroke="#000000" stroke-width="1" stroke-miterlimit="10" style="display:none"/>`,
+  );
+  expect(svg).toContain(`style="opacity:0.5;mix-blend-mode:multiply"/></g></svg>`);
 });
 
-it("wraps a transformed leaf in one <g> carrying its matrix and opacity", () => {
+it("writes every Node's id, name, lock, tags and meta, and Layers as Inkscape layers", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const [rect, layer] = createNodes(doc, [
+    {
+      type: "rect",
+      parentId: defaultLayerId,
+      name: 'Card "A"\nback',
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      tags: ["badge"],
+      meta: { note: 'say "hi"' },
+      appearance: { fills: [{ color: "#FF0000" }] },
+    },
+    { type: "layer", name: "Guides" },
+  ]).nodes;
+  if (!rect || !layer) throw new Error("setup");
+  layer.visible = false;
+  layer.locked = true;
+  rect.locked = true;
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `<g id="z-${defaultLayerId}" inkscape:label="Layer 1" inkscape:groupmode="layer"><rect x="0" y="0" width="1" height="1" ` +
+      `id="z-${rect.id}" inkscape:label="Card &quot;A&quot;&#10;back" sodipodi:insensitive="true" ` +
+      `zibel:tags="[&quot;badge&quot;]" zibel:meta="{&quot;note&quot;:&quot;say \\&quot;hi\\&quot;&quot;}" fill="#FF0000"/></g>`,
+  );
+  expect(svg).toContain(
+    `<g id="z-${layer.id}" inkscape:label="Guides" sodipodi:insensitive="true" inkscape:groupmode="layer" style="display:none"></g></svg>`,
+  );
+});
+
+it("writes a leaf's matrix on its own element, and a stack's on its <g>", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const [turned, both] = createNodes(doc, [
     { type: "rect", parentId, x: 10, y: 10, width: 50, height: 30 },
@@ -109,12 +167,16 @@ it("wraps a transformed leaf in one <g> carrying its matrix and opacity", () => 
   turned.transform = [0, 1, -1, 0, 60, -10];
   both.transform = [0.1234567, 0, 0, 1, 0, 0];
   both.opacity = 0.5;
+  if (both.type !== "rect") throw new Error("setup");
+  both.appearance.fills.push({ type: "solid", color: "#00FF00" });
   const svg = toSvg(doc);
-  expect(svg).toMatch(/<g transform="matrix\(0 1 -1 0 60 -10\)"><path[^>]*\/><path[^>]*\/><\/g>/);
-  expect(svg).toContain('<g opacity="0.5" transform="matrix(0.123 0 0 1 0 0)"><path');
+  expect(svg).toContain(`id="z-${turned.id}" transform="matrix(0 1 -1 0 60 -10)" fill="#FFFFFF"`);
+  expect(svg).toContain(
+    `<g id="z-${both.id}" transform="matrix(0.123 0 0 1 0 0)" zibel:stack="true" style="opacity:0.5"><rect`,
+  );
 });
 
-it("writes Point Type as one <text> per Fill, then per Stroke, in the bundled font family", () => {
+it("writes Point Type as one <text> in its font family", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [
     { type: "text", parentId, x: 10, y: 50, content: "Hi" },
@@ -129,12 +191,64 @@ it("writes Point Type as one <text> per Fill, then per Stroke, in the bundled fo
     },
   ]);
   const svg = toSvg(doc);
-  expect(svg).toContain(
-    '<text x="10" y="50" font-family="Source Sans 3" font-size="12" style="font-kerning:none" xml:space="preserve" fill="#000000">Hi</text>',
+  expect(svg).toMatch(
+    /<text x="10" y="50" font-family="Source Sans 3" font-size="12" id="z-\w+" fill="#000000" style="font-kerning:none" xml:space="preserve">Hi<\/text>/,
   );
-  expect(svg).toContain(
-    '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="#FF0000">a&lt;b&amp;&quot;c&quot;</text>' +
-      '<text x="0" y="20" font-family="Source Sans 3" font-size="24" style="font-kerning:none" xml:space="preserve" fill="none" stroke="#0000FF" stroke-width="2" stroke-miterlimit="10">a&lt;b&amp;&quot;c&quot;</text>',
+  expect(svg).toMatch(
+    /<text x="0" y="20" font-family="Source Sans 3" font-size="24" id="z-\w+" fill="#FF0000" stroke="#0000FF" stroke-width="2" stroke-miterlimit="10" style="font-kerning:none" xml:space="preserve">a&lt;b&amp;&quot;c&quot;<\/text>/,
+  );
+});
+
+it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape page", () => {
+  const { doc } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [
+      { width: 200, height: 100 },
+      { name: "Card & back", x: 300, y: 0, width: 50, height: 50, background: "#FFEEDD" },
+    ],
+  });
+  doc.rev = 7;
+  const [one, two] = doc.artboards;
+  if (!one || !two) throw new Error("setup");
+  const svg = toSvg(doc);
+  expect(svg).toMatch(
+    new RegExp(
+      '^<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" ' +
+        'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:zibel="https://zibel.dev/ns/svg" ' +
+        'width="200pt" height="100pt" viewBox="0 0 200 100" zibel:doc="d" zibel:rev="7" zibel:scope="doc">' +
+        '<sodipodi:namedview inkscape:document-units="pt">' +
+        `<inkscape:page x="0" y="0" width="200" height="100" id="z-${one.id}" inkscape:label="Artboard 1"/>` +
+        `<inkscape:page x="300" y="0" width="50" height="50" id="z-${two.id}" inkscape:label="Card &amp; back"/>` +
+        "</sodipodi:namedview>" +
+        `<rect x="300" y="0" width="50" height="50" fill="#FFEEDD" zibel:artboard="${two.id}" sodipodi:insensitive="true"/><g`,
+    ),
+  );
+  // Inkscape resizes the page at (0,0) to the viewBox: the export's viewBox is that page, else
+  // the first.
+  expect(svgRect(doc)).toEqual(one.frame);
+  const moved = { ...doc, artboards: [{ ...one, frame: { ...one.frame, x: 100, y: 50 } }, two] };
+  expect(svgRect(moved)).toEqual(moved.artboards[0]?.frame);
+  const swapped = {
+    ...moved,
+    artboards: [moved.artboards[0], { ...two, frame: { ...two.frame, x: 0 } }],
+  };
+  expect(svgRect(swapped as typeof doc)).toEqual({ x: 0, y: 0, width: 50, height: 50 });
+  expect(svgRect(doc, { artboardId: two.id })).toEqual(two.frame);
+  const second = toSvg(doc, svgRect(doc, { artboardId: two.id }), {
+    scope: { artboardId: two.id },
+  });
+  expect(second).toContain(`zibel:scope="artboard:${two.id}"`);
+  expect(second.match(/<inkscape:page /g)).toHaveLength(1);
+  expect(second).toContain(`<inkscape:page x="300" y="0" width="50" height="50" id="z-${two.id}"`);
+  const layer = [...doc.nodes.keys()];
+  const nodes = toSvg(doc, { x: 0, y: 0, width: 1, height: 1 }, { scope: { nodeIds: layer } });
+  expect(nodes).toContain(`width="1pt" height="1pt" viewBox="0 0 1 1"`);
+  expect(nodes).toContain(`zibel:scope="nodes:${layer.join(",")}"`);
+  expect(nodes).toContain('<sodipodi:namedview inkscape:document-units="pt"/>');
+  const rect = { x: 1, y: 2, width: 3, height: 4 };
+  expect(toSvg(doc, rect, { scope: { rect } })).toContain(
+    'zibel:scope="rect:1,2,3,4"><sodipodi:namedview inkscape:document-units="pt"/><rect',
   );
 });
 
@@ -235,7 +349,8 @@ function scene() {
     name: "Doc",
     artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
   });
-  const [a, b] = createNodes(doc, [
+  // Inline children follow their Group: [Group A, its rect, its line, rect B].
+  const [a, inA, lineInA, b] = createNodes(doc, [
     {
       type: "group",
       parentId,
@@ -268,7 +383,6 @@ function scene() {
       appearance: { fills: [{ color: "#0000AA" }] },
     },
   ]).nodes;
-  const [inA, lineInA] = [...doc.nodes.values()].filter((n) => n.parentId === a?.id);
   if (!a || !b || !inA || !lineInA) throw new Error("setup");
   return { doc, a, b, inA, lineInA };
 }
@@ -276,28 +390,33 @@ function scene() {
 it("draws only the listed Nodes and what they contain, inside their ancestors", () => {
   const { doc, a, inA } = scene();
   const rect = { x: 0, y: 0, width: 10, height: 10 };
-  const group = toSvg(doc, rect, { nodeIds: [a.id] });
+  const group = toSvg(doc, rect, { scope: { nodeIds: [a.id] } });
   expect(group).toMatch(
-    /<svg[^>]*><g><g><path[^>]*#AA0000"\/><path[^>]*#00AA00"[^>]*\/><\/g><\/g><\/svg>$/,
+    /<svg[^>]*><sodipodi:namedview[^>]*\/><g [^>]*><g [^>]*><rect[^>]*#AA0000"\/><line[^>]*#00AA00"[^>]*\/><\/g><\/g><\/svg>$/,
   );
   expect(group).not.toContain("#0000AA");
   // A selection export has no Artboard background.
   expect(group).not.toContain("#FFFFFF");
-  expect(toSvg(doc, rect, { nodeIds: [inA.id] })).toMatch(
-    /<svg[^>]*><g><g><path[^>]*#AA0000"\/><\/g><\/g><\/svg>$/,
+  expect(toSvg(doc, rect, { scope: { nodeIds: [inA.id] } })).toMatch(
+    /<svg[^>]*><sodipodi:namedview[^>]*\/><g [^>]*><g [^>]*><rect[^>]*#AA0000"\/><\/g><\/g><\/svg>$/,
   );
+  // A hidden ancestor is written with its listed child, which stays undrawn.
   a.visible = false;
-  expect(toSvg(doc, rect, { nodeIds: [inA.id] })).toMatch(/<svg[^>]*><\/svg>$/);
+  expect(toSvg(doc, rect, { scope: { nodeIds: [inA.id] }, overlays: ["ids"], scale: 1 })).toMatch(
+    new RegExp(
+      `<g id="z-${a.id}" style="display:none"><rect[^>]*id="z-${inA.id}" fill="#AA0000"/></g></g></svg>$`,
+    ),
+  );
 });
 
 it("fills the whole rect with background beneath the Artboard backgrounds", () => {
   const { doc, a } = scene();
   const rect = { x: -5, y: -5, width: 300, height: 200 };
   expect(toSvg(doc, rect, { background: "#112233" })).toMatch(
-    /<svg[^>]*><rect x="-5" y="-5" width="300" height="200" fill="#112233"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF"\/><g>/,
+    /<\/sodipodi:namedview><rect x="-5" y="-5" width="300" height="200" fill="#112233"\/><rect x="0" y="0" width="200" height="100" fill="#FFFFFF" zibel:artboard="\w+" sodipodi:insensitive="true"\/><g /,
   );
-  expect(toSvg(doc, rect, { background: "#112233", nodeIds: [a.id] })).toMatch(
-    /<svg[^>]*><rect[^>]*fill="#112233"\/><g>/,
+  expect(toSvg(doc, rect, { background: "#112233", scope: { nodeIds: [a.id] } })).toMatch(
+    /<svg[^>]*><sodipodi:namedview[^>]*\/><rect[^>]*fill="#112233"\/><g /,
   );
 });
 
@@ -309,7 +428,7 @@ it("labels every drawn Node but Layers with its id and bounds, sized in pixels",
   for (const n of [a, b, inA, lineInA]) {
     expect(svg).toContain(`>${n.id}</text>`);
   }
-  expect(svg).not.toContain(layer.id);
+  expect(svg).not.toContain(`>${layer.id}</text>`);
   expect(svg).toContain('font-size="5.5"');
   expect(svg).toContain(
     '<rect x="50" y="50" width="10" height="10" fill="none" stroke="#FF00FF" stroke-width="0.5"/>',
@@ -323,9 +442,15 @@ it("labels every drawn Node but Layers with its id and bounds, sized in pixels",
 it("gives hidden Nodes and Nodes outside the scope no overlay, and outlines Artboards", () => {
   const { doc, a, b, inA } = scene();
   inA.visible = false;
-  const svg = toSvg(doc, undefined, { nodeIds: [a.id], overlays: ["ids", "artboards"], scale: 4 });
+  const svg = toSvg(doc, undefined, {
+    scope: { nodeIds: [a.id] },
+    overlays: ["ids", "artboards"],
+    scale: 4,
+  });
   expect(svg).toContain(`>${a.id}</text>`);
-  expect(svg).not.toContain(inA.id);
+  // The hidden Node is written but has no label; b is outside the scope and not written.
+  expect(svg).toContain(`id="z-${inA.id}"`);
+  expect(svg).not.toContain(`>${inA.id}</text>`);
   expect(svg).not.toContain(b.id);
   expect(svg).toContain(
     '<rect x="0" y="0" width="200" height="100" fill="none" stroke="#00AEEF" stroke-width="0.25"/>',

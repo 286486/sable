@@ -19,7 +19,8 @@ async function rasterise<T>(
   read: (image: { asPng(): Uint8Array; pixels: Uint8Array }) => T,
 ): Promise<{ width: number; height: number } & T> {
   await ready;
-  const resvg = new Resvg(svg, { fitTo: { mode: "zoom", value: scale }, font: fonts });
+  // At 72 dpi the root's pt is one pixel per point, so zoom is pixels per point (ADR-0017).
+  const resvg = new Resvg(svg, { fitTo: { mode: "zoom", value: scale }, dpi: 72, font: fonts });
   const image = resvg.render();
   try {
     return { ...read(image), width: image.width, height: image.height };

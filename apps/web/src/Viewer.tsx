@@ -1,6 +1,7 @@
 import { bounds, type Document, type Rect, serializeDocument, union } from "@zibel/core";
 import { drawDocument } from "@zibel/render/canvas";
 import fontUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
+import { toSvg } from "@zibel/render/svg";
 import { useEffect, useRef, useState } from "react";
 import { Layers } from "./Layers.tsx";
 import { preview } from "./receive.ts";
@@ -36,14 +37,10 @@ const font = new FontFace("Source Sans 3", `url(${fontUrl})`);
 document.fonts.add(font);
 const fontLoaded = font.load();
 
-/** Saves the Document as the browser holds it, the same text `export` returns (ADR-0016). */
-function download(doc: Document) {
-  const url = URL.createObjectURL(new Blob([serializeDocument(doc)], { type: "application/json" }));
-  const a = Object.assign(document.createElement("a"), {
-    href: url,
-    download: `${doc.name}.zibel.json`,
-  });
-  a.click();
+/** Saves text the browser made from its Document: the same text `export` returns at that rev. */
+function download(text: string, type: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  Object.assign(document.createElement("a"), { href: url, download: filename }).click();
   URL.revokeObjectURL(url);
 }
 
@@ -321,8 +318,21 @@ export function Viewer({ docId }: { docId: string }) {
         <button type="button" onClick={select(inverse)}>
           Inverse
         </button>{" "}
-        <button type="button" disabled={!doc} onClick={() => doc && download(doc)}>
-          Download
+        <button
+          type="button"
+          disabled={!doc}
+          onClick={() =>
+            doc && download(serializeDocument(doc), "application/json", `${doc.name}.zibel.json`)
+          }
+        >
+          Download .zibel.json
+        </button>{" "}
+        <button
+          type="button"
+          disabled={!doc}
+          onClick={() => doc && download(toSvg(doc), "image/svg+xml", `${doc.name}.svg`)}
+        >
+          Download SVG
         </button>
         {notice && <div style={{ color: "#B00020" }}>{notice}</div>}
       </div>

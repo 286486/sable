@@ -1,0 +1,447 @@
+{
+  "version": 1,
+  "name": "Inkscape round trip",
+  "artboards": [
+    {
+      "frame": {
+        "height": 200,
+        "width": 300,
+        "x": 0,
+        "y": 0
+      },
+      "id": "01M38T29S8GTJN2S1004N4Q1BH",
+      "name": "Artboard 1"
+    },
+    {
+      "background": "#FFF4D6",
+      "frame": {
+        "height": 120,
+        "width": 120,
+        "x": 320,
+        "y": 0
+      },
+      "id": "01M38T29S9V6NZ3YY4ARKXBP1G",
+      "name": "Artboard 2"
+    }
+  ],
+  "nodes": [
+    {
+      "blendMode": "normal",
+      "id": "01M38T29S9B0JGME3PRR084TCX",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "Layer 1",
+      "opacity": 1,
+      "parentId": null,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "layer",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#3366CC",
+            "type": "solid"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#112244",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 3
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "height": 70,
+      "id": "01M38T29SBZ873XP2NBD2K6CYR",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "Card",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 12,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 120,
+      "x": 20,
+      "y": 20
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#CC3366",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 50,
+      "id": "01M38T29SDPGEMM6AY4DF6ZSGG",
+      "index": "a1",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 90,
+      "x": 160,
+      "y": 20
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#228833",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 4
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "height": 60,
+      "id": "01M38T29SDXC0F0T3ESSQD0P4P",
+      "index": "a2",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 60,
+      "x": 160,
+      "y": 90
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "round",
+            "color": "#000000",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 2
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "id": "01M38T29SE45Q1MFZT7V62RNER",
+      "index": "a3",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "line",
+      "visible": true,
+      "x1": 20,
+      "x2": 140,
+      "y1": 110,
+      "y2": 180
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#FFCC00",
+            "type": "solid"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#AA6600",
+            "dash": [],
+            "join": "round",
+            "miterLimit": 10,
+            "width": 1.5
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "cx": 260,
+      "cy": 150,
+      "id": "01M38T29SE4B9033SCJSNYGK5N",
+      "index": "a5",
+      "innerRadius": 15,
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "outerRadius": 35,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "points": 5,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "star",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#FFFFFF",
+            "type": "solid"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#000000",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 1
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "cx": 60,
+      "cy": 150,
+      "id": "01M38T29SEFEYC07RFPP33MMPK",
+      "index": "a4",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 30,
+      "sides": 6,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "polygon",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#FF000080",
+            "type": "solid"
+          },
+          {
+            "color": "#0000FF60",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "d": "M 330 110 L 410 110 L 370 150 Z",
+      "id": "01M38T29SF5XG8X1F6BB53G505",
+      "index": "a7",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "path",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#66CCAA",
+            "type": "solid"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#004433",
+            "dash": [4, 2],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 2
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "d": "M 330 20 L 400 40 C 420 80 380 110 340 90 Z",
+      "id": "01M38T29SFMVZ9S4MNJSJD618Z",
+      "index": "a6",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "path",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#8844AA",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 30,
+      "id": "01M38T29SG347V730S5XSA87NX",
+      "index": "a9",
+      "locked": false,
+      "meta": {
+        "quote\"d": [1, 2],
+        "source": "fixture"
+      },
+      "name": "Tagged",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 0,
+      "tags": ["badge", "export"],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 40,
+      "x": 350,
+      "y": 160
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Round & trip",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 14,
+      "id": "01M38T29SGNJ2DP1FKGXRSTAXM",
+      "index": "a8",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 20,
+      "y": 195
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#000000",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 200,
+      "id": "01M38T29SH6PBE821K41V1TSQ4",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SH6VR2ZZQ4C3WAHQMX",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 440,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29SH6VR2ZZQ4C3WAHQMX",
+      "index": "a1",
+      "locked": true,
+      "meta": {},
+      "name": "Guides",
+      "opacity": 1,
+      "parentId": null,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "layer",
+      "visible": false
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29SHCQR622MY7HCBQ5M5",
+      "index": "aA",
+      "locked": false,
+      "meta": {},
+      "name": "Turned",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#00AAAA",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 20,
+      "id": "01M38T29SHEXJF05R6BJD9A50Z",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 0.6,
+      "parentId": "01M38T29SHCQR622MY7HCBQ5M5",
+      "radius": 0,
+      "tags": [],
+      "transform": [0.8660254, 0.5, -0.5, 0.8660254, 40, -120],
+      "type": "rect",
+      "visible": true,
+      "width": 30,
+      "x": 240,
+      "y": 40
+    }
+  ]
+}

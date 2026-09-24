@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./canvas": "./src/canvas.ts",
+    "./svg": "./src/svg.ts",
     "./fonts/*": "./fonts/*"
   },
   "dependencies": {
