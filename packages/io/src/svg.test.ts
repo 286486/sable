@@ -308,3 +308,75 @@ it("warns about tags or meta that are not JSON, and drops them", () => {
   expect(leaves(file)[0]).toMatchObject({ tags: [], meta: {} });
   expect(file.warnings.map((w) => w.code)).toEqual(["INVALID_TAGS_META"]);
 });
+
+const star = (attrs: Record<string, string | number>) =>
+  `<path ${Object.entries({
+    "sodipodi:type": "star",
+    "sodipodi:sides": 5,
+    "sodipodi:cx": 260,
+    "sodipodi:cy": 150,
+    "sodipodi:r1": 35,
+    "sodipodi:r2": 15,
+    "sodipodi:arg1": -Math.PI / 2,
+    "sodipodi:arg2": -Math.PI / 2 + Math.PI / 5,
+    "inkscape:flatsided": "false",
+    "inkscape:rounded": 0,
+    "inkscape:randomized": 0,
+    d: "M 260 115 L 270 140 L 250 140 Z",
+    ...attrs,
+  })
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(" ")}/>`;
+
+it("reads Inkscape stars and polygons back as Live Shapes, a turned one with its matrix", () => {
+  const file = parseFile(
+    svg(
+      'width="400" height="300"',
+      star({}) +
+        star({
+          "inkscape:flatsided": "true",
+          "sodipodi:sides": 6,
+          "sodipodi:r1": 30,
+          "sodipodi:r2": 25.981,
+        }) +
+        star({ "sodipodi:arg1": 0, "sodipodi:arg2": Math.PI / 5 }),
+    ),
+  );
+  const [five, six, turned] = leaves(file);
+  expect(five).toMatchObject({
+    type: "star",
+    cx: 260,
+    cy: 150,
+    outerRadius: 35,
+    innerRadius: 15,
+    points: 5,
+    transform: [1, 0, 0, 1, 0, 0],
+  });
+  expect(six).toMatchObject({ type: "polygon", cx: 260, cy: 150, radius: 30, sides: 6 });
+  expect(turned).toMatchObject({
+    type: "star",
+    cx: 260,
+    cy: 150,
+    transform: [0, 1, -1, 0, 410, -110],
+  });
+  expect(file.warnings).toEqual([]);
+});
+
+it("imports what a Live Shape cannot hold yet as a Path, with a warning", () => {
+  const file = parseFile(
+    svg(
+      'width="400" height="300"',
+      star({ "inkscape:rounded": 0.2 }) +
+        star({ "sodipodi:arg2": -Math.PI / 2 + Math.PI / 5 + 0.1 }) +
+        '<path sodipodi:type="arc" sodipodi:cx="5" sodipodi:cy="5" sodipodi:rx="5" sodipodi:ry="5" sodipodi:start="0" sodipodi:end="3" sodipodi:arc-type="slice" d="M 10 5 A 5 5 0 0 1 0 5 L 5 5 Z"/>',
+    ),
+  );
+  expect(leaves(file).map((n) => n.type)).toEqual(["path", "path", "path"]);
+  expect(leaves(file)[0]).toMatchObject({ d: "M 260 115 L 270 140 L 250 140 Z" });
+  expect(file.warnings.map((w) => w.code)).toEqual(["STAR_AS_PATH", "ARC_AS_PATH"]);
+});
+
+it("reads a star with missing parameters as its Path", () => {
+  const file = parseFile(svg("", star({ "sodipodi:r2": "x" })));
+  expect(leaves(file)[0]?.type).toBe("path");
+});

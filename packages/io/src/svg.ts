@@ -353,8 +353,63 @@ class Reader {
     return href?.startsWith("#") ? this.firstStop(href.slice(1), depth + 1) : null;
   }
 
+  /**
+   * An Inkscape star or polygon that a Live Shape holds (ADR-0017): its parameters, and the turn
+   * of its first vertex away from straight up. Anything else reads as the Path its d draws.
+   */
+  private star(e: Element) {
+    const type = e.getAttributeNS(SODIPODI_NS, "type");
+    if (type === "arc") {
+      this.warn(
+        "ARC_AS_PATH",
+        "",
+        "Ellipse arcs and slices import as Paths until the ellipse gains angles.",
+      );
+    }
+    if (type !== "star") return undefined;
+    const at = (name: string) => Number(e.getAttributeNS(SODIPODI_NS, name));
+    const sides = at("sides");
+    const [arg1, arg2] = [at("arg1"), at("arg2")];
+    const flat = e.getAttributeNS(INKSCAPE_NS, "flatsided") === "true";
+    const shaped =
+      Number(e.getAttributeNS(INKSCAPE_NS, "rounded") || 0) !== 0 ||
+      Number(e.getAttributeNS(INKSCAPE_NS, "randomized") || 0) !== 0 ||
+      (!flat && Math.abs(arg2 - arg1 - Math.PI / sides) > 1e-6);
+    const params = { cx: at("cx"), cy: at("cy"), r1: at("r1"), r2: at("r2") };
+    const valid =
+      Number.isInteger(sides) &&
+      sides >= 3 &&
+      sides <= 1000 &&
+      Number.isFinite(arg1) &&
+      Number.isFinite(params.cx) &&
+      Number.isFinite(params.cy) &&
+      params.r1 >= 0 &&
+      params.r2 >= 0;
+    if (shaped || !valid) {
+      this.warn(
+        "STAR_AS_PATH",
+        "",
+        "Rounded, randomized or twisted stars import as Paths until stars gain those parameters.",
+      );
+      return undefined;
+    }
+    const turn = arg1 + Math.PI / 2;
+    return {
+      ...params,
+      sides,
+      flat,
+      turn:
+        Math.abs(turn) < 1e-6
+          ? ([...IDENTITY] as Matrix)
+          : parseTransform(`rotate(${(turn * 180) / Math.PI} ${params.cx} ${params.cy})`),
+    };
+  }
+
   /** A shape element's parameters in document coordinates, with the transform it keeps. */
-  private shape(e: Element, m: Matrix): Record<string, unknown> | null {
+  private shape(e: Element, outer: Matrix): Record<string, unknown> | null {
+    const star = e.localName === "path" ? this.star(e) : undefined;
+    // A star turned in Inkscape keeps its turn as a matrix about its centre, as Zibel writes it.
+    const m = star ? multiply(outer, star.turn) : outer;
     const num = (name: string) => length(e.getAttribute(name)) ?? 0;
     const bake = bakes(m);
     const [k, , , , tx, ty] = bake ? m : IDENTITY;
@@ -414,8 +469,21 @@ class Reader {
         if (e.localName === "polygon") segments.push({ cmd: "Z", args: [] });
         return path(segments);
       }
-      case "path":
-        return path(normalizePath(e.getAttribute("d") ?? "", "d"));
+      case "path": {
+        if (!star) return path(normalizePath(e.getAttribute("d") ?? "", "d"));
+        const { cx, cy, r1, r2, sides } = star;
+        const centre = { cx: x(cx), cy: y(cy) };
+        return star.flat
+          ? { type: "polygon", ...centre, radius: size(r1), sides, transform }
+          : {
+              type: "star",
+              ...centre,
+              outerRadius: size(r1),
+              innerRadius: size(r2),
+              points: sides,
+              transform,
+            };
+      }
       default:
         return null;
     }
