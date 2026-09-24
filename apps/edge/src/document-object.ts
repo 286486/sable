@@ -25,7 +25,6 @@ import {
   placeNodes,
   queryNodes,
   type Rect,
-  type RenderScope,
   replaceMerge,
   revert,
   serializeDocument,
@@ -38,7 +37,7 @@ import {
   type WriteReceipt,
   ZibelError,
 } from "@zibel/core";
-import { type OpenedFile, parseSvg, scopeRect, svgRect, toSvg } from "@zibel/io";
+import { normalise, type OpenedFile, scopeRect, svgRect, toSvg } from "@zibel/io";
 import { fit, renderSvg } from "@zibel/render";
 import {
   type ChangeEntry,
@@ -984,22 +983,6 @@ export class DocumentObject extends DurableObject<Env> {
       UNDO_DEPTH,
     );
   }
-}
-
-/**
- * `doc` passed through the export and import a file of `scope` took, so that rounding and the
- * importer's baking count the same on both sides of Replace's diff (ADR-0017). A nodeIds scope
- * keeps the ids `doc` still has.
- */
-function normalise(doc: Document, scope: RenderScope | undefined): Document {
-  let s = scope;
-  if (s && "nodeIds" in s) {
-    const nodeIds = s.nodeIds.filter((id) => doc.nodes.has(id));
-    if (nodeIds.length === 0) return { ...doc, nodes: new Map() };
-    s = { nodeIds };
-  }
-  const { artboards, nodes } = parseSvg(toSvg(doc, svgRect(doc, s), { scope: s }));
-  return { ...doc, artboards, nodes: new Map(nodes.map((n) => [n.id, n])) };
 }
 
 function summary(verb: string, { created = [], updated = [], deletedIds = [] }: Change) {

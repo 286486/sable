@@ -18,6 +18,7 @@ import {
   withAlpha,
   xmlId,
 } from "./dialect.ts";
+import { normalise } from "./index.ts";
 import { parseSvg } from "./read.ts";
 import { toSvg } from "./write.ts";
 
@@ -118,4 +119,32 @@ it("names the scope a file was exported from in its origin", () => {
       scope,
     });
   }
+});
+
+it("normalises a Document as a file of its scope would carry it, keeping the listed ids it still has", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "DOC",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100 }],
+  });
+  const [moved, kept] = createNodes(doc, [
+    { type: "rect", parentId, x: 0, y: 0, width: 10.00049, height: 10 },
+    { type: "ellipse", parentId, x: 50, y: 50, width: 20, height: 20 },
+  ]).nodes;
+  if (!moved || !kept) throw new Error("setup");
+  // A move is baked into x and y on import, as Inkscape's optimised transforms do.
+  moved.transform = [1, 0, 0, 1, 5, 7];
+  const all = normalise(doc, undefined);
+  expect(all.nodes.get(moved.id)).toMatchObject({
+    x: 5,
+    y: 7,
+    width: 10,
+    transform: [1, 0, 0, 1, 0, 0],
+  });
+  expect(all.nodes.size).toBe(doc.nodes.size);
+  const one = normalise(doc, { nodeIds: [kept.id, "01M38T29S8GTJN2S1004N4Q1BH"] });
+  expect([...one.nodes.values()].filter((n) => n.type !== "layer").map((n) => n.id)).toEqual([
+    kept.id,
+  ]);
+  expect(normalise(doc, { nodeIds: ["01M38T29S8GTJN2S1004N4Q1BH"] }).nodes.size).toBe(0);
 });
