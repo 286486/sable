@@ -1208,14 +1208,23 @@ it("serves skill://zibel/drawing-conventions as a resource and points at it on i
   expect(listed).toContainEqual(expect.objectContaining({ uri, mimeType: "text/markdown" }));
   const [doc] = (await rpc("resources/read", { uri })).body.result.contents;
   expect(doc).toMatchObject({ uri, mimeType: "text/markdown" });
-  for (const fact of ["#RRGGBB", "y down", "parentId", "ifRev", "zibel_doc_changes"]) {
+  for (const fact of [
+    "#RRGGBB",
+    "y down",
+    "parentId",
+    "ifRev",
+    "zibel_doc_changes",
+    "zibel_json",
+    "zibel_doc_open",
+    "INVALID_DOCUMENT",
+  ]) {
     expect(doc.text).toContain(fact);
   }
-  // Drift guard: the document names only tools that exist.
+  // Drift guard: the document names only tools that exist; zibel_json is an export format.
   const tools = new Set(
     (await rpc("tools/list")).body.result.tools.map((t: { name: string }) => t.name),
   );
-  for (const [name] of doc.text.matchAll(/zibel_[a-z_]+/g)) expect(tools).toContain(name);
+  for (const [name] of doc.text.matchAll(/zibel_(?!json\b)[a-z_]+/g)) expect(tools).toContain(name);
   expect((await rpc("resources/read", { uri: "skill://zibel/nope" })).body.error).toBeDefined();
 });
 
