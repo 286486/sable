@@ -43,6 +43,45 @@ it("draws text in the bundled font, inside the bounds node_get reports", async (
   expect(drawn.filter((p) => !inside(p))).toEqual([]);
 });
 
+/** The runs of consecutive rows that hold ink: one per drawn line of text. */
+const bands = (drawn: [number, number][]) =>
+  [...new Set(drawn.map(([, y]) => y))]
+    .sort((a, b) => a - b)
+    .filter((y, i, ys) => ys[i - 1] !== y - 1).length;
+
+it("draws each line of Point Type and each shown line of Area Type, inside their bounds", async () => {
+  const draw = async (input: object) => {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+    });
+    const [text] = createNodes(doc, [{ parentId: defaultLayerId, ...input } as never]).nodes;
+    const b = text && bounds(doc, text);
+    if (!b) throw new Error("setup");
+    const drawn = await ink(toSvg(doc));
+    const inside = ([x, y]: [number, number]) =>
+      b.x - 1 <= x && x < b.x + b.width + 1 && b.y - 1 <= y && y < b.y + b.height + 1;
+    return { lines: bands(drawn), outside: drawn.filter((p) => !inside(p)) };
+  };
+  expect(await draw({ type: "text", x: 20, y: 25, content: "Hg\nHg\nHg", fontSize: 24 })).toEqual({
+    lines: 3,
+    outside: [],
+  });
+  // 60 pt holds four 14.4 pt lines; the fifth overflows and is not drawn.
+  expect(
+    await draw({
+      type: "text",
+      kind: "area",
+      x: 20,
+      y: 10,
+      width: 100,
+      height: 60,
+      content: "one two three four five six seven eight nine ten eleven twelve thirteen fourteen",
+    }),
+  ).toEqual({ lines: 4, outside: [] });
+});
+
 it("keeps runs of spaces, so the drawn width follows the advance sum", async () => {
   const svg = (content: string) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100"><rect width="400" height="100" fill="#FFFFFF"/>` +
