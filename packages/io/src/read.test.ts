@@ -1300,6 +1300,19 @@ describe("gradients (ADR-0026)", () => {
     // The far corner is 2.83 radii out, so three periods.
     expect(radial).toMatchObject({ center: { x: 0, y: 0 }, radius: 30 });
     expect(radial.stops).toHaveLength(6);
+    // Stops short of the ends hold their colours out to each period's edge.
+    const inset = gradientOf(
+      '<rect x="0" y="0" width="20" height="10" fill="url(#g)"/>',
+      `<linearGradient id="g" gradientUnits="userSpaceOnUse" x2="10" spreadMethod="repeat"><stop offset=".3" stop-color="#000"/><stop offset="1" stop-color="#FFF"/></linearGradient>`,
+    );
+    expect(colors(inset)).toEqual([
+      "0 #000000",
+      "0.15 #000000",
+      "0.5 #FFFFFF",
+      "0.5 #000000",
+      "0.65 #000000",
+      "1 #FFFFFF",
+    ]);
   });
 
   it("warns about fr and drops a pattern as before", () => {

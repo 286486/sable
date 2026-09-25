@@ -594,6 +594,18 @@ it("writes an evenodd Clipping Path's clip-rule, and one element for a painted o
     `fill-rule="evenodd" id="z-${clip.id}" fill="#FF0000" clip-rule="evenodd"/></clipPath>`,
   );
   expect(svg).not.toContain("zibel:stack");
+  // A <clipPath> cannot hold <defs>, and its paint is never drawn: a gradient on it is none.
+  const stops = [
+    { offset: 0, color: "#000000" },
+    { offset: 1, color: "#FFFFFF" },
+  ];
+  const start = { x: 0, y: 0 };
+  const gradient = { type: "linear" as const, stops, start, end: { x: 9, y: 0 } };
+  const shaded = { fills: [{ type: "gradient" as const, gradient }], strokes: [] };
+  doc.nodes.set(clip.id, { ...(doc.nodes.get(clip.id) as ShapeNode), appearance: shaded });
+  const clipped = toSvg(doc);
+  expect(clipped).toContain(`id="z-${clip.id}" fill="none" clip-rule="evenodd"/></clipPath>`);
+  expect(clipped).not.toContain("Gradient");
 });
 
 it("keeps the clip around a listed Node inside a Clipping Mask, and draws only that Node", () => {

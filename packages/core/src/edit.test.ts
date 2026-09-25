@@ -277,6 +277,29 @@ describe("updateNodes", () => {
     });
   });
 
+  it("fills a turned Node's gradient geometry from its own, untransformed bounds", () => {
+    const { doc, r } = setup();
+    transformNodes(doc, { nodeIds: [r.id], rotate: 90 });
+    const stops = [
+      { offset: 0, color: "#000000" },
+      { offset: 1, color: "#FFFFFF" },
+    ];
+    const fills = [{ type: "gradient", gradient: { type: "linear", stops } }];
+    updateNodes(doc, [{ nodeId: r.id, patch: { appearance: { fills } } }]);
+    const n = shape(doc, r.id) as ShapeNode & {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+    expect(n.appearance.fills[0]).toMatchObject({
+      gradient: {
+        start: { x: n.x, y: n.y + n.height / 2 },
+        end: { x: n.x + n.width, y: n.y + n.height / 2 },
+      },
+    });
+  });
+
   it("changes a star's Inkscape parameters, and refuses twist on a polygon", () => {
     const { doc, defaultLayerId } = newDoc();
     const at = { parentId: defaultLayerId, cx: 0, cy: 0 };

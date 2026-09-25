@@ -372,6 +372,36 @@ describe("gradients (ADR-0026)", () => {
     expect(circle).toContain("createRadialGradient 60 45 0 60 45 39.528");
   });
 
+  it("draws an elliptical radial gradient as its circle on a Stroke and on text", () => {
+    const radial = {
+      type: "gradient",
+      gradient: {
+        type: "radial",
+        stops,
+        radius: 40,
+        aspectRatio: 0.5,
+        angle: 30,
+        center: { x: 60, y: 45 },
+        focus: { x: 70, y: 45 },
+      },
+    };
+    const stroked = drawn({
+      ...rect,
+      appearance: { fills: [], strokes: [{ ...radial, width: 3 }] },
+    });
+    const text = drawn({
+      type: "text",
+      x: 10,
+      y: 50,
+      content: "Hi",
+      appearance: { fills: [radial] },
+    });
+    for (const log of [stroked, text]) {
+      expect(log).toContain("createRadialGradient 70 45 0 60 45 40");
+      expect(log.filter((l) => l.startsWith("transform"))).toEqual([]);
+    }
+  });
+
   it("strokes and fills text with a gradient", () => {
     const paint = { type: "gradient", gradient: { type: "linear", stops } };
     const stroked = drawn({

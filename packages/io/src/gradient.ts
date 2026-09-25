@@ -48,12 +48,19 @@ export function unroll(
     from = Math.max(from, -MAX_PERIODS / 2);
     to = from + MAX_PERIODS;
   }
+  // Each period holds its first and last colours out to its ends, so periods meet at a hard edge.
+  const [first, last] = [stops[0], stops.at(-1)] as [ColorStop, ColorStop];
+  const whole = [
+    ...(first.offset > 0 ? [{ ...first, offset: 0 }] : []),
+    ...stops,
+    ...(last.offset < 1 ? [{ ...last, offset: 1 }] : []),
+  ];
   const out: ColorStop[] = [];
   for (let k = from; k < to; k++) {
     const period =
       spread === "reflect" && Math.abs(k) % 2 === 1
-        ? stops.map((s) => ({ ...s, offset: 1 - s.offset })).reverse()
-        : stops;
+        ? whole.map((s) => ({ ...s, offset: 1 - s.offset })).reverse()
+        : whole;
     for (const s of period) out.push({ ...s, offset: n3((k - from + s.offset) / (to - from)) });
   }
   if (g.type === "linear") {

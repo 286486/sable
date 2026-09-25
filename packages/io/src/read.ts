@@ -733,7 +733,8 @@ class Reader {
     const solid = (color: string): Fill => ({ type: "solid", color });
     if (stops.length === 1) return solid(first.color);
     const bbox = !attr("gradientUnits") || attr("gradientUnits") === "objectBoundingBox";
-    const box = this.bbox(e, style);
+    const spread = attr("spreadMethod");
+    const box = bbox || spread === "reflect" || spread === "repeat" ? this.bbox(e, style) : null;
     // SVG ignores a bounding-box gradient on a box without area.
     if (bbox && !(box && box.width > 0 && box.height > 0)) return fallback();
     // A percentage is of the box, or of the viewport for userSpaceOnUse; r's of its diagonal / √2.
@@ -771,7 +772,6 @@ class Reader {
     const [a, b, c, d] = space;
     if (!(Math.abs(a * d - b * c) > 1e-12)) return fallback();
     let placed = stops;
-    const spread = attr("spreadMethod");
     if ((spread === "reflect" || spread === "repeat") && box) {
       // The element's visible box, its Stroke included, in the gradient's own space.
       const grow =

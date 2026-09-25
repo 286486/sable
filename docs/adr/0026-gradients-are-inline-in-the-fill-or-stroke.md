@@ -69,6 +69,7 @@ Gradients do not change bounds.
 | any gradient | `gradientUnits="userSpaceOnUse"`, no `spreadMethod` (pad is the default) |
 | linear | `x1 y1 x2 y2` from `start` and `end` |
 | radial | `cx cy r` from `center` and `radius`; `fx fy` from `focus`, left out when it is the centre, mapped back through the `gradientTransform` and then at its 6 decimals so it reads back to the same point; `gradientTransform` rotating by `angle` and scaling across it by `aspectRatio` about the centre, as a `matrix` at 6 decimals, left out when both are the defaults |
+| Clipping Path | `none`: a `<clipPath>` cannot hold a `<defs>`, and its paint is never drawn (ADR-0021) |
 | Color Stop | `<stop offset stop-color="#RRGGBB">`, plus `stop-opacity` at 3 decimals when the alpha is not FF, since Inkscape 1.2 draws `#RRGGBBAA` as black (ADR-0017) |
 
 Inkscape 1.2.2 keeps such a gradient verbatim on a plain save, and when the designer moves the object it appends a `gradientTransform` to it in place (measured headless). When the designer edits the gradient, Inkscape splits it into a stops-only vector gradient and a positioned one that `xlink:href`s it. Import reads all three forms.

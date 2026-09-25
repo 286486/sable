@@ -16,7 +16,6 @@ import {
   type Document,
   type Fill,
   type Gradient,
-  type Gradient as GradientInput,
   ImageShape,
   imageFrame,
   type LayerNode,
@@ -305,7 +304,7 @@ const ownBounds = (leaf: Shape | TextShape): Rect =>
 
 /** The gradient with the geometry left out filled in from the leaf's own bounds (ADR-0026). */
 function placed(
-  g: z.output<typeof GradientInput>,
+  g: z.output<typeof Gradient>,
   stops: ColorStop[],
   leaf: Shape | TextShape,
 ): Gradient {
