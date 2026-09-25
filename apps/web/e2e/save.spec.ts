@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { call } from "./mcp.ts";
 
 test("the download button saves the .zibel.json that export returns and doc_open accepts", async ({
@@ -73,4 +74,54 @@ test("Download SVG saves the Inkscape SVG that export returns at that rev", asyn
   for await (const chunk of await download.createReadStream()) text += chunk;
   const exported = await call(request, "zibel_export", { docId, format: "svg" });
   expect(text).toBe(exported.content[0].text);
+});
+
+test("the canvas draws an Image, and both downloads embed its file as export does", async ({
+  page,
+  request,
+}) => {
+  const { docId, defaultLayerId } = (
+    await call(request, "zibel_doc_create", {
+      name: "E2E",
+      artboards: [{ width: 200, height: 100 }],
+    })
+  ).structuredContent;
+  await call(request, "zibel_node_create", {
+    docId,
+    nodes: [
+      {
+        type: "image",
+        parentId: defaultLayerId,
+        src: RED_2x2_PNG,
+        x: 75,
+        y: 25,
+        width: 50,
+        height: 50,
+      },
+    ],
+  });
+
+  await page.goto(`/docs/${docId}`);
+  await expect(page.locator("body")).toContainText(/\d+%/);
+  // The Artboard is fitted to the canvas, so the Image covers the canvas's centre.
+  const centre = () =>
+    page.locator("canvas").evaluate((el: HTMLCanvasElement) => {
+      const pixel = el.getContext("2d")?.getImageData(el.width / 2, el.height / 2, 1, 1).data;
+      return Array.from(pixel ?? []);
+    });
+  await expect.poll(centre).toEqual([255, 0, 0, 255]);
+
+  for (const [button, format] of [
+    ["Download SVG", "svg"],
+    ["Download .zibel.json", "zibel_json"],
+  ]) {
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: button }).click(),
+    ]);
+    let text = "";
+    for await (const chunk of await download.createReadStream()) text += chunk;
+    const exported = await call(request, "zibel_export", { docId, format });
+    expect(text).toBe(exported.content[0].text);
+  }
 });
