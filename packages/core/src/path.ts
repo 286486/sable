@@ -336,6 +336,7 @@ function starSegments(shape: Extract<Shape, { type: "polygon" | "star" }>): Segm
   const r2 = star ? shape.innerRadius : r1;
   const arg1 = -Math.PI / 2 + (angle * Math.PI) / 180;
   const arg2 = arg1 + Math.PI / n + (((star && shape.twist) || 0) * Math.PI) / 180;
+  const step = (2 * Math.PI) / n;
   const ring = (x: number, y: number, a: number, b: number) =>
     Array.from({ length: n }, (_, i) =>
       (star
@@ -345,7 +346,8 @@ function starSegments(shape: Extract<Shape, { type: "polygon" | "star" }>): Segm
           ]
         : [[a, arg1]]
       ).map(([r = 0, arg = 0]) => {
-        const t = arg + (2 * Math.PI * i) / n;
+        // The step first, as Inkscape does: a vertex on a 1/1024 grid line seeds from the last bit.
+        const t = arg + i * step;
         return [x + r * Math.cos(t), y + r * Math.sin(t)] as const;
       }),
     ).flat();

@@ -20,9 +20,9 @@ All four are finite numbers; `rounded` and `randomized` are limited to −10…1
 
 ## The geometry
 
-Derived from Inkscape 1.2.2's output, not its source: 40 random stars and polygons (sides 3–12, radii 5–200, any angle, twist, rounding and randomisation), rebuilt by Inkscape with `object-to-path`, match the formulas below to 0.14 user units at worst.
+Derived from Inkscape 1.2.2's output, not its source: 40 random stars and polygons (sides 3–12, radii 5–200, any angle, twist, rounding and randomisation) and 10 with round-number centres and radii (sides 4–12, flat and not), rebuilt by Inkscape with `object-to-path`, match the formulas below to 0.14 user units at worst.
 
-- **Vertices.** For `i` in `0…sides−1`: the outer vertex at radius `r1`, angle `arg1 + 2πi/sides`, then, for a star, the inner vertex at `r2`, angle `arg2 + 2πi/sides`; a polygon has only the outer ones and `r2` is its inradius. Each is `(cx + r·cos t, cy + r·sin t)`. Call these `U`.
+- **Vertices.** For `i` in `0…sides−1`: the outer vertex at radius `r1`, angle `arg1 + i·(2π/sides)`, then, for a star, the inner vertex at `r2`, angle `arg2 + i·(2π/sides)`, the step computed first, as Inkscape does: a star with a round-number centre and radius puts vertices exactly on the seed's 1/1024 grid, where the last bit of the angle picks the seed, and `arg + 2πi/sides` moves a 6-point star's jittered vertex by 9 units; a polygon has only the outer ones and `r2` is its inradius. Each is `(cx + r·cos t, cy + r·sin t)`. Call these `U`.
 - **Seed.** Each vertex has its own pseudo-random stream, seeded from its `U` point. The point is computed from `cx, cy, r1, r2` first rounded to float32 (`Math.fround`), with `arg1`, `arg2` and all arithmetic in double. For each coordinate `v`: `F = floor(1024·v)`, `h = (floor(F/16) rem 1024) + (F rem 64)`, where `floor(F/16)` rounds down (an arithmetic shift, checked on negative coordinates) and `rem` is C's truncating remainder; the seed is `((h(x) << 16) + h(y))` mod 2³². The stream is the LCG `s ← (69069·s + 1) mod 2³²`, and each draw is `2s/2³² − 1`, in −1…1. A vertex takes four draws `d1…d4`.
 - **Jitter.** The drawn vertex is `V = U + randomized · max(r1, r2) · (d1, d2)`.
 - **Sharp** (`rounded = 0`): `M V0 L V1 … Z`.

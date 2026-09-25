@@ -354,3 +354,29 @@ it("rounds a randomized polygon through its outer vertices only", () => {
   ];
   closeTo(segments.slice(0, -1), [curves[4]?.slice(4) ?? [], ...curves]);
 });
+
+it("seeds a vertex on the 1/1024 grid as Inkscape does, stepping the angle first", () => {
+  // A round-number star puts vertices exactly on grid lines; Inkscape 1.2.2 rebuilt this d.
+  const inkscape = normalizePath(
+    "m 103.0284,48.329488 11.87615,30.142229 29.31483,-0.253181 -15.65282,20.442233 15.67341,31.285531 -29.38559,-3.63474 -11.78481,25.47346 L 91.368052,124.11429 57.498268,128.29347 79.562653,97.859988 57.477684,76.565703 84.841993,82.44358 Z",
+    "d",
+  );
+  const segments = shapeSegments({
+    type: "star",
+    cx: 100,
+    cy: 100,
+    outerRadius: 50,
+    innerRadius: 25,
+    points: 6,
+    angle: 0,
+    twist: 0,
+    rounded: 0,
+    randomized: 0.1,
+  });
+  expect(segments.map((s) => s.cmd)).toEqual(inkscape.map((s) => s.cmd));
+  segments.forEach((s, i) => {
+    s.args.forEach((v, k) => {
+      expect(Math.abs(v - (inkscape[i]?.args[k] ?? Number.NaN))).toBeLessThan(1e-3);
+    });
+  });
+});
