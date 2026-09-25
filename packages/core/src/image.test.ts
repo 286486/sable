@@ -43,6 +43,10 @@ it.each([
   ["a URL", "https://example.com/a.png"],
   ["broken base64", "data:image/png;base64,***"],
   ["a truncated PNG", url(PNG.slice(0, 20))],
+  [
+    "a PNG whose first chunk is not IHDR",
+    url([...SIGNATURE, ...u32be(13), 73, 68, 65, 84, ...u32be(2), ...u32be(3)]),
+  ],
 ])("refuses %s", (_, src) => {
   expect(() => readImage(src, "src")).toThrow(invalid());
 });

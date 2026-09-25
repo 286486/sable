@@ -2,7 +2,7 @@ import { exports } from "cloudflare:workers";
 import { imageId, readImage } from "@zibel/core";
 import type { ServerMessage } from "@zibel/sync";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RED_2x2_PNG } from "../../../fixtures/images.ts";
+import { BLUE_1x1_PNG, RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { call, errorOf } from "./rpc.ts";
 
 const open: WebSocket[] = [];
@@ -469,6 +469,24 @@ describe("images through the Worker", () => {
       code: "INVALID_DOCUMENT",
       path: `images.${"c".repeat(64)}`,
     });
+  });
+
+  it("stores a file the designer relinked in the editor when Replace brings it back", async () => {
+    const { docId, id } = await withImage();
+    const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text as string;
+    const res = await exports.default.fetch(`http://zibel/api/docs/${docId}/replace`, {
+      method: "POST",
+      body: svg.replace(RED_2x2_PNG, BLUE_1x1_PNG),
+    });
+    expect(await res.json()).toMatchObject({ updatedIds: [id] });
+    const blue = await imageId(readImage(BLUE_1x1_PNG, "src").bytes);
+    const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent;
+    expect(nodes[0]).toMatchObject({ src: blue });
+    const served = await get(`/api/docs/${docId}/images/${blue}`);
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("image/png");
+    await served.body?.cancel();
   });
 
   it("places an SVG holding an embedded PNG, and serves its file", async () => {

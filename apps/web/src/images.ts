@@ -39,6 +39,8 @@ const srcs = (doc: Document) =>
 export function imageCache(docId: string, onLoad: () => void, io: ImageIO = browserIO) {
   const loaded = new Map<string, CachedImage>();
   const loading = new Map<string, Promise<CachedImage>>();
+  /** Files that failed, not fetched again on every redraw; a download still retries them. */
+  const failed = new Set<string>();
   const load = (id: string): Promise<CachedImage> => {
     const known = loaded.get(id);
     if (known) return Promise.resolve(known);
@@ -63,10 +65,20 @@ export function imageCache(docId: string, onLoad: () => void, io: ImageIO = brow
     /** Starts fetching every file the Document's Images name that is not here yet. */
     want(doc: Document) {
       for (const id of srcs(doc)) {
-        if (!loaded.has(id)) load(id).catch((e) => console.warn(e));
+        if (loaded.has(id) || failed.has(id)) continue;
+        load(id).catch((e) => {
+          failed.add(id);
+          console.warn(e);
+        });
       }
     },
     /** Every file the Document's Images name, for a download. */
-    ready: (doc: Document) => Promise.all([...srcs(doc)].map(load)),
+    ready: (doc: Document) =>
+      Promise.all(
+        [...srcs(doc)].map((id) => {
+          failed.delete(id);
+          return load(id);
+        }),
+      ),
   };
 }

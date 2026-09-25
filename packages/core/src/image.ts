@@ -43,7 +43,8 @@ function decode(src: string, path: string): Uint8Array<ArrayBuffer> {
 function sniff(b: Uint8Array): ImageInfo | undefined {
   const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
   const at = (i: number, ...bytes: number[]) => bytes.every((x, k) => b[i + k] === x);
-  if (at(0, 137, 80, 78, 71, 13, 10, 26, 10) && b.length >= 24) {
+  // The signature, then the IHDR chunk, which holds the size.
+  if (at(0, 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82) && b.length >= 24) {
     return { mime: "image/png", width: view.getUint32(16), height: view.getUint32(20) };
   }
   if (at(0, 71, 73, 70, 56) && (at(4, 55, 97) || at(4, 57, 97)) && b.length >= 10) {

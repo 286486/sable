@@ -56,3 +56,18 @@ it("tries a file again after a failed fetch", async () => {
   await cache.ready(doc);
   expect(cache.get(a)).toBeDefined();
 });
+
+it("does not fetch a failed file again on every redraw", async () => {
+  const { doc, a } = scene();
+  const deps = io();
+  deps.fetch.mockResolvedValue(new Response("gone", { status: 404 }));
+  const cache = imageCache("D", () => {}, deps);
+  cache.want(doc);
+  await vi.waitFor(() => expect(deps.fetch).toHaveBeenCalledTimes(2));
+  await new Promise((r) => setTimeout(r, 0));
+  cache.want(doc);
+  expect(deps.fetch).toHaveBeenCalledTimes(2);
+  deps.fetch.mockImplementation(async (url: string) => new Response(new Blob([url])));
+  await cache.ready(doc);
+  expect(cache.get(a)).toBeDefined();
+});

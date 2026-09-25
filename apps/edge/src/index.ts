@@ -21,7 +21,7 @@ export default {
     }
     const [, imageDoc, imageSrc] =
       url.pathname.match(/^\/api\/docs\/([^/]+)\/images\/([^/]+)$/) ?? [];
-    if (imageDoc && imageSrc) return image(env, imageDoc, imageSrc);
+    if (imageDoc && imageSrc && request.method === "GET") return image(env, imageDoc, imageSrc);
     const place = url.pathname.match(/^\/api\/docs\/([^/]+)\/place$/)?.[1];
     if (place && request.method === "POST") return placeFile(place, request, env);
     if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
