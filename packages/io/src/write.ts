@@ -174,7 +174,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
 }
 
 const stroke = (s: Appearance["strokes"][number]): Attrs => ({
-  ...paintAttrs("stroke", s.color),
+  ...paintAttrs("stroke", s.type === "solid" ? s.color : "none"),
   "stroke-width": s.width,
   "stroke-linecap": s.cap === SVG_STROKE.cap ? undefined : s.cap,
   "stroke-linejoin": s.join === SVG_STROKE.join ? undefined : s.join,
@@ -329,7 +329,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
     return `${defs}${element(
       {
         ...own,
-        ...(f ? paintAttrs("fill", f.color) : { fill: "none" }),
+        ...(f?.type === "solid" ? paintAttrs("fill", f.color) : { fill: "none" }),
         ...(s && stroke(s)),
         // Inside a <clipPath> SVG reads clip-rule, not fill-rule.
         "clip-rule":
@@ -339,7 +339,7 @@ function node(doc: Document, n: Node, walk: Walk): string {
     )}`;
   }
   const paints = [
-    ...fills.map((f) => element(paintAttrs("fill", f.color))),
+    ...fills.map((f) => element(paintAttrs("fill", f.type === "solid" ? f.color : "none"))),
     ...strokes.map((s) => element({ fill: "none", ...stroke(s) })),
   ].join("");
   return `${defs}<g${attrs({ ...own, [zibel("stack")]: "true", style: style(...looks) })}>${paints}</g>`;

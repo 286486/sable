@@ -141,12 +141,14 @@ function draw(
       trace(ctx, shapeSegments(n));
     }
     for (const f of n.appearance.fills) {
+      if (f.type !== "solid") continue;
       ctx.fillStyle = f.color;
       if (lines) for (const l of lines) ctx.fillText(l.text, l.x, l.y);
       else if (n.type === "path" && n.fillRule === "evenodd") ctx.fill("evenodd");
       else ctx.fill();
     }
     for (const s of n.appearance.strokes) {
+      if (s.type !== "solid") continue;
       ctx.strokeStyle = s.color;
       ctx.lineWidth = s.width;
       ctx.lineCap = s.cap;

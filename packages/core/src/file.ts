@@ -17,11 +17,11 @@ import {
   type AppearanceInput,
   type Artboard,
   type Document,
-  Fill,
   type Node,
   Rect,
   SHAPES,
-  Stroke,
+  StoredFill,
+  StoredStroke,
   TextShape,
   textFrame,
   Writable,
@@ -80,8 +80,8 @@ const base = {
   transform: z.tuple([z.number(), z.number(), z.number(), z.number(), z.number(), z.number()]),
 };
 const appearance = z.strictObject({
-  fills: z.array(z.strictObject(Fill.shape)),
-  strokes: z.array(z.strictObject(Stroke.shape)),
+  fills: z.array(StoredFill),
+  strokes: z.array(StoredStroke),
 });
 /** A Node exactly as stored; unknown keys are refused so nothing in a file is dropped silently. */
 const StoredNode = z.discriminatedUnion("type", [

@@ -13,6 +13,8 @@ import {
   type ArtboardInput,
   type ChildInput,
   type Document,
+  type Fill,
+  type Gradient,
   ImageShape,
   imageFrame,
   type LayerNode,
@@ -23,6 +25,7 @@ import {
   type Rect,
   Shape,
   type ShapeNode,
+  type Stroke,
   TextShape,
   textFrame,
 } from "./schema.ts";
@@ -279,15 +282,17 @@ const defaultAppearance = () =>
 const defaultTypeAppearance = () => AppearanceInput.parse({ fills: [{ color: "#000000" }] });
 
 export function paint(a: AppearanceInput, path: string): Appearance {
+  const one = <T extends AppearanceInput["fills" | "strokes"][number]>(p: T, at: string) => {
+    if (p.type !== "gradient")
+      return { ...p, type: "solid", color: parseColor(p.color, `${at}.color`) };
+    const stops = p.gradient.stops
+      .map((s, k) => ({ ...s, color: parseColor(s.color, `${at}.gradient.stops[${k}].color`) }))
+      .sort((s, t) => s.offset - t.offset);
+    return { ...p, gradient: { ...p.gradient, stops } as Gradient };
+  };
   return {
-    fills: a.fills.map((f, i) => ({
-      ...f,
-      color: parseColor(f.color, `${path}.fills[${i}].color`),
-    })),
-    strokes: a.strokes.map((s, i) => ({
-      ...s,
-      color: parseColor(s.color, `${path}.strokes[${i}].color`),
-    })),
+    fills: a.fills.map((f, i) => one(f, `${path}.fills[${i}]`) as Fill),
+    strokes: a.strokes.map((s, i) => one(s, `${path}.strokes[${i}]`) as Stroke),
   };
 }
 

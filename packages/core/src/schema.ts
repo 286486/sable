@@ -35,9 +35,84 @@ export type RenderScope = z.infer<typeof RenderScope>;
 export const RenderOverlay = z.enum(["bounds", "ids", "artboards"]);
 export type RenderOverlay = z.infer<typeof RenderOverlay>;
 
-export const Fill = z.object({ type: z.literal("solid").default("solid"), color: Color });
-export const Stroke = z.object({
-  color: Color,
+const Point = z.object({ x: z.number(), y: z.number() });
+export type Point = z.infer<typeof Point>;
+
+export const ColorStop = z.object({
+  offset: z.number().min(0).max(1).describe("0 at the gradient's start, 1 at its end."),
+  color: Color.describe("#RRGGBB or #RRGGBBAA; the alpha is the stop's opacity."),
+});
+const stops = z
+  .array(ColorStop)
+  .min(2)
+  .describe("At least 2 Color Stops; beyond the first and last the colour holds.");
+const positive = z.number().positive();
+
+/** A gradient's full geometry, in the leaf's own coordinates, before its transform (ADR-0026). */
+const linear = { type: z.literal("linear"), stops, start: Point, end: Point };
+const radial = {
+  type: z.literal("radial"),
+  stops,
+  center: Point,
+  radius: positive,
+  aspectRatio: positive,
+  angle: z.number(),
+  focus: Point,
+};
+
+// SVG paints a gradient without length in its last stop's colour and Canvas2D paints nothing.
+const distinct = (g: { start?: Point; end?: Point }, ctx: z.RefinementCtx) => {
+  if ((g.start === undefined) !== (g.end === undefined)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "start and end come together; leave both out to span the bounds.",
+      path: [g.start ? "end" : "start"],
+    });
+  } else if (g.start && g.end && g.start.x === g.end.x && g.start.y === g.end.y) {
+    ctx.addIssue({ code: "custom", message: "end must differ from start.", path: ["end"] });
+  }
+};
+
+/** A gradient as written; geometry left out comes from the leaf's own bounds. */
+export const Gradient = z.discriminatedUnion("type", [
+  z
+    .object({
+      ...linear,
+      start: Point.optional().describe("Where the first stop sits. Default: from angle."),
+      end: Point.optional().describe("Where the last stop sits; with start or neither."),
+      angle: z
+        .number()
+        .optional()
+        .describe(
+          "Without start and end: the direction across the bounds, degrees clockwise from 3 o'clock; 0 is left to right, 90 top to bottom. Not stored.",
+        ),
+    })
+    .superRefine(distinct),
+  z.object({
+    ...radial,
+    center: Point.optional().describe("Default: the bounds' centre."),
+    radius: positive
+      .optional()
+      .describe("Where the last stop sits. Default: sqrt((w² + h²) / 8), Illustrator's."),
+    aspectRatio: positive.default(1).describe("The radius across angle is radius × aspectRatio."),
+    angle: z.number().default(0).describe("Direction of radius, degrees clockwise from 3 o'clock."),
+    focus: Point.optional().describe(
+      "Where the first stop sits. Default: center; moved onto the ellipse when outside it.",
+    ),
+  }),
+]);
+/** A gradient exactly as stored. */
+export const StoredGradient = z.discriminatedUnion("type", [
+  z.strictObject(linear).superRefine(distinct),
+  z.strictObject(radial),
+]);
+export type ColorStop = { offset: number; color: string };
+type Stored<G> = G extends unknown ? Omit<G, "stops"> & { stops: ColorStop[] } : never;
+export type Gradient = Stored<z.output<typeof StoredGradient>>;
+
+const solid = { type: z.literal("solid").optional(), color: Color };
+const gradient = { type: z.literal("gradient"), gradient: Gradient };
+const line = {
   width: z.number().positive().default(1),
   cap: z.enum(["butt", "round", "square"]).default("butt"),
   join: z.enum(["miter", "round", "bevel"]).default("miter"),
@@ -46,18 +121,34 @@ export const Stroke = z.object({
     .array(z.number().nonnegative())
     .default([])
     .describe("Alternating dash and gap lengths in pt, e.g. [4, 2]; empty for a solid Stroke."),
-});
-// ponytail: solid Fills only; gradients and patterns arrive with their own issue.
+};
+// `type` is optional, not defaulted: zod refuses a defaulted discriminator. `paint` writes it.
+export const Fill = z.discriminatedUnion("type", [z.object(solid), z.object(gradient)]);
+export const Stroke = z.discriminatedUnion("type", [
+  z.object({ ...solid, ...line }),
+  z.object({ ...gradient, ...line }),
+]);
+/** The same, with every gradient's geometry, as a file stores them. */
+export const StoredFill = z.discriminatedUnion("type", [
+  z.strictObject(solid),
+  z.strictObject({ ...gradient, gradient: StoredGradient }),
+]);
+export const StoredStroke = z.discriminatedUnion("type", [
+  z.strictObject({ ...solid, ...line }),
+  z.strictObject({ ...gradient, ...line, gradient: StoredGradient }),
+]);
+
 export type AppearanceInput = z.output<typeof AppearanceInput>;
 export const AppearanceInput = z.object({
   fills: z.array(Fill).default([]).describe("Painted bottom to top."),
   strokes: z.array(Stroke).default([]).describe("Painted bottom to top, above every Fill."),
 });
 
-type Painted<T extends z.ZodType> = Omit<z.output<T>, "color"> & { color: string };
+export type Fill = { type: "solid"; color: string } | { type: "gradient"; gradient: Gradient };
+export type Stroke = Fill & Omit<z.output<(typeof Stroke.options)[0]>, "type" | "color">;
 export interface Appearance {
-  fills: Painted<typeof Fill>[];
-  strokes: Painted<typeof Stroke>[];
+  fills: Fill[];
+  strokes: Stroke[];
 }
 
 export const ArtboardInput = z.object({

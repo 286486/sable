@@ -13,7 +13,7 @@ import {
 } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { compose } from "./matrix.ts";
-import { type Node, NodeQuery } from "./schema.ts";
+import { AppearanceInput, type Node, NodeQuery } from "./schema.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -113,6 +113,97 @@ it("stores an Appearance with its defaults filled in", () => {
         { color: "#000000AA", width: 2, cap: "round", join: "miter", miterLimit: 10, dash: [4, 2] },
       ],
     },
+  });
+});
+
+describe("gradients", () => {
+  const last = { offset: 1, color: "#9FD0FF00" };
+  const first = { offset: 0, color: "#1F5FBF" };
+  const stops = [last, first];
+  const linear = { type: "linear", stops, start: { x: 0, y: 5 }, end: { x: 20, y: 5 } } as const;
+  const radial = {
+    type: "radial",
+    stops,
+    center: { x: 30, y: 25 },
+    radius: 20,
+    aspectRatio: 0.5,
+    angle: 30,
+    focus: { x: 35, y: 25 },
+  } as const;
+
+  it("stores a gradient Fill and Stroke with sorted stops beside a solid Fill", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [node] = createNodes(doc, [
+      {
+        ...rect(defaultLayerId),
+        appearance: {
+          fills: [{ color: "#FF8800" }, { type: "gradient", gradient: linear }],
+          strokes: [{ type: "gradient", gradient: radial, width: 2 }],
+        },
+      },
+    ]).nodes;
+    const sorted = [first, last];
+    expect(node).toMatchObject({
+      appearance: {
+        fills: [
+          { type: "solid", color: "#FF8800" },
+          { type: "gradient", gradient: { ...linear, stops: sorted } },
+        ],
+        strokes: [{ type: "gradient", gradient: { ...radial, stops: sorted }, width: 2 }],
+      },
+    });
+  });
+
+  it("keeps equal offsets in the order given, for a hard edge", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const edge = [
+      { offset: 0.5, color: "#FF0000" },
+      { offset: 0.5, color: "#0000FF" },
+      { offset: 0, color: "#000000" },
+    ];
+    const [node] = createNodes(doc, [
+      {
+        ...rect(defaultLayerId),
+        appearance: { fills: [{ type: "gradient", gradient: { ...linear, stops: edge } }] },
+      },
+    ]).nodes;
+    expect(node).toMatchObject({
+      appearance: { fills: [{ gradient: { stops: [edge[2], edge[0], edge[1]] } }] },
+    });
+  });
+
+  it("answers a bad stop colour with INVALID_COLOR at its path", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const bad = [last, { offset: 0, color: "red" }];
+    expect(
+      codeOf(() =>
+        createNodes(doc, [
+          {
+            ...rect(defaultLayerId),
+            appearance: { fills: [{ type: "gradient", gradient: { ...linear, stops: bad } }] },
+          },
+        ]),
+      ),
+    ).toMatchObject({
+      code: "INVALID_COLOR",
+      path: "nodes[0].appearance.fills[0].gradient.stops[1].color",
+    });
+  });
+
+  it.each([
+    ["one stop", { ...linear, stops: [last] }, "stops"],
+    [
+      "an offset above 1",
+      { ...linear, stops: [last, { offset: 1.5, color: "#000000" }] },
+      "stops.1.offset",
+    ],
+    ["start without end", { type: "linear", stops, start: { x: 0, y: 0 } }, "end"],
+    ["start equal to end", { ...linear, end: linear.start }, "end"],
+    ["a radius of 0", { ...radial, radius: 0 }, "radius"],
+    ["an aspect ratio of 0", { ...radial, aspectRatio: 0 }, "aspectRatio"],
+  ])("refuses %s with the field's path", (_, gradient, path) => {
+    const parsed = AppearanceInput.safeParse({ fills: [{ type: "gradient", gradient }] });
+    expect(parsed.error?.issues[0]?.path.join(".")).toBe(`fills.0.gradient.${path}`);
   });
 });
 

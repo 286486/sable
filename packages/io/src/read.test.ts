@@ -226,6 +226,7 @@ it("resolves presentation attributes, <style> classes, style and inheritance int
   });
   expect(look(stroked)?.strokes).toEqual([
     {
+      type: "solid",
       color: "#00000080",
       width: 1,
       cap: "round",

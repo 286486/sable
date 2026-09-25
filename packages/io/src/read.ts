@@ -621,6 +621,7 @@ class Reader {
         stroke && width > 0
           ? [
               {
+                type: "solid",
                 color: stroke,
                 width,
                 cap: (CAPS.includes(style["stroke-linecap"] ?? "")

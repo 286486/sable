@@ -229,7 +229,15 @@ describe("updateNodes", () => {
       { nodeId: r.id, patch: { appearance: { strokes: [{ color: "#000000" }] } } },
     ]);
     expect(shape(doc, r.id).appearance.strokes).toEqual([
-      { color: "#000000", width: 1, cap: "butt", join: "miter", miterLimit: 10, dash: [] },
+      {
+        type: "solid",
+        color: "#000000",
+        width: 1,
+        cap: "butt",
+        join: "miter",
+        miterLimit: 10,
+        dash: [],
+      },
     ]);
   });
 

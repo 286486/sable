@@ -105,16 +105,10 @@ describe("write tools pass the write and its options apart", () => {
       { nodeId: "c", patch: { preserveAspectRatio: "xMidYMid meet" } },
     ];
     await call("zibel_node_update", { docId: "d", updates, ...opts });
-    // A Fill is always solid so far; the list replaces, and strokes is not sent.
-    const fills = [{ type: "solid", color: "#FF0000" }];
     const [docId, sent, options] = service.updateNodes.mock.calls[0] ?? [];
     expect([docId, options]).toEqual(["d", { ...opts, partial: false }]);
     // Strict: a default filled in as an undefined key would still reach the Durable Object.
-    expect(sent).toStrictEqual([
-      updates[0],
-      { nodeId: "b", patch: { appearance: { fills } } },
-      updates[2],
-    ]);
+    expect(sent).toStrictEqual([updates[0], updates[1], updates[2]]);
   });
 
   it("node_delete", async () => {
