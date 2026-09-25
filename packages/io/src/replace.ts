@@ -152,8 +152,12 @@ function merge(
       working.set(f.id, f);
       continue;
     }
-    const changed = keysChanged(base, f);
+    let changed = keysChanged(base, f);
     if (changed.length === 0) continue;
+    // Ranges index into the content, so a changed text comes with its own (ADR-0029).
+    if (changed.includes("content") || changed.includes("ranges")) {
+      changed = [...new Set([...changed, "content", "ranges"])];
+    }
     // Deleted since: applyRows skips and reports it.
     if (!now) rows.push({ id: f.id, base, working: f });
     else

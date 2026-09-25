@@ -335,6 +335,50 @@ describe("replaceFile", () => {
   });
 });
 
+describe("replaceFile on Character Ranges (ADR-0029)", () => {
+  const withText = () => {
+    const { doc, layer } = setup();
+    const [t] = createNodes(doc, [
+      {
+        type: "text",
+        parentId: layer,
+        x: 0,
+        y: 80,
+        content: "Hi",
+        ranges: [{ start: 0, end: 1, fill: "#FF0000" }],
+      },
+    ]).nodes as [Node];
+    const e = exportNow(doc);
+    /** The export as a designer edited it. */
+    const edited = (patch: object) => {
+      const copy = structuredClone(doc);
+      set(copy, t, patch);
+      return toSvg(copy);
+    };
+    return { doc, t, e, edited };
+  };
+
+  it("takes the file's ranges with the content it changed", () => {
+    const { doc, t, e, edited } = withText();
+    const file = edited({ content: "Hey" });
+    since(doc, () => set(doc, t, { ranges: [{ start: 1, end: 2, fill: "#0000FF" }] }));
+    replace(doc, file, e);
+    expect(doc.nodes.get(t.id)).toMatchObject({
+      content: "Hey",
+      ranges: [{ start: 0, end: 1, fill: "#FF0000" }],
+    });
+  });
+
+  it("takes the file's content with the ranges it changed", () => {
+    const { doc, t, e, edited } = withText();
+    const ranges = [{ start: 1, end: 2, fill: "#00FF00" }];
+    const file = edited({ ranges });
+    since(doc, () => set(doc, t, { content: "Hello world" }));
+    replace(doc, file, e);
+    expect(doc.nodes.get(t.id)).toMatchObject({ content: "Hi", ranges });
+  });
+});
+
 describe("replaceFile with Images", () => {
   /** One Image of the red PNG, stored under its hash. */
   async function withImage() {
