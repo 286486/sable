@@ -660,7 +660,7 @@ describe("gradients (ADR-0026)", () => {
       fills: [{ type: "gradient", gradient: { ...radial, focus: { x: 70, y: 45 } } }],
     });
     expect(svg).toContain(
-      `<radialGradient id="fill-0-z-${id}" gradientUnits="userSpaceOnUse" cx="60" cy="45" r="40" fx="68.66" fy="35" ` +
+      `<radialGradient id="fill-0-z-${id}" gradientUnits="userSpaceOnUse" cx="60" cy="45" r="40" fx="68.660254" fy="35" ` +
         `gradientTransform="matrix(0.866025 0.5 -0.25 0.433013 19.288476 -4.485572)">${stopsSvg}</radialGradient>`,
     );
     const round = rectWith({ fills: [{ type: "gradient", gradient: { type: "radial", stops } }] });

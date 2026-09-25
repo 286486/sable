@@ -593,6 +593,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   }
   expect(described("zibel_node_update")).toContain("gradient");
   expect(described("zibel_doc_open")).toContain("LINKED_IMAGE_DROPPED");
+  expect(described("zibel_doc_open")).not.toMatch(/\(gradients/);
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({
       readOnlyHint: expect.any(Boolean),

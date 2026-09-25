@@ -169,7 +169,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Make a new Document from a file's text: .zibel.json as zibel_export returns it with format zibel_json, or SVG (Inkscape, Zibel's own export or plain SVG 1.1, at most 5 MB outside its embedded images, each image at most 5 MB), told apart by content. Pass the file's content, not a path.",
         "The new Document gets its own docId and starts at rev 1. Ids from .zibel.json, and z-<id> ids from SVG, are kept; SVG layers and pages become Layers and Artboards, units become pt (px counts as pt). nodes is its Layer list, as zibel_doc_outline returns it at depth 1.",
-        "Embedded PNG, JPEG and GIF images come back as Images; a linked image is dropped with LINKED_IMAGE_DROPPED. SVG content Zibel cannot hold yet (gradients, filters, masks, WebP) imports as close as it can, or is dropped, and warnings lists each kind once. A file that is not valid fails with a path into it and creates nothing.",
+        "Embedded PNG, JPEG and GIF images come back as Images; a linked image is dropped with LINKED_IMAGE_DROPPED. SVG content Zibel cannot hold yet (patterns, mesh gradients, filters, masks, WebP) imports as close as it can, or is dropped, and warnings lists each kind once. A file that is not valid fails with a path into it and creates nothing.",
       ].join(" "),
       inputSchema: {
         content: z.string().min(1).describe("The whole .zibel.json or .svg text."),

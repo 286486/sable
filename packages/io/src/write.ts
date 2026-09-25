@@ -197,13 +197,17 @@ function gradient(id: string, g: Gradient): string {
     return `<linearGradient${attrs({ ...units, ...at })}>${stops.join("")}</linearGradient>`;
   }
   const m = ellipseMatrix(g);
-  // The focus is stored where it is drawn, so it goes back through the ellipse.
-  const [fx, fy] = m ? applyTo(invert(m), g.focus.x, g.focus.y) : [g.focus.x, g.focus.y];
-  const centred =
-    formatNumber(fx) === formatNumber(g.center.x) && formatNumber(fy) === formatNumber(g.center.y);
+  const { center, focus } = g;
+  // The focus is stored where it is drawn, so it goes back through the ellipse, at the matrix's
+  // 6 decimals so it reads back to the same point.
+  const [fx, fy] = m
+    ? applyTo(invert(m), focus.x, focus.y).map((v) => Math.round(v * 1e6) / 1e6 || 0)
+    : [formatNumber(focus.x), formatNumber(focus.y)];
+  const centred = focus.x === center.x && focus.y === center.y;
   return `<radialGradient${attrs({
     ...units,
-    ...num({ cx: g.center.x, cy: g.center.y, r: g.radius, ...(!centred && { fx, fy }) }),
+    ...num({ cx: center.x, cy: center.y, r: g.radius }),
+    ...(!centred && { fx, fy }),
     gradientTransform: m && `matrix(${round(m).join(" ")})`,
   })}>${stops.join("")}</radialGradient>`;
 }
