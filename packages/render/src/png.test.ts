@@ -52,7 +52,18 @@ it("draws text in the bundled font, inside the bounds node_get reports", async (
 });
 
 it("draws each bundled face inside its own bounds (ADR-0028)", async () => {
-  const styles = ["Regular", "Italic", "Bold", "Bold Italic", "Black", "Black Italic"] as const;
+  const styles = [
+    "Regular",
+    "Italic",
+    "Bold",
+    "Bold Italic",
+    "Black",
+    "Black Italic",
+    // Exported as their own weights, which resvg must match to the face core measures them in.
+    "Light",
+    "Semibold",
+    "ExtraBold Italic",
+  ] as const;
   const drawn = await Promise.all(
     styles.map(async (fontStyle) => {
       const { doc, defaultLayerId } = createDocument({
@@ -81,12 +92,17 @@ it("draws each bundled face inside its own bounds (ADR-0028)", async () => {
     }),
   );
   expect(drawn.map((d) => d.outside)).toEqual(styles.map(() => []));
-  const [regular, italic, bold, , black] = drawn;
+  const [regular, italic, bold, , black, blackItalic, light, semibold, extraBoldItalic] = drawn;
   // Only Regular is drawn when a face is missing, so each wider face shows it loaded.
   expect(bold?.right).toBeGreaterThan(regular?.right ?? Infinity);
   expect(black?.right).toBeGreaterThan(bold?.right ?? Infinity);
   expect(italic?.key).not.toBe(regular?.key);
-  expect(new Set(drawn.map((d) => d.key)).size).toBe(6);
+  expect(new Set(drawn.slice(0, 6).map((d) => d.key)).size).toBe(6);
+  expect([light?.key, semibold?.key, extraBoldItalic?.key]).toEqual([
+    regular?.key,
+    bold?.key,
+    blackItalic?.key,
+  ]);
 });
 
 /** The runs of consecutive rows that hold ink: one per drawn line of text. */

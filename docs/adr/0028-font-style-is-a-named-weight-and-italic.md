@@ -23,13 +23,13 @@ A text Node stores `fontStyle` flat beside `fontFamily` and `fontSize`, as Illus
 | `ExtraBold` | 800 |
 | `Black` | 900 |
 
-These are the names Source Sans 3's own faces use, and the CSS Fonts weight names. That gives 18 values in all, such as `Bold`, `Black Italic`, `Italic` and `Semibold`. Any other string is a validation error that lists them. A style name maps both ways to a CSS weight and an italic flag, so SVG export and import need no table beyond this one.
+These are the CSS Fonts and OpenType weight names; Source Sans 3's faces use seven of them, all but Thin and ExtraBold. That gives 18 values in all, such as `Bold`, `Black Italic`, `Italic` and `Semibold`. Any other string is a validation error that lists them. A style name maps both ways to a CSS weight and an italic flag, so SVG export and import need no table beyond this one.
 
 The value is a closed set rather than any string, unlike `fontFamily`. A family name has to survive a round trip untouched (F-TEXT-11), and SVG carries it as the same free string. SVG has no style name. It carries a weight number and `font-style`, so a free-form name such as "Condensed Bold" could not be exported, and one read back from SVG could only be one of these 18.
 
 ## Bundled faces
 
-Six faces of Source Sans 3 3.052 ship under `packages/render/fonts/`, unmodified per the OFL, next to the Regular already there: Regular, Italic, Bold, Bold Italic, Black and Black Italic. Every bundled weight has its italic, so italic never has to be synthesised. All six share `unitsPerEm` 1000, ascender 1000 and descender −326.
+Six faces of Source Sans 3 3.052 ship under `packages/render/fonts/`, unmodified per the OFL, the Regular already there and five more: Regular, Italic, Bold, Bold Italic, Black and Black Italic. Every bundled weight has its italic, so italic never has to be synthesised. All six share `unitsPerEm` 1000, ascender 1000 and descender −326.
 
 A style the bundle lacks renders in the nearest bundled face by CSS Fonts' matching rules. Italic is chosen first. Then a weight at or below 500 looks lighter first and then heavier, and a weight above 500 looks heavier first. So `Thin`, `ExtraLight`, `Light` and `Medium` render in Regular, `Semibold` in Bold, and `ExtraBold` in Black, with the same italic.
 
@@ -57,7 +57,7 @@ The `FONT_MISSING` receipt warning now fires when a text's family or style is no
 
 ## Consequences
 
-- The five TTFs add 1.8 MB, and five more advance tables in `core` add about 170 KB. `wrangler deploy --dry-run` measures the Worker at 6523 KiB, 2365 KiB gzip, against 4.2 MB and 1.4 MB gzip before (#19). Workers limit only the uncompressed size, to 64 MiB on both plans (docs/research/04-cloudflare-limits.md). The browser downloads the six TTFs, 2.2 MB uncompressed, beside the JavaScript bundle.
+- The five TTFs add 1.8 MB, and five more advance tables in `core` add about 170 KB. `wrangler deploy --dry-run` measures the Worker at 6523 KiB, 2365 KiB gzip, against 4.2 MB and 1.4 MB gzip before (#19). Workers limit only the uncompressed size, to 64 MiB on both plans (docs/research/04-cloudflare-limits.md). The tables are also in the browser's JavaScript bundle, which grows from 365 KB (117 KB gzip) to 435 KB (143 KB gzip), and the browser downloads the six TTFs, 2.2 MB uncompressed, beside it.
 - A text Node stored before this ADR has no `fontStyle`: the Durable Object loads stored Nodes without the schema, and the browser takes them as sent. Every reader goes through `fontFace` or `bundledStyle` in `core`, which read a missing style as `Regular`, and the schema default fills the field on the Node's next write. No hosted Document predates M1.
 - Italic bounds are advance sums, as upright bounds are. Italic overhang past the last advance is outside the geometric bounds until HarfBuzz and glyph bounds (F-TEXT-09).
 - The style of a range of characters arrives with runs (ADR-0013). `fontStyle` stays the Node-level default that a run overrides.

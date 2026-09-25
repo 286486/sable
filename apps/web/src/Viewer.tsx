@@ -39,7 +39,8 @@ const rectOf = (a: Point, b: Point): Rect => ({
 const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
 
 // The faces the Worker renders with (ADR-0013, ADR-0028), loaded once per page.
-const fontLoaded = Promise.all(
+// Settled, not all: a face that fails leaves the others to draw.
+const fontLoaded = Promise.allSettled(
   (
     [
       [regularUrl, "400", "normal"],
@@ -116,17 +117,22 @@ export function Viewer({ docId }: { docId: string }) {
   const last = useRef({ x: 0, y: 0 });
   const gesture = useRef<Gesture | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
-  /** True once the font has loaded; until then text draws in a fallback font. */
+  /** True once the faces have settled; until then text draws in a fallback font. */
   const [fontReady, setFontReady] = useState(false);
   /** Counts image files decoded, so the canvas redraws as each arrives. */
   const [imagesLoaded, setImagesLoaded] = useState(0);
   const images = useMemo(() => imageCache(docId, () => setImagesLoaded((n) => n + 1)), [docId]);
 
   useEffect(() => {
-    fontLoaded.then(
-      () => setFontReady(true),
-      (e) => console.warn("Source Sans 3 did not load; text draws in a fallback font.", e),
-    );
+    fontLoaded.then((faces) => {
+      for (const f of faces)
+        if (f.status === "rejected")
+          console.warn(
+            "A Source Sans 3 face did not load; its text draws in a fallback.",
+            f.reason,
+          );
+      setFontReady(true);
+    });
   }, []);
 
   useEffect(() => connect(docId), [docId]);

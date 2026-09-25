@@ -636,6 +636,7 @@ it("reads font-weight and font-style as the style name, inherited as CSS inherit
     'font-weight="650"',
     'font-weight="bolder"',
     'font-weight="lighter"',
+    'style="font-weight:BOLD;font-style:Italic"',
   ];
   const file = parseFile(
     svg(
@@ -654,6 +655,7 @@ it("reads font-weight and font-style as the style name, inherited as CSS inherit
     "Bold",
     "Bold",
     "Thin",
+    "Bold Italic",
     "Black",
     "Bold",
   ]);

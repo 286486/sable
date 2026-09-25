@@ -158,7 +158,7 @@ const urlId = (value: string) => /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(va
  */
 function fontWeight(value = "normal") {
   const named: Record<string, number> = { normal: 400, bold: 700, bolder: 700, lighter: 100 };
-  const n = named[value.trim()] ?? Number.parseFloat(value);
+  const n = named[value.trim().toLowerCase()] ?? Number.parseFloat(value);
   return Number.isFinite(n) ? Math.min(900, Math.max(100, Math.round(n / 100) * 100)) : 400;
 }
 
@@ -527,7 +527,7 @@ class Reader {
     const leading = lineHeight(own["line-height"], fontSize, k);
     const fontStyle = fontStyleName(
       fontWeight(own["font-weight"]),
-      /^(italic|oblique)\b/.test(own["font-style"] ?? ""),
+      /^(italic|oblique)\b/i.test(own["font-style"] ?? ""),
     );
     const text = {
       type: "text",
