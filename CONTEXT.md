@@ -213,11 +213,11 @@ Document 单调递增的版本序号，每提交一个 Transaction 加一。用�
 _Avoid_: Version（保留给 schema 版本）、Etag、Snapshot
 
 **Delta Log（增量日志）**：
-每个已提交 Transaction 所改 Node 的前后副本，按 Revision 索引，保留 30 天，与撤销 / 重做栈无关；栈只记最近 200 个 rev，指向它。撤销和重做反转其中一条；Replace 用它把 Document 倒回导出时的 Revision（ADR-0017，取代 ADR-0011 的随栈丢弃）。
+每个已提交 Transaction 所改 Node 的前后副本，按 Revision 索引。撤销和重做反转其中一条；一个 rev 离开撤销与重做栈（栈只记最近 200 个）时，它的副本随之删除（ADR-0011；ADR-0017 为 Replace 保留 30 天，ADR-0030 删除 Replace 后恢复）。
 _Avoid_: History（那是栈）、Changelog、Journal
 
 **WriteReceipt（写入回执）**：
-每个写工具的统一返回：`txId`、提交后的 `rev`、新增 / 修改 / 删除的 Node id、`clientKey` 到新 id 的 `keyMap`、受影响范围的 `bounds` 与 `warnings`。Agent 靠它确认改了什么，无需重读。`bounds` 是新增与修改的 Node 在写入后的几何 bounds、与删除的 Node 在写入前的 bounds 的并集；并集为空（例如只改了空 Group）时为 null。修改的 Node 只算新位置，不并入旧位置。每个入口（MCP、HTTP、Command、undo / redo、`tx_commit`、Replace、Place）都由 Document 按这一条规则算出。`partial: true` 时另附 `failed`：每个未生效项的下标与错误。Transaction 内的写入，`rev` 仍是已提交的修订号，`tx_commit` 时才递增。
+每个写工具的统一返回：`txId`、提交后的 `rev`、新增 / 修改 / 删除的 Node id、`clientKey` 到新 id 的 `keyMap`、受影响范围的 `bounds` 与 `warnings`。Agent 靠它确认改了什么，无需重读。`bounds` 是新增与修改的 Node 在写入后的几何 bounds、与删除的 Node 在写入前的 bounds 的并集；并集为空（例如只改了空 Group）时为 null。修改的 Node 只算新位置，不并入旧位置。每个入口（MCP、HTTP、Command、undo / redo、`tx_commit`、Place）都由 Document 按这一条规则算出。`partial: true` 时另附 `failed`：每个未生效项的下标与错误。Transaction 内的写入，`rev` 仍是已提交的修订号，`tx_commit` 时才递增。
 _Avoid_: Result、Response、Ack
 
 **Actor（参与者）**：
@@ -245,19 +245,23 @@ _Avoid_: Annotation、Guide（那是参考线）；不要单说 Overlay（ADR-00
 ## 导入与往返
 
 **Round Trip（往返）**：
-Document 导出为 SVG、在 Inkscape 中编辑、再回到 Zibel 的全过程。Document 能表达的一切结构都必须保留；Inkscape 能表达而 Zibel 不能的，是 Zibel 的缺口（ADR-0017）。
+Document 导出为 SVG、在 Inkscape 中编辑、再在 Zibel 中打开为一个新 Document 的全过程；需要的图稿再经 Copy 粘贴回原 Document。Document 能表达的一切结构都必须保留；Inkscape 能表达而 Zibel 不能的，是 Zibel 的缺口（ADR-0017）。
 _Avoid_: Sync、Roundtrip conversion
 
 **Open（打开）**：
-把一个文件（`.zibel.json` 或 SVG）变成一个新 Document，对应 Illustrator 的 File > Open。
-_Avoid_: Load、Import（泛指时）
+把一个文件（`.zibel.json` 或 SVG）变成一个新 Document，在浏览器中新开一个 Document Tab 显示，对应 Illustrator 的 File > Open。导入一个编辑过的文件就是 Open；Zibel 不把文件合并回已有 Document（ADR-0030 删除了 Replace）。
+_Avoid_: Load、Import（泛指时）、Replace、Update from file
 
-**Replace（替换）**：
-用一个来自该 Document 的文件更新它：以导出时的 Revision 为基准三方合并，只应用文件相对基准改动的属性，删除只限于文件的导出范围，作为一个可撤销的 Transaction。它是合并，不是覆盖。
-_Avoid_: Overwrite、Reload、Sync
+**Document Tab（文档标签页）**：
+浏览器里一个打开着的 Document，对应 Illustrator 的文档标签页。一个 Tab 就是一个 Document，不是 Document 里的一层容器；打开哪些 Tab 只是浏览器状态，关闭 Tab 不删除 Document，MCP 看不到 Tab（ADR-0030）。
+_Avoid_: Sheet、Page、Workbook、Window
+
+**Copy（拷贝）**：
+把 Selection 作为 Node 范围的 SVG 导出写进系统剪贴板，对应 Illustrator 的 Edit > Copy。Cut 是 Copy 后删除。同一份剪贴板可以粘贴到另一个 Document Tab、另一个浏览器窗口或 Inkscape（ADR-0030）。
+_Avoid_: Duplicate（那是在原处复制出新 Node）、Clone
 
 **Place（置入）**：
-把一个文件放进已有 Document 的某个父级，对应 Illustrator 的 File > Place 与粘贴。SVG 置入为一个 Group，全部分配新 id；位图置入为 image 节点（F-IO-02）。
+把一个文件放进已有 Document 的某个父级，对应 Illustrator 的 File > Place 与粘贴。SVG 置入为一个 Group，全部分配新 id；位图置入为 image 节点（F-IO-02）。粘贴 Zibel 的 Copy（根上 `zibel:scope` 为 `nodes:…`）例外：列出的 Node 直接进入目标 Layer，不包 Group（ADR-0030）。
 _Avoid_: Insert、Embed（那是位图的链接方式）
 
 ## 读取与查询
