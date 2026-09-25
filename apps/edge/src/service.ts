@@ -2,6 +2,7 @@ import { type ErrorData, newId, resolveImages, ZibelError } from "@zibel/core";
 import { parseFile } from "@zibel/io";
 import { svgToPng } from "@zibel/render";
 import type { DocumentService } from "@zibel/sync";
+import { fetchImage } from "./fetch-image.ts";
 
 /** A file for Open, Replace or Place, its images named by their hash (ADR-0023). */
 const read = (content: string, opts: { name?: string } = {}) =>
@@ -45,6 +46,9 @@ export function documentService(env: Env, actor: string): DocumentService {
       }
       return unwrap(await doc(docId).place(file, actor, opts));
     },
+    // Fetched here, in the Worker, so a slow host never holds the Document's input gate (ADR-0027).
+    placeImage: async (docId, { src, ...opts }) =>
+      unwrap(await doc(docId).placeImage(await fetchImage(src), actor, opts)),
     list: async () => ({ documents: await listDocuments(env) }),
     info: async (docId) => unwrap(await doc(docId).info()),
     createNodes: async (docId, nodes, opts) =>

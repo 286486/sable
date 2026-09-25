@@ -112,6 +112,20 @@ export interface DocumentService {
       name?: string;
     } & Pick<WriteOptions, "txId" | "ifRev" | "intent">,
   ): Promise<WriteReceipt & { nodes: OutlineNode[] }>;
+  /**
+   * Place for a bitmap (ADR-0027): `src` is an http(s) URL, fetched by the server, or a data URL.
+   * The Image is framed by `frame`, else centred on the parent's Artboard at its pixel size;
+   * `asTemplate` puts it on a new locked Template Layer beneath the parent's Layer, at 50%.
+   */
+  placeImage(
+    docId: string,
+    input: {
+      src: string;
+      parentId: string;
+      frame?: { x: number; y: number; width?: number; height?: number };
+      asTemplate?: boolean;
+    } & Pick<WriteOptions, "txId" | "ifRev" | "intent">,
+  ): Promise<WriteReceipt>;
   /** Every Document, newest first. */
   list(): Promise<{ documents: DocSummary[] }>;
   info(docId: string): Promise<DocInfo>;

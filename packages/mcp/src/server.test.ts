@@ -196,6 +196,27 @@ describe("write tools pass the write and its options apart", () => {
     });
   });
 
+  it("image_place: asTemplate defaults to false; frame and the write options pass through; no partial", async () => {
+    const { service, call } = await harness({ placeImage: async () => receipt });
+    const frame = { x: 1, y: 2, width: 3, height: 4 };
+    const src = "https://example.com/a.png";
+    const result = await call("zibel_image_place", {
+      docId: "d",
+      src,
+      parentId: "p",
+      frame,
+      ...opts,
+    });
+    expect(result.structuredContent).toEqual(receipt);
+    expect(service.placeImage).toHaveBeenCalledWith("d", {
+      src,
+      parentId: "p",
+      frame,
+      asTemplate: false,
+      ...opts,
+    });
+  });
+
   it("doc_create and doc_open", async () => {
     const created = { docId: "d", defaultLayerId: "l", artboards: [], rev: 1 };
     const opened = { docId: "d", name: "Doc", artboards: [], rev: 1, nodes: [], warnings: [] };
@@ -503,6 +524,7 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "zibel_doc_outline",
     "zibel_doc_replace",
     "zibel_export",
+    "zibel_image_place",
     "zibel_mask_make",
     "zibel_mask_release",
     "zibel_node_create",
@@ -542,6 +564,9 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     ["docId", "fit", "ifRev", "intent", "parentId", "position", "svg", "txId"].sort(),
   );
   expect(byName.zibel_svg_import?.annotations).toMatchObject({ destructiveHint: false });
+  expect(inputKeys("zibel_image_place").sort()).toEqual(
+    ["asTemplate", "docId", "frame", "ifRev", "intent", "parentId", "src", "txId"].sort(),
+  );
   for (const name of ["zibel_mask_make", "zibel_mask_release"]) {
     expect(inputKeys(name)).toEqual(expect.arrayContaining(["docId", "intent", "txId", "ifRev"]));
     expect(inputKeys(name)).not.toContain("partial");
@@ -599,7 +624,8 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
       readOnlyHint: expect.any(Boolean),
       destructiveHint: expect.any(Boolean),
       idempotentHint: expect.any(Boolean),
-      openWorldHint: false,
+      // Only image_place reaches outside the service: it fetches a URL (ADR-0027).
+      openWorldHint: t.name === "zibel_image_place",
     });
     expect(t.outputSchema, t.name).toMatchObject({ type: "object" });
   }
@@ -636,6 +662,8 @@ it("serves skill://zibel/drawing-conventions and points at it in the instruction
     "INVALID_IMAGE",
     '"type": "gradient"',
     "aspectRatio",
+    "zibel_image_place",
+    "Template Layer",
   ]) {
     expect(text).toContain(fact);
   }

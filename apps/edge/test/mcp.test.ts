@@ -32,6 +32,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "zibel_doc_outline",
     "zibel_doc_replace",
     "zibel_export",
+    "zibel_image_place",
     "zibel_mask_make",
     "zibel_mask_release",
     "zibel_node_create",
