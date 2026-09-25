@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { ZibelError } from "@zibel/core";
+import { IMAGE_ID, ZibelError } from "@zibel/core";
 import { createMcpServer } from "@zibel/mcp";
 import { actorFor, permissionDenied } from "./auth.ts";
 import { documentService, listDocuments } from "./service.ts";
@@ -19,6 +19,9 @@ export default {
         documentService(env, "user").replace(replace, { content: await request.text() }),
       );
     }
+    const [, imageDoc, imageSrc] =
+      url.pathname.match(/^\/api\/docs\/([^/]+)\/images\/([^/]+)$/) ?? [];
+    if (imageDoc && imageSrc && request.method === "GET") return image(env, imageDoc, imageSrc);
     const place = url.pathname.match(/^\/api\/docs\/([^/]+)\/place$/)?.[1];
     if (place && request.method === "POST") return placeFile(place, request, env);
     if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
@@ -72,6 +75,22 @@ async function placeFile(docId: string, request: Request, env: Env): Promise<Res
       name: q.get("name") ?? undefined,
     }),
   );
+}
+
+/**
+ * An Image's file for the canvas (ADR-0023). An id always names the same bytes, so it is cached for
+ * good. Unauthenticated like the WebSocket until M1 (ADR-0009).
+ */
+async function image(env: Env, docId: string, src: string): Promise<Response> {
+  if (!IMAGE_ID.test(src)) return new Response("not found", { status: 404 });
+  const result = await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).image(src);
+  if ("error" in result) return Response.json(result.error, { status: 404 });
+  return new Response(result.bytes, {
+    headers: {
+      "content-type": result.mime,
+      "cache-control": "public, max-age=31536000, immutable",
+    },
+  });
 }
 
 /** `fn`'s result as JSON, or its ZibelError as a 400. */

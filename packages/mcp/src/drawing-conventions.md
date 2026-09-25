@@ -63,7 +63,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 
 - `zibel_export` with `format: "zibel_json"` returns the whole Document as `.zibel.json` text, the file to save.
 - `zibel_doc_open` with that text as `content` makes a new Document with its own docId; every Node and Artboard keeps its id. A file that fails validation creates nothing, and `INVALID_DOCUMENT` (or the usual colour, path or parent code) names the `path` inside the file.
-- `zibel_doc_open` also takes SVG text, told apart by content: Zibel's own `zibel_export` SVG, a file saved in Inkscape, or plain SVG 1.1, at most 5 MB (else `LIMIT_EXCEEDED`). Layers, pages, names, locks and `z-<id>` ids come back; units become pt, with px counting as pt. Clipping comes back as Clipping Masks. What Zibel cannot hold yet (gradients become their first colour; a clip it cannot hold, masks, filters, images and `<use>` are dropped) is listed once per kind in `warnings`; it never fails the open.
+- `zibel_doc_open` also takes SVG text, told apart by content: Zibel's own `zibel_export` SVG, a file saved in Inkscape, or plain SVG 1.1, at most 5 MB outside its embedded images (else `LIMIT_EXCEEDED`). Layers, pages, names, locks and `z-<id>` ids come back; units become pt, with px counting as pt. Clipping comes back as Clipping Masks, and embedded PNG, JPEG and GIF images as Images. What Zibel cannot hold yet (gradients become their first colour; a clip it cannot hold, masks, filters, linked or WebP images and `<use>` are dropped) is listed once per kind in `warnings`; it never fails the open.
 - To bring an edited file back into the Document it came from, use `zibel_doc_replace`, not `zibel_doc_open`: it keeps the docId and merges only what the file changed since its export onto what others wrote meanwhile, as one undoable Transaction. An SVG from `zibel_export` knows its rev; for a `.zibel.json`, pass the rev you exported it at as `baseRev`. Guard it with `ifRev` like any write.
 - To add an SVG to a Document you are working on, use `zibel_svg_import`: it places the file as one new Group under the Layer or Group you name, with its layers as Groups and every id new, centred on the parent's Artboard or on `position`, and scaled to fit that Artboard with `fit: true`.
 
@@ -73,6 +73,14 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - Area Type (`kind: "area"` with `width` and `height`) wraps `content` at spaces inside the frame `x, y, width, height`. Text that does not fit, including a word wider than the frame, is not drawn, and the receipt warns `TEXT_OVERFLOW`: enlarge the frame or shorten the content.
 - `leading` is the distance between baselines in pt; omit it for Auto, 120% of `fontSize`. `node_update` with `leading: null` returns to Auto.
 - `fontFamily` takes any font name and keeps it, so export writes it back. Only Source Sans 3 is bundled: another font renders and measures in it, and the receipt warns `FONT_MISSING`.
+
+## Images
+
+- Place a PNG, JPEG or GIF with `zibel_node_create` `{type: "image", src, x, y}`, `src` being a `data:` URL of the file. A GIF shows its first frame. WebP is refused with `INVALID_IMAGE`: convert it to PNG first. A file is at most 5 MB.
+- The receipt and `zibel_node_get` give the Image's `src` as an id, the file's SHA-256, never the bytes. Pass that id as `src` to place the same file again without resending it.
+- Omit `width` and `height` for the file's pixel size, one pt per pixel, or give both. `preserveAspectRatio` is SVG's: `none` (the default) stretches the file to the frame, `xMidYMid meet` fits it inside, `xMidYMid slice` fills the frame and crops the rest.
+- To crop to any shape, draw the shape over the Image and call `zibel_mask_make`. An Image cannot be the clip, and has no `appearance`.
+- `src` is read-only: to swap the file, create a new Image and delete the old one.
 
 ## Reading a Document
 
@@ -87,5 +95,6 @@ Go from coarse to fine: `zibel_doc_outline` for the Layer tree, `zibel_node_quer
 ## Limits
 
 - 2000 Nodes per `zibel_node_create`, counting inline children; 1000 per `zibel_node_update`, `zibel_node_delete` or `zibel_node_get`.
-- Images at most 4096 px on their longer side.
+- Rendered images at most 4096 px on their longer side.
+- Image files at most 5 MB each; an SVG at most 5 MB outside its embedded images.
 - Pages of at most 1000 entries for `zibel_node_query` and `zibel_doc_changes`.

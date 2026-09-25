@@ -216,7 +216,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 | `path` | 贝塞尔路径，`d`（SVG 语法）、`closed`、`fillRule`（nonzero / evenodd）。`d` 含多个子路径即 Compound Path（挖洞），不另设 `compound_path` 类型（ADR-0018） | PathItem / CompoundPathItem |
 | `rect` / `ellipse` / `polygon` / `star` / `line` / `arc` / `spiral` | **Live Shape**：保留参数（圆角半径、边数、内外半径、起止角等），随时可"转为路径" | Live Shapes |
 | `text` | 文本框，`kind`：point / area / on_path；`content` 富文本 runs | TextFrameItem |
-| `image` | 置入位图，`src`、`crop`、`embedded` | RasterItem / PlacedItem |
+| `image` | 置入位图：框 `x/y/width/height`、`preserveAspectRatio`、`src`（文件字节的 SHA-256，字节按 id 在 Document 中只存一份）。裁切即 Clipping Mask，不设 `crop`；目前只嵌入，链接待 Links（ADR-0023） | RasterItem / PlacedItem |
 | `symbol_instance` | 指向 `assets.symbols[*]`，含实例覆盖 | SymbolItem |
 | `compound_shape` | 非破坏性布尔容器（Compound Shape）：`op` + 子节点。术语见 `CONTEXT.md`，不叫 boolean | Compound Shape |
 | `mask_group` | 不透明度蒙版组 | Opacity mask |
@@ -405,7 +405,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 **导入**
 - **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt（px 按 1 pt 计，与 Illustrator 一致）。Zibel 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Zibel 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。三种入口：打开（`doc_open`，新 Document）、替换（`doc_replace`，三方合并回原 Document）、置入（`svg_import`，一个 Group）。
-- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）
+- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；链接另立 issue。
 - **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）在此之前 `.ai` 经 Inkscape 另存 SVG 进入（ADR-0017）。
 - **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心。（P0 SVG 与位图）
 - **F-IO-05** 原生 `.zibel.json` 与 `.svg` 打开（文档列表页"打开文件"）；文档页工具栏"从文件更新…"走替换。（P0）
@@ -510,7 +510,7 @@ flowchart LR
 | 登录 | **GitHub OAuth 经 Worker 实现**（Google 放 M3）；企业版可接 Cloudflare Access | MCP 客户端走同一 OAuth 授权服务器 |
 | 观测 | Workers Analytics Engine / Logpush | 工具调用日志（F-NFR 可观测性） |
 
-- **F-MCP-06b 数据驻留与限制**（已按 `docs/research/04-cloudflare-limits.md` 核实）：单 DO SQLite 上限 10 GB（Paid）远超需求，但**单键值上限 2 MB**，因此文档不能整块存一个键：事务日志按行写 SQLite，节点表按节点或分片存储，完整快照写 R2；单文档 JSON 建议 < 50 MB，位图一律外置 R2；同一文档 ≤ 50 个活跃连接为设计目标。（P0 设计约束）
+- **F-MCP-06b 数据驻留与限制**（已按 `docs/research/04-cloudflare-limits.md` 核实）：单 DO SQLite 上限 10 GB（Paid）远超需求，但**单键值上限 2 MB**，因此文档不能整块存一个键：事务日志按行写 SQLite，节点表按节点或分片存储，完整快照写 R2；单文档 JSON 建议 < 50 MB，位图一律外置 R2（M1 之前位图按 SHA-256 分块存在 DO SQLite，Node 只存 id，ADR-0023）；同一文档 ≤ 50 个活跃连接为设计目标。（P0 设计约束）
 
 - **F-MCP-06c 托管首发形态**：M1 托管版为**免费 beta + 硬配额**，不做计费；计费与付费档推到 M3。超限返回 `LIMIT_EXCEEDED` 并提示。（P0）
 
@@ -579,9 +579,9 @@ flowchart LR
 
 | 工具 | 输入要点 | 输出 | 注 |
 |---|---|---|---|
-| `node_create` | `docId`, `nodes[]`：每项含 `type`、`parentId`（**必填**，某个 `layer` 或 `group` 的 id；`doc_create` 的回执含默认图层 id，Agent 永远有可用父级；不接受 artboardId）、`index?`、类型专属几何（rect: x/y/w/h/radius；ellipse；polygon；star；line；path: `d`；text: content/kind/box；image: src；group: children[] 内联嵌套）、`appearance`、`name`、`tags`、`meta` | `WriteReceipt`（含每个输入项对应的新 id，顺序一致） | 批量，一次可建数百节点 |
+| `node_create` | `docId`, `nodes[]`：每项含 `type`、`parentId`（**必填**，某个 `layer` 或 `group` 的 id；`doc_create` 的回执含默认图层 id，Agent 永远有可用父级；不接受 artboardId）、`index?`、类型专属几何（rect: x/y/w/h/radius；ellipse；polygon；star；line；path: `d`；text: content/kind/box；image: src（data URL 或已有图像 id）/x/y/width?/height?/preserveAspectRatio；group: children[] 内联嵌套）、`appearance`、`name`、`tags`、`meta` | `WriteReceipt`（含每个输入项对应的新 id，顺序一致） | 批量，一次可建数百节点 |
 | `svg_import` | `docId`, `svg`（文本）, `parentId`, `position?`, `fit?` | 生成节点树的回执与大纲 | 置入：整体一个 Group，SVG 图层变 Group，页面忽略，全部新 id；`position` 为 Group 几何边界中心的文档坐标，默认父级所在画板的中心；`fit: true` 等比缩放（含描边）以放进该画板（ADR-0017） |
-| `image_place` | `docId`, `src`（data URL / http URL / 本地路径）, `parentId`, `frame?`, `embed`, `asTemplate?` | 回执 | openWorldHint 若为 URL |
+| `image_place` | `docId`, `src`（data URL / http URL / 本地路径）, `parentId`, `frame?`, `embed`, `asTemplate?` | 回执 | openWorldHint 若为 URL；未实现，data URL 置入先走 `node_create` 的 `image`（ADR-0023） |
 | `freehand_stroke` | `docId`, `parentId`, `points[]`（x, y, pressure?）, `tool`（pencil / brush / blob）, `fidelity`, `width`, `appearance` | 生成路径回执 | |
 | `text_create` | 归入 `node_create` type=text；此处保留别名，便于发现 | | |
 
@@ -708,7 +708,7 @@ flowchart LR
 
 ### 6.7 错误处理、并发与长任务
 
-- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.zibel.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
+- **F-MCP-15** 错误码枚举：`REV_CONFLICT`（附当前 `rev` 与冲突节点）、`NEEDS_DECISION`（需要人类决定，附选项）、`DOC_NOT_FOUND`、`NODE_NOT_FOUND`、`NODE_GONE`（并发删除）、`LOCKED_BY_USER`、`INVALID_COLOR`、`INVALID_PATH`、`INVALID_PARENT`（如把节点放进 path）、`INVALID_PATCH`（patch 含只读键、该类型没有的键或删除了必填键）、`INVALID_MASK`（`mask_make` / `mask_release` 的对象不合规则；ADR-0021）、`INVALID_DOCUMENT`（`.zibel.json` 或 SVG 不合法，附文件内 `path`；ADR-0017）、`INVALID_IMAGE`（图像不是 PNG / JPEG / GIF、是 WebP，或 `src` 指向文档里没有的图像；ADR-0023）、`TX_NOT_FOUND`、`TX_EXPIRED`、`LIMIT_EXCEEDED`、`BOOLEAN_FAILED`（含几何诊断）、`FONT_MISSING`、`SCRIPT_ERROR`（含行号）、`PERMISSION_DENIED`。每条附 `hint`。（P0）
 - **F-MCP-16** 批量工具的部分失败：默认**原子**（任一失败整批回滚）；可选 `partial: true` 返回逐项结果。（P0）
 - **F-MCP-17** 长任务（`export_batch`、`image_trace`、大 `svg_import`）：单个请求内可经 SSE 响应流发送 progress；预计超过 30 秒的任务一律返回 `jobId`，由 Queues 执行，用 `job_status / job_cancel` 轮询。（P1）
 - **F-MCP-18** 幂等：读工具与 `doc_save`、`tx_rollback` 幂等；`node_create` 通过 `clientKey` + `txId` 去重（同一事务内重复提交同 key 不重复创建）。（P1）
@@ -764,7 +764,7 @@ flowchart LR
 - Cloudflare 托管：WAF 与速率限制（按用户与按文档）；R2 对象仅经预签名 URL 访问；D1 中密钥字段加密；DO 只接受来自 Worker 的内部调用与已鉴权的 WebSocket 升级。
 - 脚本沙箱：无网络、无文件系统、CPU / 内存 / 时间配额；宿主 API 白名单。
 - `image_place` 拉取 URL：白名单或用户确认；大小上限 20 MB；SSRF 防护（禁内网地址）。
-- SVG 导入：剥离 `<script>`、事件属性、外部实体、`foreignObject`；位图 data URL 大小限制。
+- SVG 导入：剥离 `<script>`、事件属性、外部实体、`foreignObject`；位图 data URL 每个 ≤ 5 MB（解码后字节），SVG 的 5 MB 上限只计 data URL 之外的文本；链接的外部图像不拉取，丢弃并警告（ADR-0023）。
 - 文件存储：本地优先；托管模式数据加密静置；审计日志记录 Agent 的每个事务（who / what / when）。
 
 ### 7.6 可靠性与数据安全
@@ -974,6 +974,7 @@ zibel/
 | 39 | Compound Path（2026-09-24） | 不设 `compound_path` 节点类型：Compound Path 是 `d` 含多个子路径、带 `fillRule` 的 `path`，SVG 中即一个 `<path fill-rule>` | ADR-0018、#30 |
 | 40 | Clipping Mask（2026-09-24） | 不设 `clip_group` 节点类型：Clipping Mask 是含一个 `clipping: true` 的 Live Shape 或 Path 的 `group`；`mask_make` / `mask_release` 是写它的唯一入口；SVG 中即 `<g clip-path>` 加内联 `<clipPath>`；文字作剪切路径、图层剪切蒙版、带外观的剪切路径暂缓 | ADR-0021、#31 |
 | 41 | 多行文字与区域文字（2026-09-25） | Point Type 的 `content` 可含硬回车 `\n`；Area Type 是 `kind: "area"` 加矩形框 `width`/`height`；新增 `leading`（缺省即 Auto，字号的 120%）；区域文字的首行基线、换行与溢出按 Inkscape 1.2 实测排版；SVG 中点文字为 `sodipodi:role="line"` 行，区域文字为 `shape-inside` 引用 `<defs>` 中的矩形 | ADR-0022、#33 |
+| 42 | 置入图像（2026-09-25） | 新增 `image` 节点：框、`preserveAspectRatio`（缺省 `none`）与 `src`（文件的 SHA-256）；字节按 id 分块存 DO SQLite，M1 随 R2 迁移；PNG / JPEG / GIF，WebP 暂拒；裁切即 Clipping Mask；SVG 中为 `<image xlink:href="data:…">`（Inkscape 1.2 只绘制 `xlink:href`）；`.zibel.json` 顶层 `images` 按 id 内嵌 base64 | ADR-0023、#32 |
 
 **剩余开放问题**
 

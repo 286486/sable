@@ -47,6 +47,8 @@ export function receive(
       rev,
       artboards,
       nodes: new Map(nodes.map((n) => [n.id, n])),
+      // The canvas fetches image files by id; it never needs their metadata (ADR-0023).
+      images: new Map(),
     };
   } else if (s.doc && msg.rev === s.doc.rev + 1) {
     doc = applyBroadcast(s.doc, msg);

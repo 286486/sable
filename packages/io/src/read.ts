@@ -7,6 +7,7 @@ import {
   cssColor,
   formatPath,
   IDENTITY,
+  type ImageFile,
   type Matrix,
   MIGRATIONS,
   multiply,
@@ -15,8 +16,10 @@ import {
   normalizePath,
   parseDocument,
   pathBounds,
+  preserveAspectRatio,
   type Rect,
   type RenderScope,
+  readImage,
   round,
   type Segment,
   type Shape,
@@ -49,6 +52,8 @@ export interface OpenedFile {
   name: string;
   artboards: Artboard[];
   nodes: Node[];
+  /** The file of every Image `src` names, by that key (ADR-0023). */
+  images: Map<string, ImageFile>;
   warnings: Warning[];
   /** Where a Zibel SVG export came from, for Replace: its `zibel:doc`, `zibel:rev` and `zibel:scope`. */
   origin?: Origin;
@@ -61,8 +66,6 @@ export interface Origin {
   /** Absent at doc scope. */
   scope?: RenderScope;
 }
-
-const XLINK_NS = "http://www.w3.org/1999/xlink";
 
 const invalid = (message: string) =>
   new ZibelError({
@@ -176,6 +179,7 @@ const DRAWN = new Set([
   "polygon",
   "path",
   "text",
+  "image",
 ]);
 /** What a Clipping Path can be: a Live Shape or Path, not a text (ADR-0021). */
 const CLIP_SHAPES = new Set(["rect", "circle", "ellipse", "line", "polyline", "polygon", "path"]);
@@ -222,6 +226,9 @@ const JOINS = ["miter", "round", "bevel"];
 class Reader {
   readonly nodes: Node[] = [];
   readonly warnings = new Map<string, Warning>();
+  /** Each embedded file, under the key its Images' `src` holds until `resolveImages`. */
+  readonly images = new Map<string, ImageFile>();
+  private readonly keys = new Map<string, string>();
   private readonly last = new Map<string | null, string | null>();
   private readonly ids = new Set<string>();
 
@@ -232,6 +239,8 @@ class Reader {
     private readonly rules: Rule[],
     private readonly byId: Map<string, Element>,
     private readonly artboards: Artboard[],
+    /** The id of a data URL the caller wrote itself, so it needs no hashing (Replace). */
+    private readonly known?: (url: string) => string | undefined,
   ) {}
 
   warn(code: string, key: string, message: string, nodeId?: string) {
@@ -378,8 +387,10 @@ class Reader {
     /** What Stroke widths scale by: the leaf's scale when it bakes into the parameters. */
     const scaleOf = (m: Matrix) => (bakes(m) ? m[0] : 1);
     let shape: Record<string, unknown> | null;
-    let appearance: Appearance;
-    if (stack) {
+    let appearance: Appearance | undefined;
+    if (tag === "image") {
+      shape = this.image(e, matrix);
+    } else if (stack) {
       // One Node painted several times: its geometry from the first paint, its Fills, then its
       // Strokes, in order (ADR-0017).
       const paints = elements(e).map((c) => {
@@ -410,7 +421,7 @@ class Reader {
     const base = this.base(e, parentId, undefined, style);
     // visibility inherits, unlike display, so it hides a leaf rather than its Group.
     if (style.visibility === "hidden" || style.visibility === "collapse") base.visible = false;
-    this.add({ ...base, ...shape, appearance } as Node);
+    this.add({ ...base, ...shape, ...(appearance && { appearance }) } as Node);
     if (clip) this.clipping(clip, parentId, matrix);
   }
 
@@ -661,7 +672,7 @@ class Reader {
       const hex = cssColor(s["stop-color"] ?? "black");
       return hex && withAlpha(hex, alpha(s["stop-opacity"]));
     }
-    const href = g.getAttribute("href") ?? g.getAttributeNS(XLINK_NS, "href");
+    const href = g.getAttribute("href") ?? g.getAttributeNS(NS.xlink, "href");
     return href?.startsWith("#") ? this.firstStop(href.slice(1), depth + 1) : null;
   }
 
@@ -726,6 +737,54 @@ class Reader {
     const star = e.localName === "path" ? this.star(e) : undefined;
     // A star turned in Inkscape keeps its turn as a matrix about its centre, as Zibel writes it.
     return star ? multiply(outer, star.turn) : outer;
+  }
+
+  /**
+   * An embedded `<image>`'s parameters (ADR-0023): its frame, baked as a rect's, and its file under
+   * a key of this read. A linked file, or one Zibel cannot hold, is dropped with a warning.
+   */
+  private image(e: Element, m: Matrix): Record<string, unknown> | null {
+    const href = (e.getAttribute("href") || e.getAttributeNS(NS.xlink, "href") || "").trim();
+    if (!href.startsWith("data:")) {
+      this.warn(
+        "LINKED_IMAGE_DROPPED",
+        "",
+        "An <image> that links a file was dropped: Zibel embeds images and fetches nothing. Embed it in the editor, then save again.",
+      );
+      return null;
+    }
+    let file: ImageFile;
+    try {
+      file = readImage(href, "src");
+    } catch (err) {
+      if (!(err instanceof ZibelError)) throw err;
+      this.warn("INVALID_IMAGE", "", `An <image> was dropped: ${err.data.message}`);
+      return null;
+    }
+    const width = length(e.getAttribute("width")) ?? file.width;
+    const height = length(e.getAttribute("height")) ?? file.height;
+    // SVG draws nothing for an image with no area.
+    if (!(width > 0 && height > 0)) return null;
+    let src = this.known?.(href) ?? this.keys.get(href);
+    if (src === undefined) {
+      src = `pending:${this.keys.size}`;
+      this.keys.set(href, src);
+    }
+    this.images.set(src, file);
+    const bake = bakes(m);
+    const [k, , , , tx, ty] = bake ? m : IDENTITY;
+    return {
+      type: "image",
+      src,
+      x: n3(k * (length(e.getAttribute("x")) ?? 0) + tx),
+      y: n3(k * (length(e.getAttribute("y")) ?? 0) + ty),
+      width: n3(k * width),
+      height: n3(k * height),
+      // Absent, SVG's default, not Zibel's none.
+      preserveAspectRatio:
+        preserveAspectRatio(e.getAttribute("preserveAspectRatio") ?? "") ?? "xMidYMid meet",
+      transform: bake ? [...IDENTITY] : round(m),
+    };
   }
 
   /** A shape element's parameters in document coordinates, with the transform it keeps. */
@@ -823,7 +882,11 @@ class Reader {
 }
 
 /** Reads SVG text into a Document's contents (ADR-0017). */
-export function parseSvg(text: string, nameHint?: string): OpenedFile {
+export function parseSvg(
+  text: string,
+  nameHint?: string,
+  { known }: { known?: (url: string) => string | undefined } = {},
+): OpenedFile {
   let error: string | undefined;
   let dom: ReturnType<DOMParser["parseFromString"]>;
   try {
@@ -886,7 +949,7 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
         };
       })
     : [{ id: newId(), name: "Artboard 1", frame: rect(frame) }];
-  const reader = new Reader(rules, byId, artboards);
+  const reader = new Reader(rules, byId, artboards, known);
   const matrix: Matrix = [scale, 0, 0, scale, 0, 0];
   const ctx = { parentId: null, layerLevel: true, matrix, style: {}, depth: 0 };
   for (const e of elements(root)) reader.walk(e, ctx);
@@ -904,6 +967,8 @@ export function parseSvg(text: string, nameHint?: string): OpenedFile {
   // Document.
   const file = parseDocument(
     JSON.stringify({ version: MIGRATIONS.length + 1, name, artboards, nodes: reader.nodes }),
+    MIGRATIONS,
+    reader.images,
   );
   const docId = zibelAttr(root, "doc");
   const origin = docId ? readOrigin(docId, root) : undefined;

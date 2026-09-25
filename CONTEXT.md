@@ -29,7 +29,7 @@ _Avoid_: Container、Frame
 _Avoid_: 把 Selection 作为工具调用的隐式参数
 
 **Auto-name（自动名称）**：
-`name` 为空的 Node 在 Layers 面板中显示的名称，如 `<Rectangle>`、`<Path>`、`<Group>`；Text Node 取其内容。只用于显示，不写入 Document。
+`name` 为空的 Node 在 Layers 面板中显示的名称，如 `<Rectangle>`、`<Path>`、`<Group>`、`<Image>`；Text Node 取其内容。只用于显示，不写入 Document。
 _Avoid_: Default name、Placeholder name
 
 ## 几何
@@ -75,6 +75,12 @@ _Avoid_: Text box、Paragraph text、Flowed text
 **Leading（行距）**：
 Text 相邻两行基线之间的距离，单位 pt。未设置即 Auto，为字号的 120%，随字号变化。
 _Avoid_: Line height、Line spacing
+
+## 图像
+
+**Image（图像）**：
+置入的位图 Node，`type: "image"`：一个框 `x, y, width, height`、`preserveAspectRatio`（缺省 `none`，即拉伸到框），以及 `src`，即图像文件字节的 SHA-256。同一文件在 Document 中按 `src` 只存一份，Node 里只有这个 id。支持 PNG、JPEG、GIF（首帧）。裁切就是以它为内容的 Clipping Mask；目前只嵌入、不链接（ADR-0023）。
+_Avoid_: Bitmap、Picture、Raster、Photo、Placed item 作为类型名
 
 ## 实时对象
 

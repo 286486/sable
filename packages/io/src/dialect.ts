@@ -7,6 +7,8 @@ export const NS = {
   inkscape: "http://www.inkscape.org/namespaces/inkscape",
   sodipodi: "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd",
   zibel: "https://zibel.dev/ns/svg",
+  // Inkscape 1.2 draws an <image> only through xlink:href, not SVG 2's href (ADR-0023).
+  xlink: "http://www.w3.org/1999/xlink",
 };
 
 /** The root's namespace declarations. */
@@ -15,6 +17,7 @@ export const XMLNS = {
   "xmlns:inkscape": NS.inkscape,
   "xmlns:sodipodi": NS.sodipodi,
   "xmlns:zibel": NS.zibel,
+  "xmlns:xlink": NS.xlink,
 };
 
 /** Zibel's own attributes, written as `zibel:<name>`. */

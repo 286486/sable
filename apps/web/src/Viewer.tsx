@@ -2,7 +2,8 @@ import { bounds, type Document, type Rect, serializeDocument, union } from "@zib
 import { toSvg } from "@zibel/io/write";
 import { drawDocument } from "@zibel/render/canvas";
 import fontUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
 import { preview } from "./receive.ts";
 import { combine, editable, hitTest, inverse, marquee, objects, placeParent } from "./selection.ts";
@@ -44,6 +45,20 @@ function download(text: string, type: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/** Makes a download once every image file it embeds is here (ADR-0023). */
+async function saveWith(
+  cache: ReturnType<typeof imageCache>,
+  doc: Document,
+  make: (images: (id: string) => string | undefined) => [string, string, string],
+) {
+  try {
+    await cache.ready(doc);
+    download(...make((id) => cache.get(id)?.dataUrl));
+  } catch (e) {
+    useStore.setState({ notice: `Could not download: ${String(e)}` });
+  }
+}
+
 /**
  * Replace and Place (ADR-0017) POST the file to the Worker, which writes it as the user; the canvas
  * follows the `tx` broadcast like any other write. Failures and warnings show as the notice.
@@ -83,6 +98,9 @@ export function Viewer({ docId }: { docId: string }) {
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
   /** True once the font has loaded; until then text draws in a fallback font. */
   const [fontReady, setFontReady] = useState(false);
+  /** Counts image files decoded, so the canvas redraws as each arrives. */
+  const [imagesLoaded, setImagesLoaded] = useState(0);
+  const images = useMemo(() => imageCache(docId, () => setImagesLoaded((n) => n + 1)), [docId]);
 
   useEffect(() => {
     fontLoaded.then(
@@ -116,7 +134,7 @@ export function Viewer({ docId }: { docId: string }) {
   }, [doc, viewport, size]);
 
   // ponytail: redraws everything on every change; add viewport culling and dirty rects for 5k+ Nodes (F-VIEW-08).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady redraws text once the font is in
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fontReady and imagesLoaded redraw text and Images once their font or files are in
   useEffect(() => {
     const el = canvas.current;
     const ctx = el?.getContext("2d");
@@ -138,7 +156,8 @@ export function Viewer({ docId }: { docId: string }) {
     }
     // Hit tests use `doc`; only the drawing shows the drag.
     const shown = drag ? preview(doc, drag) : doc;
-    drawDocument(ctx, shown);
+    images.want(shown);
+    drawDocument(ctx, shown, images.get);
     ctx.lineWidth = 1 / scale;
     ctx.strokeStyle = SELECTION;
     for (const id of selection) {
@@ -152,7 +171,7 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.strokeRect(mx, my, width, height);
       ctx.setLineDash([]);
     }
-  }, [doc, viewport, size, selection, drag, marqueeRect, fontReady]);
+  }, [doc, viewport, size, selection, drag, marqueeRect, fontReady, images, imagesLoaded]);
 
   // Ctrl+wheel (and trackpad pinch) zooms at the cursor; plain wheel and two-finger scroll pan.
   // A native listener, because React's onWheel is passive and cannot preventDefault.
@@ -380,7 +399,12 @@ export function Viewer({ docId }: { docId: string }) {
           type="button"
           disabled={!doc}
           onClick={() =>
-            doc && download(serializeDocument(doc), "application/json", `${doc.name}.zibel.json`)
+            doc &&
+            saveWith(images, doc, (files) => [
+              serializeDocument(doc, files),
+              "application/json",
+              `${doc.name}.zibel.json`,
+            ])
           }
         >
           Download .zibel.json
@@ -388,7 +412,14 @@ export function Viewer({ docId }: { docId: string }) {
         <button
           type="button"
           disabled={!doc}
-          onClick={() => doc && download(toSvg(doc), "image/svg+xml", `${doc.name}.svg`)}
+          onClick={() =>
+            doc &&
+            saveWith(images, doc, (files) => [
+              toSvg(doc, undefined, { images: files }),
+              "image/svg+xml",
+              `${doc.name}.svg`,
+            ])
+          }
         >
           Download SVG
         </button>{" "}

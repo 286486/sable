@@ -294,7 +294,7 @@ it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape p
   expect(svg).toMatch(
     new RegExp(
       '^<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" ' +
-        'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:zibel="https://zibel.dev/ns/svg" ' +
+        'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:zibel="https://zibel.dev/ns/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ' +
         'width="200pt" height="100pt" viewBox="0 0 200 100" zibel:doc="d" zibel:rev="7" zibel:scope="doc" sodipodi:docname="Doc.svg">' +
         '<sodipodi:namedview inkscape:document-units="pt">' +
         `<inkscape:page x="0" y="0" width="200" height="100" id="z-${one.id}" inkscape:label="Artboard 1"/>` +
@@ -549,4 +549,22 @@ it("keeps the clip around a listed Node inside a Clipping Mask, and draws only t
   expect(svg).toContain(`clip-path="url(#clip-z-${group.id})"`);
   expect(svg).toContain(`id="z-${clip.id}"`);
   expect(drawn).toEqual([below.id]);
+});
+
+it("writes an Image as <image xlink:href>, which Inkscape 1.2 draws, with its file inlined", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const src = "a".repeat(64);
+  doc.images.set(src, { mime: "image/png", width: 2, height: 2 });
+  const [image] = createNodes(doc, [
+    { type: "image", parentId: defaultLayerId, src, x: 10, y: 20, width: 30, height: 40 },
+  ]).nodes;
+  const url = "data:image/png;base64,AAAA";
+  const svg = toSvg(doc, undefined, { images: (id) => (id === src ? url : undefined) });
+  expect(svg).toContain('xmlns:xlink="http://www.w3.org/1999/xlink"');
+  expect(svg).toContain(
+    `<image x="10" y="20" width="30" height="40" preserveAspectRatio="none" xlink:href="${url}" id="z-${image?.id}"/>`,
+  );
+  expect(() => toSvg(doc)).toThrow(
+    expect.objectContaining({ data: expect.objectContaining({ code: "INVALID_IMAGE" }) }),
+  );
 });

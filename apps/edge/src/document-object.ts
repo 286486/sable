@@ -8,11 +8,16 @@ import {
   createDocument,
   createNodes,
   type Document,
+  dataUrl,
   deleteNodes,
   type ErrorData,
   type Failed,
   type FullView,
   fontWarnings,
+  type ImageFile,
+  type ImageInfo,
+  type ImageSource,
+  imageId,
   type MaskInput,
   makeMask,
   type Node,
@@ -28,6 +33,7 @@ import {
   placeNodes,
   queryNodes,
   type Rect,
+  readImage,
   releaseMask,
   revert,
   serializeDocument,
@@ -72,6 +78,9 @@ const UNDO_DEPTH = 200;
 
 /** How long the Delta Log keeps a Transaction's delta, so Replace can rebuild its base (ADR-0017). */
 const DELTA_DAYS = 30;
+
+/** An image file is stored in rows of this many bytes, under SQLite's 2 MB row cap (ADR-0023). */
+const CHUNK = 1024 * 1024;
 
 /**
  * How a commit moves the undo and redo stacks (ADR-0011): an edit pushes onto the undo stack and
@@ -129,6 +138,13 @@ export class DocumentObject extends DurableObject<Env> {
         PRIMARY KEY (rev, node_id)
       );
       CREATE TABLE IF NOT EXISTS history (rev INTEGER PRIMARY KEY, stack TEXT NOT NULL, label TEXT NOT NULL);
+      -- Image files by SHA-256 (ADR-0023). Never changed; not deleted yet.
+      CREATE TABLE IF NOT EXISTS images (
+        id TEXT PRIMARY KEY, mime TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS image_chunks (
+        id TEXT NOT NULL, n INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY (id, n)
+      );
     `);
     // Documents made before the Delta Log have no commit times; their old rows are never pruned.
     const cols = this.sql.exec<{ name: string }>("PRAGMA table_info(tx_log)").toArray();
@@ -156,12 +172,13 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  /** A new Document from a parsed `.zibel.json` file, keeping its ids (ADR-0016). */
+  /** A new Document from a parsed file, keeping its ids (ADR-0016) and its image files. */
   open(input: {
     docId: string;
     name: string;
     artboards: Artboard[];
     nodes: Node[];
+    images: Map<string, ImageFile>;
     actor: string;
     intent?: string;
   }): Result<Omit<OpenedDocument, "warnings">> {
@@ -173,7 +190,9 @@ export class DocumentObject extends DurableObject<Env> {
         rev: 0,
         artboards: input.artboards,
         nodes: new Map(input.nodes.map((n) => [n.id, n])),
+        images: input.images,
       };
+      this.storeImages(input.images);
       const rev = this.init(doc, input.actor, `Open Document "${doc.name}"`, input.intent);
       const nodes = outline(doc, { depth: 1 });
       return { docId: doc.id, name: doc.name, artboards: doc.artboards, rev, nodes };
@@ -309,17 +328,128 @@ export class DocumentObject extends DurableObject<Env> {
     });
   }
 
-  createNodes(inputs: NodeInput[], actor: string, opts: WriteOptions = {}): Result<WriteReceipt> {
+  /**
+   * Stores the file of every Image given as a data URL first, so core sees only ids (ADR-0023).
+   * With `partial`, an item whose file is refused fails alone, under its own index.
+   */
+  async createNodes(
+    inputs: NodeInput[],
+    actor: string,
+    opts: WriteOptions = {},
+  ): Promise<Result<WriteReceipt>> {
+    const kept: number[] = [];
+    const refused: Failed[] = [];
+    const ready: NodeInput[] = [];
+    for (const [i, input] of inputs.entries()) {
+      try {
+        ready.push((await this.ingest(input, `nodes[${i}]`)) as NodeInput);
+        kept.push(i);
+      } catch (e) {
+        if (!(e instanceof ZibelError)) throw e;
+        if (!opts.partial) return { error: e.data };
+        refused.push({ index: i, ...e.data });
+      }
+    }
+    const [first] = refused;
+    if (ready.length === 0 && first) {
+      const { index: _, ...error } = first;
+      return { error };
+    }
+    // Core numbers what it was given; put back each item's own index.
+    const own = (f: Failed): Failed => {
+      const index = kept[f.index] ?? f.index;
+      return {
+        ...f,
+        index,
+        ...(f.path && { path: f.path.replace(/^nodes\[\d+\]/, `nodes[${index}]`) }),
+      };
+    };
     return this.write(actor, opts, "Create", (doc) => {
-      const { nodes, keyMap, failed } = createNodes(doc, inputs, opts);
+      const { nodes, keyMap, failed } = createNodes(doc, ready, opts);
       return {
         created: nodes,
         keyMap,
         warnings: [...fontWarnings(nodes), ...overflowWarnings(nodes)],
-        failed,
+        failed: [...refused, ...failed.map(own)].sort((a, b) => a.index - b.index),
       };
     });
   }
+
+  /** `input` with each Image's data URL, inline children's too, stored and replaced by its id. */
+  private async ingest(input: unknown, path: string): Promise<unknown> {
+    if (typeof input !== "object" || input === null) return input;
+    const item = input as { type?: unknown; src?: unknown; children?: unknown };
+    if (item.type === "image" && typeof item.src === "string" && item.src.startsWith("data:")) {
+      const file = readImage(item.src, `${path}.src`);
+      const id = await imageId(file.bytes);
+      this.storeImages(new Map([[id, file]]));
+      return { ...item, src: id };
+    }
+    if (Array.isArray(item.children)) {
+      const children = [];
+      for (const [k, c] of item.children.entries()) {
+        children.push(await this.ingest(c, `${path}.children[${k}]`));
+      }
+      return { ...item, children };
+    }
+    return input;
+  }
+
+  /** Stores files the Document does not hold yet; a stored id always names the same bytes. */
+  private storeImages(files: Map<string, ImageFile>) {
+    this.ctx.storage.transactionSync(() => {
+      for (const [id, { mime, width, height, bytes }] of files) {
+        const inserted = this.sql.exec(
+          "INSERT OR IGNORE INTO images (id, mime, width, height) VALUES (?, ?, ?, ?)",
+          id,
+          mime,
+          width,
+          height,
+        ).rowsWritten;
+        if (!inserted) continue;
+        for (let n = 0; n * CHUNK < bytes.length; n++) {
+          const chunk = bytes.slice(n * CHUNK, (n + 1) * CHUNK);
+          this.sql.exec("INSERT INTO image_chunks VALUES (?, ?, ?)", id, n, chunk.buffer);
+        }
+      }
+    });
+  }
+
+  /** An image file's type and bytes, for the Worker to serve. */
+  image(id: string): Result<{ mime: string; bytes: Uint8Array }> {
+    return guard(() => this.bytesOf(id));
+  }
+
+  private bytesOf(id: string): { mime: ImageInfo["mime"]; bytes: Uint8Array<ArrayBuffer> } {
+    const row = this.sql
+      .exec<{ mime: ImageInfo["mime"] }>("SELECT mime FROM images WHERE id = ?", id)
+      .toArray()[0];
+    if (!row) {
+      throw new ZibelError({
+        code: "INVALID_IMAGE",
+        message: `No image with id ${id} in the Document.`,
+        hint: "Use the src of an Image in this Document, as node_get returns it.",
+        path: "src",
+      });
+    }
+    const chunks = this.sql
+      .exec<{ bytes: ArrayBuffer }>("SELECT bytes FROM image_chunks WHERE id = ? ORDER BY n", id)
+      .toArray()
+      .map((r) => new Uint8Array(r.bytes));
+    const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let at = 0;
+    for (const c of chunks) {
+      bytes.set(c, at);
+      at += c.length;
+    }
+    return { mime: row.mime, bytes };
+  }
+
+  /** The Document's image files as data URLs, for the SVG and .zibel.json writers. */
+  private images: ImageSource = (id) => {
+    const { mime, bytes } = this.bytesOf(id);
+    return dataUrl({ mime, bytes, width: 0, height: 0 });
+  };
 
   updateNodes(updates: UpdateInput[], actor: string, opts: Options = {}): Result<WriteReceipt> {
     return this.write(actor, opts, "Update", (doc) => {
@@ -509,7 +639,11 @@ export class DocumentObject extends DurableObject<Env> {
       const doc = this.view(this.load(), actor, req.txId);
       const rect = svgRect(doc, req.scope);
       return {
-        svg: toSvg(doc, rect, { scope: req.scope, background: req.background }),
+        svg: toSvg(doc, rect, {
+          scope: req.scope,
+          background: req.background,
+          images: this.images,
+        }),
         docRect: rect,
       };
     });
@@ -517,7 +651,9 @@ export class DocumentObject extends DurableObject<Env> {
 
   /** The whole Document as `.zibel.json` text, as `export` returns it (ADR-0016). */
   file(actor: string, txId?: string): Result<{ text: string }> {
-    return guard(() => ({ text: serializeDocument(this.view(this.load(), actor, txId)) }));
+    return guard(() => ({
+      text: serializeDocument(this.view(this.load(), actor, txId), this.images),
+    }));
   }
 
   /**
@@ -537,6 +673,7 @@ export class DocumentObject extends DurableObject<Env> {
         background: req.background,
         overlays: req.overlays,
         scale,
+        images: this.images,
       });
       return { svg, viewport: { docRect, pixelSize, scale } };
     });
@@ -590,10 +727,12 @@ export class DocumentObject extends DurableObject<Env> {
     actor: string,
     opts: Options & { baseRev?: number } = {},
   ): Result<WriteReceipt> {
+    this.storeImages(file.images);
     return this.write(actor, opts, "Replace", (doc) => {
       const change = replaceFile(doc, file, {
         baseRev: opts.baseRev,
         rebuild: (rev) => this.rebuild(doc, rev),
+        images: this.images,
       });
       return { ...change, failed: [] };
     });
@@ -609,6 +748,7 @@ export class DocumentObject extends DurableObject<Env> {
     opts: Options & { parentId: string; position?: { x: number; y: number }; fit?: boolean },
   ): Result<WriteReceipt & { nodes: OutlineNode[] }> {
     let nodes: OutlineNode[] = [];
+    if (file.format === "svg") this.storeImages(file.images);
     const receipt = this.write(actor, opts, "Place", (doc) => {
       if (file.format !== "svg") {
         throw new ZibelError({
@@ -879,6 +1019,11 @@ export class DocumentObject extends DurableObject<Env> {
       const node = JSON.parse(json) as Node;
       nodes.set(node.id, node);
     }
+    const images = new Map<string, ImageInfo>();
+    const rows = this.sql.exec<{ id: string; mime: string; width: number; height: number }>(
+      "SELECT id, mime, width, height FROM images",
+    );
+    for (const { id, ...info } of rows) images.set(id, info as ImageInfo);
     return {
       id: row.id,
       name: row.name,
@@ -886,6 +1031,7 @@ export class DocumentObject extends DurableObject<Env> {
       rev: row.rev,
       artboards: JSON.parse(row.artboards),
       nodes,
+      images,
     };
   }
 

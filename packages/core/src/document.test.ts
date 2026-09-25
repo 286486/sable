@@ -13,7 +13,7 @@ import {
 } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { compose } from "./matrix.ts";
-import { NodeQuery } from "./schema.ts";
+import { type Node, NodeQuery } from "./schema.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -893,6 +893,80 @@ describe("a Clipping Mask (ADR-0021)", () => {
     const { doc, clip } = masked();
     expect(nodeView(doc, doc.nodes.get(clip.id) ?? clip, "full")).toMatchObject({
       clipping: true,
+    });
+  });
+});
+
+describe("an Image", () => {
+  const ID = "a".repeat(64);
+  const withImage = () => {
+    const made = newDoc();
+    made.doc.images.set(ID, { mime: "image/png", width: 24, height: 16 });
+    return made;
+  };
+  const image = (parentId: string, extra: object = {}) => ({
+    type: "image" as const,
+    parentId,
+    src: ID,
+    x: 10,
+    y: 20,
+    ...extra,
+  });
+
+  it("takes the file's pixel size as its frame, stretches by default and has no Appearance", () => {
+    const { doc, defaultLayerId } = withImage();
+    const [node] = createNodes(doc, [image(defaultLayerId)]).nodes;
+    expect(node).toMatchObject({
+      type: "image",
+      src: ID,
+      x: 10,
+      y: 20,
+      width: 24,
+      height: 16,
+      preserveAspectRatio: "none",
+    });
+    expect(node).not.toHaveProperty("appearance");
+    const frame = { x: 10, y: 20, width: 24, height: 16 };
+    expect(bounds(doc, node as Node)).toEqual(frame);
+    expect(visibleBounds(doc, node as Node)).toEqual(frame);
+    const full = nodeView(doc, node as Node, "full");
+    expect(full).toMatchObject({ src: ID });
+    expect(full).not.toHaveProperty("d");
+  });
+
+  it("keeps a frame given whole and spells preserveAspectRatio one way", () => {
+    const { doc, defaultLayerId } = withImage();
+    const [node] = createNodes(doc, [
+      image(defaultLayerId, { width: 48, height: 48, preserveAspectRatio: "defer xMidYMid" }),
+    ]).nodes;
+    expect(node).toMatchObject({ width: 48, height: 48, preserveAspectRatio: "xMidYMid meet" });
+  });
+
+  it("is created inline in a Group", () => {
+    const { doc, defaultLayerId } = withImage();
+    const { nodes } = createNodes(doc, [
+      { type: "group", parentId: defaultLayerId, children: [image(defaultLayerId)] },
+    ]);
+    expect(nodes.map((n) => n.type)).toEqual(["group", "image"]);
+  });
+
+  it("wants both width and height, or neither", () => {
+    const { doc, defaultLayerId } = withImage();
+    expect(() => createNodes(doc, [image(defaultLayerId, { width: 5 })])).toThrow(
+      expect.objectContaining({ issues: [expect.objectContaining({ path: ["height"] })] }),
+    );
+  });
+
+  it.each([
+    ["an id the Document does not hold", "b".repeat(64), /No image/],
+    ["a data: URL nobody read in", "data:image/png;base64,AAAA", /not read/],
+  ])("refuses %s as src", (_, src, message) => {
+    const { doc, defaultLayerId } = withImage();
+    expect(codeOf(() => createNodes(doc, [image(defaultLayerId, { src })]))).toMatchObject({
+      code: "INVALID_IMAGE",
+      message: expect.stringMatching(message),
+      path: "nodes[0].src",
+      hint: expect.stringContaining("PNG"),
     });
   });
 });

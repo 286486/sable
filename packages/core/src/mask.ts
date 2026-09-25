@@ -23,7 +23,12 @@ export function makeMask(
     );
   }
   const clip = lookup(doc, clipNodeId, "clipNodeId");
-  if (clip.type === "layer" || clip.type === "group" || clip.type === "text") {
+  if (
+    clip.type === "layer" ||
+    clip.type === "group" ||
+    clip.type === "text" ||
+    clip.type === "image"
+  ) {
     throw invalid(
       "clipNodeId",
       `A ${clip.type} cannot be a Clipping Path.`,
@@ -63,7 +68,7 @@ export function makeMask(
         "Clip the Layer's Nodes instead.",
       );
     }
-    if (n.type !== "group" && n.type !== "text" && n.clipping) {
+    if ("clipping" in n && n.clipping) {
       throw invalid(
         at,
         "The Node is a Clipping Path: a Group has at most one.",

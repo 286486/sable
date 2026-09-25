@@ -3,6 +3,7 @@ import { exports } from "cloudflare:workers";
 import type { ErrorCode } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
+import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { call, errorOf, rpc } from "./rpc.ts";
 
 const newDoc = async () =>
@@ -94,6 +95,31 @@ it("makes a Clipping Mask from a circle over a Group, renders it clipped and rel
   expect(nodes[0]).toMatchObject({ parentId: maskId, appearance: { fills: [], strokes: [] } });
   expect(nodes[0].clipping).toBeUndefined();
   expect(nodes[1]).toMatchObject({ parentId: maskId });
+});
+
+it("places a PNG as an Image: node_get has its id, render draws it, export and open keep it", async () => {
+  const { docId, defaultLayerId } = await newDoc();
+  const image = { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 10, y: 10 };
+  const [id] = (await call("zibel_node_create", { docId, nodes: [image] })).structuredContent
+    .createdIds as string[];
+  const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+    .structuredContent;
+  expect(nodes[0]).toMatchObject({
+    type: "image",
+    width: 2,
+    height: 2,
+    src: expect.stringMatching(/^[0-9a-f]{64}$/),
+  });
+  expect(JSON.stringify(nodes)).not.toContain("data:");
+  const rendered = await call("zibel_render", { docId, scope: { nodeIds: [id] }, scale: 1 });
+  expect(rendered.structuredContent.viewport.pixelSize).toEqual({ width: 2, height: 2 });
+  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text;
+  expect(svg).toContain(`xlink:href="${RED_2x2_PNG}"`);
+  const opened = (await call("zibel_doc_open", { content: svg })).structuredContent;
+  const back = (
+    await call("zibel_node_get", { docId: opened.docId, nodeIds: [id], detail: "full" })
+  ).structuredContent;
+  expect(back.nodes[0]).toMatchObject({ src: nodes[0].src });
 });
 
 it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
@@ -510,6 +536,10 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       return tool("zibel_tx_commit", { txId });
     },
     INVALID_DOCUMENT: () => call("zibel_doc_open", { content: "{" }).then(errorOf),
+    INVALID_IMAGE: () =>
+      tool("zibel_node_create", {
+        nodes: [{ type: "image", parentId: defaultLayerId, src: WEBP_HEADER, x: 0, y: 0 }],
+      }),
     INVALID_MASK: async () =>
       tool("zibel_mask_make", { clipNodeId: defaultLayerId, contentIds: [await create(rect)] }),
     // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).

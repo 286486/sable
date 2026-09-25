@@ -4,6 +4,8 @@ import {
   clippingPath,
   type Document,
   formatPath,
+  frameShape,
+  type ImageNode,
   type LeafNode,
   type Node,
   type Rect,
@@ -99,12 +101,12 @@ export function hitTest(
 
 /**
  * Inside a Fill, or on the outline (painted or not, as Illustrator hits an unpainted Path); a
- * text anywhere inside its bounds.
+ * text anywhere inside its bounds; an Image anywhere inside its frame.
  */
 function paintedAt(
   ctx: CanvasRenderingContext2D,
   doc: Document,
-  n: LeafNode,
+  n: LeafNode | ImageNode,
   x: number,
   y: number,
   tolerance: number,
@@ -113,6 +115,7 @@ function paintedAt(
     const b = bounds(doc, n);
     return !!b && b.x <= x && x <= b.x + b.width && b.y <= y && y <= b.y + b.height;
   }
+  if (n.type === "image") return ctx.isPointInPath(outline(doc, n), x, y);
   const path = outline(doc, n);
   if (n.appearance.fills.length > 0 && ctx.isPointInPath(path, x, y, ruleOf(n))) return true;
   const widest =
@@ -121,9 +124,16 @@ function paintedAt(
   return ctx.isPointInStroke(path, x, y);
 }
 
-/** A shape's outline in document coordinates. */
-const outline = (doc: Document, n: ShapeNode) =>
-  new Path2D(formatPath(transformSegments(shapeSegments(n), worldTransform(doc, n))));
+/** A shape's outline, or an Image's frame, in document coordinates. */
+const outline = (doc: Document, n: ShapeNode | ImageNode) =>
+  new Path2D(
+    formatPath(
+      transformSegments(
+        shapeSegments(n.type === "image" ? frameShape(n) : n),
+        worldTransform(doc, n),
+      ),
+    ),
+  );
 
 const ruleOf = (n: ShapeNode) =>
   n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : "nonzero";

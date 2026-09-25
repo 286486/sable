@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COLOR_PATTERN } from "./color.ts";
+import { type ImageInfo, preserveAspectRatio } from "./image.ts";
 import { compose, scaleOf } from "./matrix.ts";
 
 /**
@@ -200,6 +201,43 @@ export function textFrame(
 }
 export type TextShape = z.output<typeof TextShape>;
 
+/** An Image (ADR-0023): a file stored once per Document, drawn in a frame. */
+export const ImageShape = z.object({
+  type: z.literal("image"),
+  src: z
+    .string()
+    .describe(
+      "A data: URL of a PNG, JPEG or GIF file (WebP is refused: convert it to PNG), or the id of an image already in the Document, which reuses its bytes.",
+    ),
+  x: z.number().describe("The frame's left."),
+  y: z.number().describe("The frame's top."),
+  width: z
+    .number()
+    .positive()
+    .optional()
+    .describe("With height; omit both for the file's pixel size, one pt per pixel."),
+  height: z.number().positive().optional(),
+  preserveAspectRatio: z
+    .string()
+    .refine(
+      (v) => preserveAspectRatio(v) !== undefined,
+      "none, or xMinYMin to xMaxYMax optionally followed by meet or slice, e.g. xMidYMid meet.",
+    )
+    .default("none")
+    .describe(
+      "SVG's: none stretches the file to the frame; xMidYMid meet fits it inside, slice fills and crops.",
+    ),
+});
+/** An Image's frame is given whole or taken from the file. */
+export function imageFrame(t: { width?: number; height?: number }, ctx: z.RefinementCtx) {
+  if ((t.width === undefined) === (t.height === undefined)) return;
+  ctx.addIssue({
+    code: "custom",
+    path: [t.width === undefined ? "width" : "height"],
+    message: "Give both width and height, or neither for the file's pixel size.",
+  });
+}
+
 const clientKey = z
   .string()
   .optional()
@@ -230,6 +268,7 @@ const TextItem = TextShape.extend({
     "Omit for Illustrator's default type Appearance, a black Fill and no Stroke; {} paints nothing.",
   ),
 }).superRefine(textFrame);
+const ImageItem = ImageShape.extend(item).superRefine(imageFrame);
 const LEAF_ITEMS = [
   RectItem,
   EllipseItem,
@@ -238,6 +277,7 @@ const LEAF_ITEMS = [
   StarItem,
   PathItem,
   TextItem,
+  ImageItem,
 ] as const;
 type LeafItem = (typeof LEAF_ITEMS)[number];
 interface GroupChild {
@@ -322,6 +362,8 @@ const parameters = Object.fromEntries(
     .filter(([k]) => k !== "type" && k !== "kind")
     .map(([k, t]) => [k, unwrapDefault(t as z.ZodType)]),
 );
+// An Image's frame reuses the keys above; its src is read-only (ADR-0023).
+parameters.preserveAspectRatio = unwrapDefault(ImageShape.shape.preserveAspectRatio);
 
 /**
  * The published `node_update` patch. Nothing here has a default, or the MCP SDK would insert it into
@@ -459,10 +501,22 @@ export type ShapeNode = NodeBase &
 
 export type TextNode = NodeBase & TextShape & { appearance: Appearance };
 
-/** A Node that paints: a Live Shape, a Path or a text. */
+/** A Node that paints with an Appearance: a Live Shape, a Path or a text. */
 export type LeafNode = ShapeNode | TextNode;
 
-export type Node = LayerNode | GroupNode | LeafNode;
+export interface ImageNode extends NodeBase {
+  type: "image";
+  /** The SHA-256 of the file, stored once in the Document (ADR-0023). */
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** `none` or `<align> <meet|slice>`, as `preserveAspectRatio()` spells it. */
+  preserveAspectRatio: string;
+}
+
+export type Node = LayerNode | GroupNode | LeafNode | ImageNode;
 
 export interface Document {
   id: string;
@@ -472,6 +526,8 @@ export interface Document {
   rev: number;
   artboards: Artboard[];
   nodes: Map<string, Node>;
+  /** Every image file the Document holds, by id; the bytes live outside it (ADR-0023). */
+  images: Map<string, ImageInfo>;
 }
 
 /** The uniform result of every write (REQUIREMENTS §6.5). */
@@ -512,6 +568,7 @@ const NODE_TYPES = {
   star: true,
   path: true,
   text: true,
+  image: true,
 } satisfies Record<Node["type"], true>;
 export const NodeType = z.enum(Object.keys(NODE_TYPES) as [Node["type"]]);
 

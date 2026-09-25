@@ -1,6 +1,7 @@
-import { serializeDocument, ZibelError } from "@zibel/core";
+import { type ImageNode, readImage, serializeDocument, ZibelError } from "@zibel/core";
 import { describe, expect, it } from "vitest";
-import { MAX_DEPTH, parseFile, SVG_LIMIT } from "./index.ts";
+import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
+import { MAX_DEPTH, parseFile, parseSvg, SVG_LIMIT } from "./index.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -600,7 +601,7 @@ it("opens a file with content Zibel cannot hold, with one warning per kind", () 
   expect(leaves(file)[1]).toMatchObject({ clipping: true });
   expect(leaves(file)[2]).toMatchObject({ d: "M 0 0 L 1 1" });
   const codes = file.warnings.map((w) => w.code);
-  expect(codes.filter((c) => c === "UNSUPPORTED_ELEMENT")).toHaveLength(7);
+  expect(codes.filter((c) => c === "UNSUPPORTED_ELEMENT")).toHaveLength(6);
   expect(new Set(codes)).toEqual(
     new Set([
       "UNSUPPORTED_ELEMENT",
@@ -610,6 +611,7 @@ it("opens a file with content Zibel cannot hold, with one warning per kind", () 
       "UNSUPPORTED_PAINT",
       "DUPLICATE_ID",
       "INVALID_PATH",
+      "INVALID_IMAGE",
     ]),
   );
   // mask, filter and marker-end; the clip-path is held.
@@ -757,5 +759,107 @@ describe("Clipping Masks (ADR-0021)", () => {
   it("takes clip-path none, as Inkscape's Release writes it, as no clip", () => {
     const file = parseFile(svg("", '<g clip-path="none"><rect width="5" height="5"/></g>'));
     expect(file.warnings).toEqual([]);
+  });
+});
+
+describe("<image>", () => {
+  const XLINK = 'xmlns:xlink="http://www.w3.org/1999/xlink"';
+  const open = (body: string, known?: (url: string) => string | undefined) =>
+    parseSvg(svg(`width="100" height="100" ${XLINK}`, body), undefined, { known });
+  const images = (file: ReturnType<typeof parseSvg>) =>
+    file.nodes.filter((n): n is ImageNode => n.type === "image");
+
+  it("reads Inkscape's embedded image: its frame, preserveAspectRatio and file", () => {
+    const file = open(
+      `<image x="5" y="6" width="30" height="20" preserveAspectRatio="xMidYMid slice" xlink:href="${RED_2x2_PNG}"/>`,
+    );
+    const [image] = images(file);
+    expect(image).toMatchObject({
+      x: 5,
+      y: 6,
+      width: 30,
+      height: 20,
+      preserveAspectRatio: "xMidYMid slice",
+      src: "pending:0",
+    });
+    expect(image).not.toHaveProperty("appearance");
+    expect(file.images.get("pending:0")).toMatchObject({ mime: "image/png", width: 2, height: 2 });
+    expect(file.warnings).toEqual([]);
+  });
+
+  it("reads SVG 2's href, takes a missing size from the file and SVG's own default alignment", () => {
+    const [image] = images(open(`<image href="${RED_2x2_PNG}"/>`));
+    expect(image).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 2,
+      height: 2,
+      preserveAspectRatio: "xMidYMid meet",
+    });
+  });
+
+  it("drops defer, and bakes a move and uniform scale into the frame", () => {
+    const [image] = images(
+      open(
+        `<image transform="translate(10 20) scale(2)" width="4" height="3" preserveAspectRatio="defer xMinYMin" href="${RED_2x2_PNG}"/>`,
+      ),
+    );
+    expect(image).toMatchObject({
+      x: 10,
+      y: 20,
+      width: 8,
+      height: 6,
+      preserveAspectRatio: "xMinYMin meet",
+      transform: [1, 0, 0, 1, 0, 0],
+    });
+  });
+
+  it("gives two copies of one file one key, and a known file its id", () => {
+    const body = `<image href="${RED_2x2_PNG}"/><image x="5" href="${RED_2x2_PNG}"/>`;
+    const file = open(body);
+    expect(images(file).map((n) => n.src)).toEqual(["pending:0", "pending:0"]);
+    expect([...file.images.keys()]).toEqual(["pending:0"]);
+    const id = "a".repeat(64);
+    const known = open(body, (url) => (url === RED_2x2_PNG ? id : undefined));
+    expect(images(known).map((n) => n.src)).toEqual([id, id]);
+    expect([...known.images.keys()]).toEqual([id]);
+  });
+
+  it.each([
+    ["a linked file", '<image href="photo.png" width="1" height="1"/>', "LINKED_IMAGE_DROPPED"],
+    ["a WebP", `<image href="${WEBP_HEADER}" width="1" height="1"/>`, "INVALID_IMAGE"],
+  ])("drops %s with a warning", (_, body, code) => {
+    const file = open(body);
+    expect(images(file)).toEqual([]);
+    expect(file.images.size).toBe(0);
+    expect(file.warnings).toEqual([expect.objectContaining({ code })]);
+  });
+
+  it("makes an image clipped by Inkscape's Set Clip a Clipping Mask", () => {
+    const file = open(
+      `<defs><clipPath id="c"><rect x="1" y="1" width="2" height="2"/></clipPath></defs><image clip-path="url(#c)" width="4" height="4" href="${RED_2x2_PNG}"/>`,
+    );
+    const group = file.nodes.find((n) => n.type === "group");
+    expect(file.nodes.filter((n) => n.parentId === group?.id).map((n) => n.type)).toEqual([
+      "image",
+      "rect",
+    ]);
+    expect(file.warnings).toEqual([]);
+  });
+
+  it("caps an SVG at 5 MB outside its embedded images", () => {
+    const png = readImage(RED_2x2_PNG, "src").bytes;
+    const big = new Uint8Array(4 * 1024 * 1024);
+    big.set(png);
+    const url = `data:image/png;base64,${big.toBase64()}`;
+    expect(url.length).toBeGreaterThan(SVG_LIMIT);
+    expect(
+      parseFile(svg(XLINK, `<image width="1" height="1" xlink:href="${url}"/>`)).nodes,
+    ).toContainEqual(expect.objectContaining({ type: "image" }));
+    const markup = svg(
+      XLINK,
+      `<desc>${"x".repeat(SVG_LIMIT)}</desc><image href="${RED_2x2_PNG}"/>`,
+    );
+    expect(errorOf(() => parseFile(markup))).toMatchObject({ code: "LIMIT_EXCEEDED" });
   });
 });

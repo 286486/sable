@@ -107,3 +107,16 @@ it("auto-names a Clipping Mask and its Clipping Path as Illustrator does", () =>
   expect(autoName(doc, doc.nodes.get(clip.id) as Node)).toBe("<Clipping Path>");
   expect(autoName(doc, content)).toBe("<Rectangle>");
 });
+
+it("names an Image as Illustrator names an embedded one", () => {
+  const { doc, defaultLayerId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 100 }],
+  });
+  const src = "a".repeat(64);
+  doc.images.set(src, { mime: "image/png", width: 2, height: 2 });
+  const [image] = createNodes(doc, [{ type: "image", parentId: defaultLayerId, src, x: 0, y: 0 }])
+    .nodes as [Node];
+  expect(autoName(doc, image)).toBe("<Image>");
+});

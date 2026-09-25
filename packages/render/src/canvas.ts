@@ -6,6 +6,7 @@ import {
   type LeafNode,
   layoutText,
   type Node,
+  type Rect,
   type Segment,
   shapeSegments,
   transformSegments,
@@ -43,19 +44,64 @@ export interface Canvas2D {
   stroke(): void;
   fillText(text: string, x: number, y: number): void;
   strokeText(text: string, x: number, y: number): void;
+  rect(x: number, y: number, w: number, h: number): void;
+  drawImage(image: unknown, x: number, y: number, w: number, h: number): void;
 }
 
-/** Draws the Document in document coordinates: the same scene, in the same order, as `toSvg`. */
-export function drawDocument(ctx: Canvas2D, doc: Document): void {
+/** An Image's file, decoded for the canvas, with its pixel size. */
+export interface DecodedImage {
+  image: unknown;
+  width: number;
+  height: number;
+}
+
+/**
+ * Draws the Document in document coordinates: the same scene, in the same order, as `toSvg`. An
+ * Image draws once `images` has its file decoded (ADR-0023).
+ */
+export function drawDocument(
+  ctx: Canvas2D,
+  doc: Document,
+  images?: (id: string) => DecodedImage | undefined,
+): void {
   for (const { frame, background } of doc.artboards) {
     if (!background) continue;
     ctx.fillStyle = background;
     ctx.fillRect(frame.x, frame.y, frame.width, frame.height);
   }
-  for (const n of childrenOf(doc, null)) draw(ctx, doc, n);
+  for (const n of childrenOf(doc, null)) draw(ctx, doc, n, images);
 }
 
-function draw(ctx: Canvas2D, doc: Document, n: Node) {
+const ALIGN = { Min: 0, Mid: 0.5, Max: 1 } as Record<string, number>;
+
+/** Where SVG's `preserveAspectRatio` puts a file of `size` pixels in `frame`. */
+export function imagePlacement(
+  frame: Rect,
+  size: { width: number; height: number },
+  preserveAspectRatio: string,
+): Rect {
+  const { x, y } = frame;
+  if (preserveAspectRatio === "none") return { x, y, width: frame.width, height: frame.height };
+  const [align = "xMidYMid", how] = preserveAspectRatio.split(" ");
+  const k = (how === "slice" ? Math.max : Math.min)(
+    frame.width / size.width,
+    frame.height / size.height,
+  );
+  const [width, height] = [size.width * k, size.height * k];
+  return {
+    x: x + (frame.width - width) * (ALIGN[align.slice(1, 4)] ?? 0.5),
+    y: y + (frame.height - height) * (ALIGN[align.slice(5, 8)] ?? 0.5),
+    width,
+    height,
+  };
+}
+
+function draw(
+  ctx: Canvas2D,
+  doc: Document,
+  n: Node,
+  images: ((id: string) => DecodedImage | undefined) | undefined,
+) {
   if (!n.visible) return;
   ctx.save();
   // ponytail: opacity multiplies into globalAlpha per paint, so overlapping children (or a Fill
@@ -70,7 +116,18 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
       trace(ctx, transformSegments(shapeSegments(clip), clip.transform));
       ctx.clip(clip.type === "path" && clip.fillRule === "evenodd" ? "evenodd" : "nonzero");
     }
-    for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, doc, c);
+    for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, doc, c, images);
+  } else if (n.type === "image") {
+    const file = images?.(n.src);
+    if (file) {
+      if (n.preserveAspectRatio.endsWith("slice")) {
+        ctx.beginPath();
+        ctx.rect(n.x, n.y, n.width, n.height);
+        ctx.clip();
+      }
+      const r = imagePlacement(n, file, n.preserveAspectRatio);
+      ctx.drawImage(file.image, r.x, r.y, r.width, r.height);
+    }
   } else {
     // Overflowing Area Type is not laid out, so it is not drawn (ADR-0022).
     const lines = n.type === "text" ? layoutText(n).lines : null;

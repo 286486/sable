@@ -4,6 +4,14 @@ import { parseColor } from "./color.ts";
 import { assertParent, paint } from "./document.ts";
 import { zodPath } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
+import {
+  IMAGE_ID,
+  type ImageFile,
+  type ImageSource,
+  imageId,
+  preserveAspectRatio,
+  readImage,
+} from "./image.ts";
 import { formatPath, parsePath } from "./path.ts";
 import {
   type AppearanceInput,
@@ -38,15 +46,28 @@ function sortKeys(value: unknown): unknown {
 
 /**
  * The Document as `.zibel.json` (ADR-0016): the same Document always gives the same text. No docId,
- * `rev` or history: they belong to one running Document.
+ * `rev` or history: they belong to one running Document. `images` gives the file of each Image,
+ * which the file carries once, by id (ADR-0023).
  */
-export function serializeDocument(doc: Document): string {
+export function serializeDocument(doc: Document, images?: ImageSource): string {
   const nodes = [...doc.nodes.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+  const ids = [...new Set(nodes.flatMap((n) => (n.type === "image" ? [n.src] : [])))].sort();
+  const files = ids.map((id) => {
+    const url = images?.(id);
+    if (url !== undefined) return [id, url];
+    throw new ZibelError({
+      code: "INVALID_IMAGE",
+      message: `The file of image ${id} was not given to the .zibel.json writer.`,
+      hint: "Pass every Image's file through serializeDocument's images.",
+      path: "src",
+    });
+  });
   const file = {
     version: MIGRATIONS.length + 1,
     name: doc.name,
     artboards: sortKeys(doc.artboards),
     nodes: sortKeys(nodes),
+    ...(files.length > 0 && { images: Object.fromEntries(files) }),
   };
   return `${JSON.stringify(file, null, 2)}\n`;
 }
@@ -66,6 +87,18 @@ const appearance = z.strictObject({
 const StoredNode = z.discriminatedUnion("type", [
   z.strictObject({ ...base, type: z.literal("layer") }),
   z.strictObject({ ...base, type: z.literal("group") }),
+  z.strictObject({
+    ...base,
+    type: z.literal("image"),
+    src: z.string(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+    preserveAspectRatio: z
+      .string()
+      .refine((v) => preserveAspectRatio(v) === v, "none, or an alignment and meet or slice."),
+  }),
   z.strictObject({ ...base, ...TextShape.shape, appearance }).superRefine(textFrame),
   ...Object.values(SHAPES).map((s) =>
     z.strictObject({ ...base, ...s.shape, appearance, clipping: z.boolean().optional() }),
@@ -90,6 +123,9 @@ const FileSchema = z.strictObject({
     .min(1)
     .max(1000),
   nodes: z.array(StoredNode),
+  images: z
+    .record(z.string().regex(IMAGE_ID, "An image's key is its SHA-256, in hex."), z.string())
+    .optional(),
 });
 
 const HINT = "A .zibel.json file is what zibel_export returns with format zibel_json.";
@@ -98,12 +134,15 @@ const invalid = (path: string, message: string, hint = HINT) =>
 
 /**
  * Reads `.zibel.json` text (ADR-0016): runs the `up` migrations of an older version, then checks
- * everything core checks on a write. Every failure names its `path` in the file.
+ * everything core checks on a write. Every failure names its `path` in the file. Image files are
+ * keyed as the file claims; `resolveImages` checks the claim. The SVG reader, which reads its
+ * files itself, passes them as `decoded` under keys of its own.
  */
 export function parseDocument(
   text: string,
   migrations = MIGRATIONS,
-): { name: string; artboards: Artboard[]; nodes: Node[] } {
+  decoded?: Map<string, ImageFile>,
+): { name: string; artboards: Artboard[]; nodes: Node[]; images: Map<string, ImageFile> } {
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -146,7 +185,7 @@ export function parseDocument(
     }),
   );
   const nodes = parsed.data.nodes.map((n, i): Node => {
-    if (n.type === "layer" || n.type === "group") return n;
+    if (n.type === "layer" || n.type === "group" || n.type === "image") return n;
     const at = `nodes[${i}]`;
     const painted = {
       ...n,
@@ -172,6 +211,29 @@ export function parseDocument(
     nodes.map((n) => n.id),
     (i) => `nodes[${i}].id`,
   );
+  const images =
+    decoded ??
+    new Map(
+      Object.entries(parsed.data.images ?? {}).map(([id, url]) => {
+        const at = `images.${id}`;
+        try {
+          return [id, readImage(url, at)];
+        } catch (e) {
+          if (!(e instanceof ZibelError)) throw e;
+          throw invalid(at, e.data.message);
+        }
+      }),
+    );
+  const used = new Set<string>();
+  nodes.forEach((n, i) => {
+    if (n.type !== "image") return;
+    if (!images.has(n.src))
+      throw invalid(`nodes[${i}].src`, `No file for image ${n.src} in images.`);
+    used.add(n.src);
+  });
+  for (const id of images.keys()) {
+    if (!used.has(id)) throw invalid(`images.${id}`, "No Image uses this file.");
+  }
   const doc: Document = {
     id: "",
     name: parsed.data.name,
@@ -179,6 +241,7 @@ export function parseDocument(
     rev: 0,
     artboards,
     nodes: new Map(nodes.map((n) => [n.id, n])),
+    images,
   };
   const siblings = new Set<string>();
   const clipped = new Set<string | null>();
@@ -228,5 +291,31 @@ export function parseDocument(
       "Every Document has at least one Layer at its root.",
     );
   }
-  return { name: parsed.data.name, artboards, nodes };
+  return { name: parsed.data.name, artboards, nodes, images };
+}
+
+/**
+ * Names every file by its SHA-256 (ADR-0023): a pending key, as the SVG reader gives, becomes the
+ * id in each Image that uses it, and two copies of one file become one. A key that is already an
+ * id must be the file's.
+ */
+export async function resolveImages<T extends { nodes: Node[]; images: Map<string, ImageFile> }>(
+  file: T,
+): Promise<T> {
+  const renamed = new Map<string, string>();
+  const images = new Map<string, ImageFile>();
+  for (const [key, image] of file.images) {
+    const id = await imageId(image.bytes);
+    if (IMAGE_ID.test(key) && key !== id) {
+      throw invalid(`images.${key}`, `The file's SHA-256 is ${id}, not its key.`);
+    }
+    renamed.set(key, id);
+    images.set(id, image);
+  }
+  const nodes = file.nodes.map((n) =>
+    n.type === "image" && renamed.get(n.src) !== n.src
+      ? { ...n, src: renamed.get(n.src) ?? n.src }
+      : n,
+  );
+  return { ...file, nodes, images };
 }

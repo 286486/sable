@@ -50,6 +50,7 @@ describe("write tools pass the write and its options apart", () => {
         height: 20,
         content: "a\nb",
       },
+      { type: "image", parentId: "p", src: "data:image/png;base64,AAAA", x: 0, y: 0 },
     ];
     const result = await call("zibel_node_create", { docId: "d", nodes, ...opts });
     expect(result.structuredContent).toEqual(receipt);
@@ -66,7 +67,9 @@ describe("write tools pass the write and its options apart", () => {
       { type: "path", fillRule: "nonzero" },
       { type: "text", kind: "point", fontFamily: "Source Sans 3", fontSize: 12 },
       { type: "text", kind: "area", width: 50, height: 20, content: "a\nb", fontSize: 12 },
+      { type: "image", src: "data:image/png;base64,AAAA", preserveAspectRatio: "none" },
     ]);
+    expect(sent?.[9]).not.toHaveProperty("appearance");
     await call("zibel_node_create", { docId: "d", nodes: [nodes[2]] });
     expect(service.createNodes.mock.calls[1]?.[2]).toEqual({ partial: false });
   });
@@ -76,6 +79,7 @@ describe("write tools pass the write and its options apart", () => {
     const updates = [
       { nodeId: "a", patch: { width: 60 } },
       { nodeId: "b", patch: { appearance: { fills: [{ color: "#FF0000" }] } } },
+      { nodeId: "c", patch: { preserveAspectRatio: "xMidYMid meet" } },
     ];
     await call("zibel_node_update", { docId: "d", updates, ...opts });
     // A Fill is always solid so far; the list replaces, and strokes is not sent.
@@ -83,7 +87,11 @@ describe("write tools pass the write and its options apart", () => {
     const [docId, sent, options] = service.updateNodes.mock.calls[0] ?? [];
     expect([docId, options]).toEqual(["d", { ...opts, partial: false }]);
     // Strict: a default filled in as an undefined key would still reach the Durable Object.
-    expect(sent).toStrictEqual([updates[0], { nodeId: "b", patch: { appearance: { fills } } }]);
+    expect(sent).toStrictEqual([
+      updates[0],
+      { nodeId: "b", patch: { appearance: { fills } } },
+      updates[2],
+    ]);
   });
 
   it("node_delete", async () => {
@@ -548,6 +556,9 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("zibel_node_create")).toContain("text {");
   expect(described("zibel_node_create")).toContain("TEXT_OVERFLOW");
   expect(described("zibel_node_update")).toContain("leading");
+  expect(described("zibel_node_create")).toContain("image {");
+  expect(described("zibel_node_update")).toContain("preserveAspectRatio");
+  expect(described("zibel_doc_open")).toContain("LINKED_IMAGE_DROPPED");
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({
       readOnlyHint: expect.any(Boolean),
@@ -586,6 +597,8 @@ it("serves skill://zibel/drawing-conventions and points at it in the instruction
     "SVG",
     "FONT_MISSING",
     "LIMIT_EXCEEDED",
+    "## Images",
+    "INVALID_IMAGE",
   ]) {
     expect(text).toContain(fact);
   }

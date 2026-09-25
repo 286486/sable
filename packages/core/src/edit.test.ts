@@ -519,3 +519,52 @@ describe("a Clipping Path under node_update and node_create (ADR-0021)", () => {
     expect(r && "clipping" in r).toBe(false);
   });
 });
+
+describe("an Image", () => {
+  const withImage = () => {
+    const { doc, defaultLayerId } = newDoc();
+    const src = "a".repeat(64);
+    doc.images.set(src, { mime: "image/png", width: 24, height: 16 });
+    const [node] = createNodes(doc, [{ type: "image", parentId: defaultLayerId, src, x: 0, y: 0 }])
+      .nodes as [Node];
+    return { doc, id: node.id };
+  };
+  const update = (patch: Record<string, unknown>) => {
+    const { doc, id } = withImage();
+    const [node] = updateNodes(doc, [{ nodeId: id, patch }]).nodes;
+    return node;
+  };
+
+  it("writes its frame and preserveAspectRatio, spelled one way", () => {
+    expect(update({ width: 48, preserveAspectRatio: "xMidYMid" })).toMatchObject({
+      width: 48,
+      preserveAspectRatio: "xMidYMid meet",
+    });
+    expect(update({ preserveAspectRatio: "defer xMinYMax slice" })).toMatchObject({
+      preserveAspectRatio: "xMinYMax slice",
+    });
+  });
+
+  it.each([
+    ["src", { src: "b".repeat(64) }, /Relink/],
+    ["an Appearance", { appearance: { fills: [] } }, /x, y, width, height, preserveAspectRatio/],
+    ["a bad preserveAspectRatio", { preserveAspectRatio: "stretch" }, /meet or slice/],
+    ["a zero width", { width: 0 }, /./],
+  ])("refuses %s", (_, patch, hint) => {
+    const { doc, id } = withImage();
+    expect(errorOf(() => updateNodes(doc, [{ nodeId: id, patch }]))).toMatchObject({
+      code: "INVALID_PATCH",
+      hint: expect.stringMatching(hint),
+    });
+  });
+
+  it("moves by its transform, keeping its frame, with or without scaling Strokes", () => {
+    for (const scaleStrokes of [true, false]) {
+      const { doc, id } = withImage();
+      const [moved] = transformNodes(doc, { nodeIds: [id], scale: 2, scaleStrokes }).nodes;
+      expect(moved).toMatchObject({ x: 0, y: 0, width: 24, height: 16 });
+      expect(moved).not.toHaveProperty("appearance");
+      expect(bounds(doc, moved as Node)).toEqual({ x: -12, y: -8, width: 48, height: 32 });
+    }
+  });
+});

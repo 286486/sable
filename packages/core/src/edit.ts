@@ -1,11 +1,13 @@
 import type { z } from "zod";
 import { bounds, childrenOf, paint, union } from "./document.ts";
 import { collect, type Failed, ZibelError } from "./errors.ts";
+import { preserveAspectRatio } from "./image.ts";
 import { compose, multiply, round, scaleOf } from "./matrix.ts";
 import { formatPath, parsePath } from "./path.ts";
 import {
   AppearanceInput,
   type Document,
+  ImageShape,
   type LeafNode,
   type Node,
   PIVOTS,
@@ -91,16 +93,17 @@ export function transformNodes(
       const next = {
         ...leaf,
         transform: round(multiply(m, leaf.transform)),
-        ...(s !== 1 && {
-          appearance: {
-            ...appearance,
-            strokes: appearance.strokes.map((k) => ({
-              ...k,
-              width: k.width / s,
-              dash: k.dash.map((v) => v / s),
-            })),
-          },
-        }),
+        ...(s !== 1 &&
+          appearance && {
+            appearance: {
+              ...appearance,
+              strokes: appearance.strokes.map((k) => ({
+                ...k,
+                width: k.width / s,
+                dash: k.dash.map((v) => v / s),
+              })),
+            },
+          }),
       } as Node;
       doc.nodes.set(leaf.id, next);
       nodes.push(next);
@@ -142,6 +145,16 @@ export const zodPath = (path: PropertyKey[]) =>
 
 function writableSchema(node: Node) {
   if (node.type === "layer" || node.type === "group") return Writable;
+  if (node.type === "image") {
+    const { x, y, width, height, preserveAspectRatio } = ImageShape.shape;
+    return Writable.extend({
+      x,
+      y,
+      width: width.unwrap(),
+      height: height.unwrap(),
+      preserveAspectRatio,
+    });
+  }
   if (node.type === "text") {
     // A text's kind is fixed, and only Area Type has a frame, which it cannot drop (ADR-0022).
     const { type: _, kind: __, width, height, ...text } = TextShape.shape;
@@ -164,13 +177,15 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
   for (const key of Object.keys(patch)) {
     const readOnly =
       (Object.hasOwn(READ_ONLY, key) ? READ_ONLY[key] : undefined) ??
-      (key === "kind" && node.type === "text"
-        ? "A text's kind is fixed (ADR-0022); create a text of the other kind and delete this one."
-        : key === "d" && node.type === "text"
-          ? "A text has no outline until Create Outlines; change content instead."
-          : key === "d" && node.type !== "path"
-            ? "A Live Shape's d is derived from its parameters; change those instead."
-            : undefined);
+      (key === "src" && node.type === "image"
+        ? "An Image's src is read-only until Relink; create a new Image with node_create and delete this one."
+        : key === "kind" && node.type === "text"
+          ? "A text's kind is fixed (ADR-0022); create a text of the other kind and delete this one."
+          : key === "d" && node.type === "text"
+            ? "A text has no outline until Create Outlines; change content instead."
+            : key === "d" && node.type !== "path"
+              ? "A Live Shape's d is derived from its parameters; change those instead."
+              : undefined);
     if (readOnly) throw invalid(`.${key}`, `${key} is read-only.`, readOnly);
     if (!Object.hasOwn(schema.shape, key)) {
       throw invalid(
@@ -204,7 +219,9 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
       "Use mask_release to show the content unclipped, or hide the Clipping Mask's Group.",
     );
   }
-  if (next.type !== "layer" && next.type !== "group") {
+  if (next.type === "image") {
+    next.preserveAspectRatio = preserveAspectRatio(next.preserveAspectRatio) ?? "none";
+  } else if (next.type !== "layer" && next.type !== "group") {
     next.appearance = paint(next.appearance as AppearanceInput, `${at}.appearance`);
   }
   if (next.type === "path" && "d" in patch) next.d = formatPath(parsePath(next.d, `${at}.d`));

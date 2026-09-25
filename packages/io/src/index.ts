@@ -7,8 +7,19 @@ export { docRect, type SvgOptions, scopeRect, svgRect, toSvg } from "./write.ts"
 
 export type { OpenedFile, Origin, Warning };
 
-/** The largest SVG Open reads, in UTF-16 code units (REQUIREMENTS §6.7). */
+/**
+ * The largest SVG Open reads, in UTF-16 code units outside embedded images' data URLs, which
+ * `readImage` caps one by one (REQUIREMENTS §6.7, ADR-0023).
+ */
+// ponytail: many embedded images are bounded only by the request and RPC limits (32 MiB).
 export const SVG_LIMIT = 5 * 1024 * 1024;
+
+/** The length of `text` without the values of `href="data:…"` and `xlink:href="data:…"`. */
+const outsideImages = (text: string) =>
+  [...text.matchAll(/href\s*=\s*(["'])data:[^"']*\1/g)].reduce(
+    (n, m) => n - m[0].length,
+    text.length,
+  );
 
 /**
  * Reads a file for Open (ADR-0017): `.zibel.json` or SVG, told apart by content. `name` is the
@@ -22,10 +33,11 @@ export function parseFile(
   let file: OpenedFile;
   if (text.startsWith("{")) file = { ...parseDocument(text), warnings: [] };
   else if (text.startsWith("<")) {
-    if (text.length > SVG_LIMIT) {
+    const size = outsideImages(text);
+    if (size > SVG_LIMIT) {
       throw new ZibelError({
         code: "LIMIT_EXCEEDED",
-        message: `The SVG is ${text.length} characters; Open reads at most ${SVG_LIMIT}.`,
+        message: `The SVG is ${size} characters outside its embedded images; Open reads at most ${SVG_LIMIT}.`,
         hint: "Split the drawing into several files, or remove embedded images and unused defs.",
         path: "content",
       });

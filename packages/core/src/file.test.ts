@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { createDocument, createNodes } from "./document.ts";
 import { ZibelError } from "./errors.ts";
-import { type Migration, parseDocument, serializeDocument } from "./file.ts";
-import type { Document } from "./schema.ts";
+import { type Migration, parseDocument, resolveImages, serializeDocument } from "./file.ts";
+import { imageId, readImage } from "./image.ts";
+import type { Document, Node } from "./schema.ts";
 
 /** A Layer holding a Group (a rect and a text) and a path. */
 function scene(): Document {
@@ -355,4 +357,128 @@ it("reads Area Type back with its frame and no leading", () => {
   const area = nodes.find((n) => n.type === "text");
   expect(area).toMatchObject({ kind: "area", width: 100, height: 40, content: "a\nb" });
   expect(area).not.toHaveProperty("leading");
+});
+
+describe("images", () => {
+  const ID = "a".repeat(64);
+  /** Two Images sharing one file, as node_create leaves them. */
+  const withImages = () => {
+    const doc = scene();
+    const layer = [...doc.nodes.values()].find((n) => n.type === "layer")?.id as string;
+    doc.images.set(ID, { mime: "image/png", width: 2, height: 2 });
+    const image = { type: "image", parentId: layer, src: ID, x: 0, y: 0 } as const;
+    createNodes(doc, [image, { ...image, x: 5 }]);
+    return doc;
+  };
+  const provider = (id: string) => (id === ID ? RED_2x2_PNG : undefined);
+  type Raw = { images: Record<string, string>; nodes: Record<string, unknown>[] };
+  const file = (edit: (raw: Raw) => void) => {
+    const raw = JSON.parse(serializeDocument(withImages(), provider));
+    edit(raw);
+    return JSON.stringify(raw);
+  };
+
+  it("holds each file once, after nodes, and nothing for a Document without Images", () => {
+    const text = serializeDocument(withImages(), provider);
+    expect(Object.keys(JSON.parse(text))).toEqual([
+      "version",
+      "name",
+      "artboards",
+      "nodes",
+      "images",
+    ]);
+    expect(JSON.parse(text).images).toEqual({ [ID]: RED_2x2_PNG });
+    expect(JSON.parse(text).version).toBe(1);
+    expect(Object.keys(JSON.parse(serializeDocument(scene())))).not.toContain("images");
+  });
+
+  it("reads the files back with their pixel size, and writes the same text", () => {
+    const doc = withImages();
+    const text = serializeDocument(doc, provider);
+    const parsed = parseDocument(text);
+    expect(parsed.images.get(ID)).toMatchObject({ mime: "image/png", width: 2, height: 2 });
+    const reopened = { ...doc, nodes: new Map(parsed.nodes.map((n) => [n.id, n])) };
+    expect(serializeDocument(reopened, provider)).toBe(text);
+  });
+
+  it("needs the file of every Image to write", () => {
+    expect(errorOf(() => serializeDocument(withImages()))).toMatchObject({ code: "INVALID_IMAGE" });
+  });
+
+  it.each([
+    ["an Image whose file is missing", (raw: Raw) => delete raw.images[ID], /^nodes\[\d+\]\.src$/],
+    [
+      "a file no Image uses",
+      (raw: Raw) => (raw.images["b".repeat(64)] = RED_2x2_PNG),
+      /^images\.b+$/,
+    ],
+    ["a key that is not an id", (raw: Raw) => (raw.images.x = RED_2x2_PNG), /^images/],
+    ["a WebP", (raw: Raw) => (raw.images[ID] = WEBP_HEADER), new RegExp(`^images\\.${ID}$`)],
+    [
+      "a file over 5 MB",
+      (raw: Raw) =>
+        (raw.images[ID] =
+          `data:image/png;base64,${new Uint8Array(5 * 1024 * 1024 + 3).toBase64()}`),
+      new RegExp(`^images\\.${ID}$`),
+    ],
+    [
+      "an unspelled preserveAspectRatio",
+      (raw: Raw) =>
+        Object.assign(raw.nodes.find((n) => n.src) ?? {}, { preserveAspectRatio: "xMidYMid" }),
+      /preserveAspectRatio$/,
+    ],
+  ])("refuses %s", (_, edit, path) => {
+    expect(errorOf(() => parseDocument(file(edit)))).toMatchObject({
+      code: "INVALID_DOCUMENT",
+      path: expect.stringMatching(path),
+    });
+  });
+});
+
+describe("resolveImages", () => {
+  const png = () => readImage(RED_2x2_PNG, "src");
+  const layer = { id: "L", type: "layer", name: "", parentId: null, index: "a0" } as const;
+  const image = (id: string, src: string) =>
+    ({
+      ...layer,
+      id,
+      type: "image",
+      parentId: "L",
+      src,
+      x: 0,
+      y: 0,
+      width: 2,
+      height: 2,
+      preserveAspectRatio: "none",
+    }) as unknown as Node;
+
+  it("names each pending file by its SHA-256, merging two copies of one file", async () => {
+    const id = await imageId(png().bytes);
+    const file = {
+      nodes: [layer as unknown as Node, image("A", "pending:1"), image("B", "pending:2")],
+      images: new Map([
+        ["pending:1", png()],
+        ["pending:2", png()],
+      ]),
+    };
+    const out = await resolveImages(file);
+    expect(out.nodes.map((n) => (n.type === "image" ? n.src : null))).toEqual([null, id, id]);
+    expect([...out.images.keys()]).toEqual([id]);
+  });
+
+  it("keeps a claimed id that is right, and refuses one that is not", async () => {
+    const id = await imageId(png().bytes);
+    const right = { nodes: [image("A", id)], images: new Map([[id, png()]]) };
+    expect(await resolveImages(right)).toEqual(right);
+    const wrong = "b".repeat(64);
+    await expect(
+      resolveImages({ nodes: [image("A", wrong)], images: new Map([[wrong, png()]]) }),
+    ).rejects.toMatchObject({
+      data: {
+        code: "INVALID_DOCUMENT",
+        path: `images.${wrong}`,
+        message: expect.stringContaining(id),
+      },
+    });
+  });
 });

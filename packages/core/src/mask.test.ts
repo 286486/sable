@@ -188,3 +188,36 @@ describe("releaseMask", () => {
     });
   });
 });
+
+describe("an Image", () => {
+  const withImage = () => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 200 }],
+    });
+    const src = "a".repeat(64);
+    doc.images.set(src, { mime: "image/png", width: 40, height: 40 });
+    const [image, rect] = createNodes(doc, [
+      { type: "image", parentId, src, x: 0, y: 0 },
+      { type: "rect", parentId, x: 10, y: 10, width: 20, height: 20 },
+    ]).nodes as [Node, Node];
+    return { doc, image, rect };
+  };
+
+  it("is cropped by a Clipping Mask to the clip's bounds", () => {
+    const { doc, image, rect } = withImage();
+    const { group } = makeMask(doc, { clipNodeId: rect.id, contentIds: [image.id] });
+    expect(bounds(doc, group)).toEqual({ x: 10, y: 10, width: 20, height: 20 });
+  });
+
+  it("cannot be a Clipping Path", () => {
+    const { doc, image, rect } = withImage();
+    expect(
+      errorOf(() => makeMask(doc, { clipNodeId: image.id, contentIds: [rect.id] })),
+    ).toMatchObject({
+      code: "INVALID_MASK",
+      message: "A image cannot be a Clipping Path.",
+    });
+  });
+});

@@ -2,6 +2,7 @@ import {
   bounds,
   type Document,
   formatNumber,
+  type ImageSource,
   type Node,
   type Rect,
   type RenderOverlay,
@@ -57,6 +58,8 @@ export interface RenderOptions {
   /** Render Overlays drawn over the artwork, sized in pixels at `scale` (ADR-0014). */
   overlays?: RenderOverlay[];
   scale?: number;
+  /** The file of each Image by id (ADR-0023). */
+  images?: ImageSource;
 }
 
 /** The SVG `render` rasterises: io's, as `export` writes it (ADR-0019), with Render Overlays on top. */

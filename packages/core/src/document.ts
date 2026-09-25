@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import type { z } from "zod";
 import { parseColor } from "./color.ts";
 import { collect, type Failed, ZibelError } from "./errors.ts";
+import { preserveAspectRatio } from "./image.ts";
 import { IDENTITY, multiply, scaleOf, transformSegments } from "./matrix.ts";
 import { formatPath, parsePath, pathBounds, shapeSegments } from "./path.ts";
 import {
@@ -12,6 +13,8 @@ import {
   type ArtboardInput,
   type ChildInput,
   type Document,
+  ImageShape,
+  imageFrame,
   type LayerNode,
   type Matrix,
   type Node,
@@ -73,6 +76,7 @@ export function createDocument(input: { id: string; name: string; artboards: Art
     rev: 0,
     artboards,
     nodes: new Map([[layer.id, layer]]),
+    images: new Map(),
   };
   return { doc, defaultLayerId: layer.id };
 }
@@ -124,6 +128,8 @@ export function createNodes(
       const text = TextShape.superRefine(textFrame).parse(input);
       const appearance = paint(input.appearance ?? defaultTypeAppearance(), `${path}.appearance`);
       node = { ...at, ...text, name, appearance };
+    } else if (input.type === "image") {
+      node = { ...at, ...imageOf(doc, input, path), name };
     } else {
       // Parsing with the Shape schema keeps the parameters and drops clientKey, name and the rest.
       const shape = Shape.parse(input);
@@ -241,6 +247,30 @@ export function assertParent(
   }
 }
 
+/** An Image's parameters, its `src` an id the Document holds (ADR-0023). */
+function imageOf(doc: Document, input: unknown, path: string) {
+  const { src, width, height, ...rest } = ImageShape.superRefine(imageFrame).parse(input);
+  const info = doc.images.get(src);
+  if (!info) {
+    throw new ZibelError({
+      code: "INVALID_IMAGE",
+      message: src.startsWith("data:")
+        ? "The image's data: URL was not read into the Document."
+        : `No image with id ${src} in the Document.`,
+      hint: "src is a data: URL of a PNG, JPEG or GIF, or the id of an image already in the Document; node_get shows an Image's src id.",
+      path: `${path}.src`,
+    });
+  }
+  return {
+    ...rest,
+    src,
+    width: width ?? info.width,
+    height: height ?? info.height,
+    // The schema refused anything this cannot spell.
+    preserveAspectRatio: preserveAspectRatio(rest.preserveAspectRatio) ?? "none",
+  };
+}
+
 /** Illustrator's basic appearance for a new shape, fresh per Node so no two share arrays. */
 const defaultAppearance = () =>
   AppearanceInput.parse({ fills: [{ color: "#FFFFFF" }], strokes: [{ color: "#000000" }] });
@@ -276,6 +306,16 @@ export function clippingPath(doc: Document, node: Node): ShapeNode | undefined {
   return node.type === "group" ? clipAmong(childrenOf(doc, node.id)) : undefined;
 }
 
+/** A frame as the rect Live Shape that outlines it: an Image's, or a text's box. */
+export const frameShape = (r: Rect) => ({
+  type: "rect" as const,
+  x: r.x,
+  y: r.y,
+  width: r.width,
+  height: r.height,
+  radius: 0,
+});
+
 /** Geometric bounds in document coordinates (no stroke), or null for an empty container. */
 export function bounds(doc: Document, node: Node): Rect | null {
   if (node.type === "layer" || node.type === "group") {
@@ -284,7 +324,11 @@ export function bounds(doc: Document, node: Node): Rect | null {
     return clip ? bounds(doc, clip) : union(children.map((c) => bounds(doc, c)));
   }
   const shape =
-    node.type === "text" ? { type: "rect" as const, ...textBox(node), radius: 0 } : node;
+    node.type === "text"
+      ? frameShape(textBox(node))
+      : node.type === "image"
+        ? frameShape(node)
+        : node;
   return pathBounds(transformSegments(shapeSegments(shape), worldTransform(doc, node)));
 }
 
@@ -300,6 +344,7 @@ export function visibleBounds(doc: Document, node: Node): Rect | null {
     return clip ? bounds(doc, clip) : union(children.map((c) => visibleBounds(doc, c)));
   }
   const b = bounds(doc, node);
+  if (node.type === "image") return b;
   // ponytail: half the Stroke width on every side, scaled by sqrt|det|; miter spikes, square caps
   // and non-uniform scale can reach further.
   const grow =
@@ -370,7 +415,11 @@ export function nodeView(doc: Document, node: Node, detail: "concise" | "full") 
     ...node,
     ...concise,
     // A text has no outline until Create Outlines (F-TEXT-06).
-    ...(node.type !== "layer" && node.type !== "group" && node.type !== "text" && outlineOf(node)),
+    ...(node.type !== "layer" &&
+      node.type !== "group" &&
+      node.type !== "text" &&
+      node.type !== "image" &&
+      outlineOf(node)),
     visibleBounds: visibleBounds(doc, node),
     worldTransform: worldTransform(doc, node),
   };
