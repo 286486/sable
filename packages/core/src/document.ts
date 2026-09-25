@@ -341,6 +341,22 @@ function placed(
   return { type: "radial", stops, center, radius, aspectRatio, angle, focus };
 }
 
+/**
+ * A radial gradient's ellipse as a matrix mapping its circle of `radius` about `center` onto it:
+ * turned by `angle`, scaled by `aspectRatio` across it. SVG's `gradientTransform`; undefined for a
+ * circle.
+ */
+export function ellipseMatrix(g: Extract<Gradient, { type: "radial" }>): Matrix | undefined {
+  if (g.angle === 0 && g.aspectRatio === 1) return undefined;
+  const t = (g.angle * Math.PI) / 180;
+  const [cos, sin] = [Math.cos(t), Math.sin(t)];
+  const { x, y } = g.center;
+  return multiply(
+    [cos, sin, -sin * g.aspectRatio, cos * g.aspectRatio, x, y],
+    [1, 0, 0, 1, -x, -y],
+  );
+}
+
 /** Parses the colours, fills in `type` and every gradient's geometry, and sorts its stops. */
 export function paint(a: AppearanceInput, path: string, leaf: Shape | TextShape): Appearance {
   const one = <T extends AppearanceInput["fills" | "strokes"][number]>(p: T, at: string) => {
