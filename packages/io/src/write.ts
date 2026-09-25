@@ -1,13 +1,16 @@
 import {
-  type Appearance,
   type Artboard,
+  applyTo,
   childrenOf,
   clippingPath,
   type Document,
+  type Fill,
   formatNumber,
   formatPath,
+  type Gradient,
   IDENTITY,
   type ImageSource,
+  invert,
   layoutText,
   lookup,
   type Node,
@@ -15,6 +18,7 @@ import {
   type RenderScope,
   round,
   type ShapeNode,
+  type Stroke,
   shapeSegments,
   type TextNode,
   textBox,
@@ -26,6 +30,8 @@ import {
   arcAttrs,
   areaId,
   clipId,
+  ellipseMatrix,
+  gradientId,
   paintAttrs,
   SVG_STROKE,
   scopeAttr,
@@ -173,8 +179,36 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
   return `<svg${root}>${namedview}${background}${body}${trailer}</svg>`;
 }
 
-const stroke = (s: Appearance["strokes"][number]): Attrs => ({
-  ...paintAttrs("stroke", s.type === "solid" ? s.color : "none"),
+/** A gradient as one self-contained `userSpaceOnUse` element (ADR-0026). */
+function gradient(id: string, g: Gradient): string {
+  const stops = g.stops.map((s) => {
+    const opacity = s.color.length === 9 ? Number.parseInt(s.color.slice(7), 16) / 255 : 1;
+    return `<stop${attrs({
+      offset: formatNumber(s.offset),
+      "stop-color": s.color.slice(0, 7),
+      // Inkscape 1.2 draws #RRGGBBAA black (ADR-0017).
+      "stop-opacity": opacity === 1 ? undefined : formatNumber(opacity),
+    })}/>`;
+  });
+  const units = { id, gradientUnits: "userSpaceOnUse" };
+  if (g.type === "linear") {
+    const { start, end } = g;
+    const at = num({ x1: start.x, y1: start.y, x2: end.x, y2: end.y });
+    return `<linearGradient${attrs({ ...units, ...at })}>${stops.join("")}</linearGradient>`;
+  }
+  const m = ellipseMatrix(g);
+  // The focus is stored where it is drawn, so it goes back through the ellipse.
+  const [fx, fy] = m ? applyTo(invert(m), g.focus.x, g.focus.y) : [g.focus.x, g.focus.y];
+  const centred =
+    formatNumber(fx) === formatNumber(g.center.x) && formatNumber(fy) === formatNumber(g.center.y);
+  return `<radialGradient${attrs({
+    ...units,
+    ...num({ cx: g.center.x, cy: g.center.y, r: g.radius, ...(!centred && { fx, fy }) }),
+    gradientTransform: m && `matrix(${round(m).join(" ")})`,
+  })}>${stops.join("")}</radialGradient>`;
+}
+
+const strokeStyle = (s: Stroke): Attrs => ({
   "stroke-width": s.width,
   "stroke-linecap": s.cap === SVG_STROKE.cap ? undefined : s.cap,
   "stroke-linejoin": s.join === SVG_STROKE.join ? undefined : s.join,
@@ -312,37 +346,52 @@ function node(doc: Document, n: Node, walk: Walk): string {
     n.type === "text"
       ? text(n, a, extra)
       : `<${shape(n)}${attrs({ ...a, style: style(...extra) })}/>`;
-  // Area Type flows in a frame Inkscape keeps in <defs>, one for all its paints (ADR-0022).
-  const defs =
-    n.type === "text" && n.kind === "area"
-      ? `<defs><rect${attrs({ id: areaId(n.id), ...num(textBox(n)) })}/></defs>`
-      : "";
   const { fills, strokes } = n.appearance;
   // One Fill and one Stroke are one element, so Inkscape selects one object; a longer Appearance
   // is a <g zibel:stack> painting each Fill, then each Stroke: Illustrator's default stacking.
   // ponytail: a <clipPath> holds shapes, not a <g>, so a painted Clipping Path's stack keeps its
   // first Fill and Stroke; the rest waits for Clipping Paths that paint (ADR-0021).
   const clipping = n.type !== "text" && n.clipping === true;
+  // Each gradient in the <defs> before the element, in list order (ADR-0026).
+  const gradients: string[] = [];
+  const paint = (list: "fill" | "stroke", p: Fill, i: number): Attrs => {
+    if (p.type === "solid") return paintAttrs(list, p.color);
+    // A <clipPath> cannot hold <defs>, and a Clipping Path's paint is never drawn.
+    if (clipping) return { [list]: "none" };
+    const id = gradientId(list, i, n.id);
+    gradients.push(gradient(id, p.gradient));
+    return { [list]: `url(#${id})` };
+  };
+  const stroke = (s: Stroke, i: number) => ({ ...paint("stroke", s, i), ...strokeStyle(s) });
+  let body: string;
   if ((fills.length <= 1 && strokes.length <= 1) || clipping) {
     const [f] = fills;
     const [s] = strokes;
-    return `${defs}${element(
+    body = element(
       {
         ...own,
-        ...(f?.type === "solid" ? paintAttrs("fill", f.color) : { fill: "none" }),
-        ...(s && stroke(s)),
+        ...(f ? paint("fill", f, 0) : { fill: "none" }),
+        ...(s && stroke(s, 0)),
         // Inside a <clipPath> SVG reads clip-rule, not fill-rule.
         "clip-rule":
           clipping && n.type === "path" && n.fillRule === "evenodd" ? "evenodd" : undefined,
       },
       [...looks],
-    )}`;
+    );
+  } else {
+    const paints = [
+      ...fills.map((f, i) => element(paint("fill", f, i))),
+      ...strokes.map((s, i) => element({ fill: "none", ...stroke(s, i) })),
+    ].join("");
+    body = `<g${attrs({ ...own, [zibel("stack")]: "true", style: style(...looks) })}>${paints}</g>`;
   }
-  const paints = [
-    ...fills.map((f) => element(paintAttrs("fill", f.type === "solid" ? f.color : "none"))),
-    ...strokes.map((s) => element({ fill: "none", ...stroke(s) })),
-  ].join("");
-  return `${defs}<g${attrs({ ...own, [zibel("stack")]: "true", style: style(...looks) })}>${paints}</g>`;
+  // Area Type flows in a frame Inkscape keeps in <defs>, one for all its paints (ADR-0022).
+  const frame =
+    n.type === "text" && n.kind === "area"
+      ? `<rect${attrs({ id: areaId(n.id), ...num(textBox(n)) })}/>`
+      : "";
+  const defs = frame || gradients.length > 0 ? `<defs>${frame}${gradients.join("")}</defs>` : "";
+  return `${defs}${body}`;
 }
 
 /**

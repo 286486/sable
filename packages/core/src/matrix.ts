@@ -62,3 +62,9 @@ export const scaleOf = ([a, b, c, d]: Matrix) => Math.sqrt(Math.abs(a * d - b * 
 
 /** 6 decimals and no -0, so stored matrices read cleanly (a 90° turn is `[0, 1, -1, 0, …]`). */
 export const round = (m: Matrix) => m.map((n) => Math.round(n * 1e6) / 1e6 || 0) as Matrix;
+
+/** The inverse of an invertible matrix. */
+export function invert([a, b, c, d, e, f]: Matrix): Matrix {
+  const det = a * d - b * c;
+  return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
+}

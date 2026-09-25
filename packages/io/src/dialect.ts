@@ -1,6 +1,13 @@
 // The facts of Zibel's Inkscape SVG dialect (ADR-0017) that export writes and import reads back,
 // each defined once with both directions. No XML parser here: the browser's writer imports it.
-import { formatNumber, type RenderScope, type ShapeNode } from "@zibel/core";
+import {
+  formatNumber,
+  type Gradient,
+  type Matrix,
+  multiply,
+  type RenderScope,
+  type ShapeNode,
+} from "@zibel/core";
 
 export const NS = {
   svg: "http://www.w3.org/2000/svg",
@@ -48,6 +55,26 @@ export const clipId = (groupId: string) => `clip-${xmlId(groupId)}`;
 
 /** The id of an Area Type's frame `<rect>` in `<defs>`: its XML id behind `area-` (ADR-0022). */
 export const areaId = (textId: string) => `area-${xmlId(textId)}`;
+
+/** The id of a gradient paint: its list and index in it, then its Node's XML id (ADR-0026). */
+export const gradientId = (list: "fill" | "stroke", i: number, nodeId: string) =>
+  `${list}-${i}-${xmlId(nodeId)}`;
+
+/**
+ * A radial gradient's ellipse as SVG's `gradientTransform`, mapping its circle of `radius` about
+ * `center` onto the ellipse: turned by `angle`, scaled by `aspectRatio` across it. Undefined for a
+ * circle.
+ */
+export function ellipseMatrix(g: Extract<Gradient, { type: "radial" }>): Matrix | undefined {
+  if (g.angle === 0 && g.aspectRatio === 1) return undefined;
+  const t = (g.angle * Math.PI) / 180;
+  const [cos, sin] = [Math.cos(t), Math.sin(t)];
+  const { x, y } = g.center;
+  return multiply(
+    [cos, sin, -sin * g.aspectRatio, cos * g.aspectRatio, x, y],
+    [1, 0, 0, 1, -x, -y],
+  );
+}
 
 /** The id `xmlId` wrote, or undefined for any other id. */
 export const idOf = (value: string | null | undefined) =>

@@ -276,3 +276,55 @@ it("draws an Image's pixels in its frame and nowhere else", async () => {
   expect(drawn.length).toBe(400);
   expect(drawn.filter(([x, y]) => x < 10 || x >= 30 || y < 10 || y >= 30)).toEqual([]);
 });
+
+it("draws a linear gradient from start to end, and a radial one's first stop at its focus", async () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 60, background: "#FFFFFF" }],
+  });
+  const stops = [
+    { offset: 0, color: "#FF0000" },
+    { offset: 1, color: "#0000FF" },
+  ];
+  createNodes(doc, [
+    {
+      type: "rect",
+      parentId,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 10,
+      appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+    },
+    {
+      type: "rect",
+      parentId,
+      x: 0,
+      y: 20,
+      width: 40,
+      height: 40,
+      appearance: {
+        fills: [
+          {
+            type: "gradient",
+            gradient: { type: "radial", stops, radius: 20, focus: { x: 8, y: 40 } },
+          },
+        ],
+      },
+    },
+  ]);
+  const { pixels, width } = await svgToPixels(toSvg(doc, docRect(doc)), 1);
+  const at = (x: number, y: number) => [
+    ...pixels.subarray((y * width + x) * 4, (y * width + x) * 4 + 3),
+  ];
+  const [r0, , b0] = at(2, 5);
+  const [r1, , b1] = at(97, 5);
+  expect(r0).toBeGreaterThan(240);
+  expect(b0).toBeLessThan(15);
+  expect(r1).toBeLessThan(15);
+  expect(b1).toBeGreaterThan(240);
+  // Red at the focus, left of the centre, and already half way to blue at the centre.
+  expect(at(8, 40)[0]).toBeGreaterThan(230);
+  expect(at(20, 40)[0]).toBeLessThan(200);
+});
