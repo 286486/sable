@@ -142,6 +142,11 @@ it("fails FETCH_FAILED on a bad status, too many redirects, a network error and 
     code: "FETCH_FAILED",
     message: expect.stringContaining("redirect"),
   });
+  replies(() => new Response(null, { status: 204 }));
+  expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
+    code: "FETCH_FAILED",
+    message: expect.stringContaining("no body"),
+  });
   replies(() => new TypeError("Network connection lost."));
   expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
     code: "FETCH_FAILED",

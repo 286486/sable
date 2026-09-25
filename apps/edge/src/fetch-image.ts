@@ -49,6 +49,7 @@ export async function fetchImage(src: string): Promise<ImageFile & { name: strin
         await res.body?.cancel();
         throw failed(`${url.href} answered ${res.status} ${res.statusText}`.trim());
       }
+      if (!res.body) throw failed(`${url.href} answered ${res.status} with no body.`);
       return { ...checkImage(await readCapped(res), "src"), name: fileName(url) };
     }
   } catch (e) {
@@ -131,7 +132,7 @@ const refusedV4 = (n: number) =>
  * IPv4 inside IPv6 included (ADR-0027).
  */
 export function refusedHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
+  const host = hostname.toLowerCase().replace(/\.$/, "");
   if (host === "localhost" || host.endsWith(".localhost")) return true;
   const v4 = host.split(".");
   if (v4.length === 4 && v4.every((p) => /^\d+$/.test(p))) {
@@ -149,5 +150,5 @@ export function refusedHost(hostname: string): boolean {
   if (zero(0, 5) && (h[5] === 0 || h[5] === 0xffff)) return refusedV4(low32); // ::, ::1, mapped
   if (first === 0x64 && h[1] === 0xff9b && zero(2, 6)) return refusedV4(low32); // NAT64
   if (first === 0x2002) return refusedV4((h[1] ?? 0) * 0x10000 + (h[2] ?? 0)); // 6to4
-  return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80 || (first & 0xff00) === 0xff00;
+  return (first & 0xfe00) === 0xfc00 || (first & 0xff80) === 0xfe80 || (first & 0xff00) === 0xff00;
 }
