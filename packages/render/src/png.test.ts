@@ -176,9 +176,10 @@ it("draws the fixture Document with known pixels", async () => {
   // path with a translucent Stroke and a hidden ellipse. Writing alpha as fill-opacity did not
   // move a pixel. Again by #30: the fixture gained an evenodd ring; by #31, a Clipping Mask; by #33,
   // a multi-line Point Type and an Area Type (writing text as line tspans moved no pixel); by #32,
-  // a third Artboard holding three Images, one cropped by a Clipping Mask.
+  // a third Artboard holding three Images, one cropped by a Clipping Mask; by #34, a fourth holding
+  // a rounded, randomized, twisted star and a rounded, randomized polygon.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "724d1157429efbbe19e26b51e4d60038444d314a174a51bc047539169afa8a19",
+    "7a688ed9f49cdad7846f6a6be5f1a858fbd4c16d9af958ee18b7c8ccb1dda641",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
