@@ -1,4 +1,5 @@
-import { bounds, createNodes, newId } from "./document.ts";
+import { generateKeyBetween } from "fractional-indexing";
+import { assertParent, bounds, childrenOf, createNodes, newId } from "./document.ts";
 import { transformNodes } from "./edit.ts";
 import type { Artboard, Document, Node, Rect } from "./schema.ts";
 
@@ -67,4 +68,57 @@ export function placeNodes(
     groupId: group.id,
     created: [group.id, ...ids.values()].map((id) => doc.nodes.get(id) as Node),
   };
+}
+
+/**
+ * Place for a bitmap (ADR-0027): an Image of the stored file `src` in `parentId`, framed by `frame`
+ * (size default the file's pixels), else its pixel size centred on the parent's Artboard. With
+ * `asTemplate`, on a new locked Template Layer beneath the parent's Layer, at 50% opacity. Returns
+ * the new Nodes, the Layer first.
+ */
+export function placeImage(
+  doc: Document,
+  file: { src: string; name: string },
+  opts: {
+    parentId: string;
+    frame?: { x: number; y: number; width?: number; height?: number };
+    asTemplate?: boolean;
+  },
+): { created: Node[] } {
+  assertParent(doc, { type: "image" }, opts.parentId, "parentId");
+  const parent = doc.nodes.get(opts.parentId) as Node;
+  const info = doc.images.get(file.src);
+  const width = opts.frame?.width ?? info?.width ?? 0;
+  const height = opts.frame?.height ?? info?.height ?? 0;
+  const frame = artboardOf(doc, parent)?.frame ?? { x: 0, y: 0, width: 0, height: 0 };
+  const { x, y } = opts.frame ?? {
+    x: frame.x + (frame.width - width) / 2,
+    y: frame.y + (frame.height - height) / 2,
+  };
+
+  const created: Node[] = [];
+  let parentId = opts.parentId;
+  if (opts.asTemplate) {
+    let holder = parent;
+    while (holder.type !== "layer") holder = doc.nodes.get(holder.parentId as string) as Node;
+    const [made] = createNodes(doc, [
+      { type: "layer", parentId: holder.parentId, name: `Template ${file.name}` },
+    ]).nodes as [Node];
+    const siblings = childrenOf(doc, holder.parentId);
+    const below = siblings[siblings.findIndex((n) => n.id === holder.id) - 1];
+    const layer = {
+      ...made,
+      locked: true,
+      index: generateKeyBetween(below?.index ?? null, holder.index),
+    };
+    doc.nodes.set(layer.id, layer);
+    created.push(layer);
+    parentId = layer.id;
+  }
+  const [made] = createNodes(doc, [{ type: "image", parentId, src: file.src, x, y, width, height }])
+    .nodes as [Node];
+  const image = opts.asTemplate ? { ...made, opacity: 0.5 } : made;
+  doc.nodes.set(image.id, image);
+  created.push(image);
+  return { created };
 }

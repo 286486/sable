@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bounds, childrenOf, createDocument, createNodes, visibleBounds } from "./document.ts";
 import { makeMask } from "./mask.ts";
-import { placeNodes } from "./place.ts";
+import { placeImage, placeNodes } from "./place.ts";
 import type { Node, ShapeNode } from "./schema.ts";
 
 /** The Nodes of a file with two Layers, a rect in each and a sub-Layer in the first, as Open reads it. */
@@ -150,4 +150,78 @@ it("keeps a placed Clipping Mask clipping under its new ids", () => {
   expect(placed).toMatchObject({ clipping: true });
   expect(placed.id).not.toBe(clip.id);
   expect(doc.nodes.get(placed.parentId ?? "")?.type).toBe("group");
+});
+
+describe("placeImage", () => {
+  const src = "a".repeat(64);
+  const withImage = () => {
+    const d = setup();
+    d.doc.images.set(src, { mime: "image/png", width: 2, height: 2 });
+    return d;
+  };
+
+  it("centres the file's pixel size on the parent's Artboard, or takes the frame", () => {
+    const { doc, defaultLayerId } = withImage();
+    const { created } = placeImage(doc, { src, name: "red.png" }, { parentId: defaultLayerId });
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({
+      type: "image",
+      parentId: defaultLayerId,
+      src,
+      x: 99,
+      y: 49,
+      width: 2,
+      height: 2,
+      opacity: 1,
+    });
+    const at = placeImage(
+      doc,
+      { src, name: "" },
+      { parentId: defaultLayerId, frame: { x: 10, y: 20 } },
+    );
+    expect(at.created[0]).toMatchObject({ x: 10, y: 20, width: 2, height: 2 });
+    const sized = placeImage(
+      doc,
+      { src, name: "" },
+      { parentId: defaultLayerId, frame: { x: 1, y: 2, width: 30, height: 40 } },
+    );
+    expect(sized.created[0]).toMatchObject({ x: 1, y: 2, width: 30, height: 40 });
+  });
+
+  it("asTemplate puts it at 50% on a locked Layer beneath the Layer that holds the parent", () => {
+    const { doc, defaultLayerId } = withImage();
+    const [top, group] = createNodes(doc, [
+      { type: "layer", name: "Top" },
+      { type: "group", parentId: defaultLayerId, children: [] },
+    ]).nodes as [Node, Node];
+    const { created } = placeImage(
+      doc,
+      { src, name: "photo.png" },
+      { parentId: group.id, asTemplate: true },
+    );
+    const [layer, image] = created as [Node, Node];
+    expect(layer).toMatchObject({
+      type: "layer",
+      name: "Template photo.png",
+      locked: true,
+      parentId: null,
+    });
+    expect(image).toMatchObject({ type: "image", parentId: layer.id, opacity: 0.5, x: 99, y: 49 });
+    expect(childrenOf(doc, null).map((n) => n.id)).toEqual([layer.id, defaultLayerId, top.id]);
+    for (const n of created) expect(doc.nodes.get(n.id)).toEqual(n);
+  });
+
+  it("refuses a parent that cannot hold an Image, under parentId", () => {
+    const { doc, defaultLayerId } = withImage();
+    const [rect] = createNodes(doc, [
+      { type: "rect", parentId: defaultLayerId, x: 0, y: 0, width: 5, height: 5 },
+    ]).nodes as [Node];
+    for (const parentId of [rect.id, doc.artboards[0]?.id as string]) {
+      expect(() => placeImage(doc, { src, name: "" }, { parentId })).toThrow(
+        expect.objectContaining({
+          data: expect.objectContaining({ code: "INVALID_PARENT", path: "parentId" }),
+        }),
+      );
+    }
+  });
 });

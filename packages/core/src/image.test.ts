@@ -1,6 +1,13 @@
 import { expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
-import { dataUrl, imageId, MAX_IMAGE_BYTES, preserveAspectRatio, readImage } from "./image.ts";
+import {
+  checkImage,
+  dataUrl,
+  imageId,
+  MAX_IMAGE_BYTES,
+  preserveAspectRatio,
+  readImage,
+} from "./image.ts";
 
 const url = (bytes: number[] | Uint8Array, mime = "image/png") =>
   `data:${mime};base64,${new Uint8Array(bytes).toBase64()}`;
@@ -61,6 +68,16 @@ it("caps a file at 5 MB", () => {
     expect.objectContaining({
       data: expect.objectContaining({ code: "LIMIT_EXCEEDED", path: "nodes[0].src" }),
     }),
+  );
+});
+
+it("checks raw bytes as it checks a data URL's, for a fetched file", () => {
+  expect(checkImage(new Uint8Array(PNG), "src")).toMatchObject({ mime: "image/png", width: 2 });
+  expect(() => checkImage(new Uint8Array(GIF.slice(0, 3)), "src")).toThrow(invalid());
+  const over = new Uint8Array(MAX_IMAGE_BYTES + 1);
+  over.set(PNG);
+  expect(() => checkImage(over, "src")).toThrow(
+    expect.objectContaining({ data: expect.objectContaining({ code: "LIMIT_EXCEEDED" }) }),
   );
 });
 
