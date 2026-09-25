@@ -1,6 +1,13 @@
 import { expect, it } from "vitest";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
-import { type FontStyle, fontWarnings, layoutText, overflowWarnings, textBox } from "./text.ts";
+import {
+  type FontStyle,
+  fontWarnings,
+  glyphs,
+  layoutText,
+  overflowWarnings,
+  textBox,
+} from "./text.ts";
 
 // Read straight from SourceSans3-Regular.ttf, not from the generated table: unitsPerEm 1000,
 // hhea ascender 1000 and descender -326; advances H 652, i 246, space 200, .notdef 653.
@@ -199,4 +206,89 @@ it("warns TEXT_OVERFLOW for each Area Type whose content does not all fit", () =
         "3 characters do not fit the frame and are not drawn; enlarge the frame or shorten the content.",
     },
   ]);
+});
+
+// Tracking and Character Ranges (ADR-0029).
+it("adds tracking between characters, not after the last", () => {
+  expect(textBox({ x: 10, y: 50, content: "Hi", fontSize: 12, tracking: 100 }).width).toBeCloseTo(
+    at12(652 + 246) + 1.2,
+  );
+});
+
+it("wraps Area Type by the tracked width, as Inkscape 1.2.2 measures it (72.16)", () => {
+  const hh = (width: number) =>
+    layoutText({
+      kind: "area",
+      x: 0,
+      y: 0,
+      width,
+      height: 100,
+      content: "HH",
+      fontSize: 40,
+      tracking: 500,
+    });
+  expect(hh(75).lines.map((l) => l.text)).toEqual(["HH"]);
+  expect(hh(70)).toMatchObject({ lines: [], overflow: "HH" });
+});
+
+it("keeps a negatively tracked box from a negative width, holding every character", () => {
+  const box = textBox({ x: 0, y: 0, content: "ii", fontSize: 10, tracking: -1000 });
+  expect(box.x).toBeCloseTo(2.46 - 10);
+  expect(box.width).toBeCloseTo(10);
+});
+
+it("starts each line at its first character's code-point index", () => {
+  expect(
+    layoutText({ x: 0, y: 0, content: "ab\ncd", fontSize: 12 }).lines.map((l) => l.start),
+  ).toEqual([0, 3]);
+  expect(area("a😀\nb", { width: 100, height: 100 }).lines.map((l) => l.start)).toEqual([0, 3]);
+});
+
+it("places each character at its origin, with its range's overrides", () => {
+  const close = (g: object) =>
+    Object.fromEntries(
+      Object.entries(g).map(([k, v]) => [k, typeof v === "number" ? expect.closeTo(v, 6) : v]),
+    );
+  expect(
+    glyphs({
+      x: 10,
+      y: 50,
+      content: "Hi",
+      fontSize: 12,
+      tracking: 100,
+      ranges: [{ start: 1, end: 2, fill: "#FF0000", baselineShift: 2, rotation: 90 }],
+    }),
+  ).toEqual([
+    close({ char: "H", x: 10, y: 50, width: 7.824 }),
+    close({
+      char: "i",
+      x: 19.024,
+      y: 50,
+      width: 2.952,
+      fill: "#FF0000",
+      baselineShift: 2,
+      rotation: 90,
+    }),
+  ]);
+});
+
+it("grows Point Type's box to hold a shifted or rotated character", () => {
+  const box = (range: object) =>
+    textBox({ x: 0, y: 0, content: "H", fontSize: 10, ranges: [{ start: 0, end: 1, ...range }] });
+  const near = (r: object) => Object.values(r).map((v) => Math.round(v * 1e6) / 1e6);
+  expect(near(box({ baselineShift: 5 }))).toEqual([0, -15, 6.52, 18.26]);
+  expect(near(box({ rotation: 90 }))).toEqual([-3.26, -10, 13.26, 16.52]);
+});
+
+it("measures Area Type with ranges as its frame", () => {
+  const frame = { x: 150, y: 20, width: 100, height: 40 };
+  expect(
+    textBox({
+      kind: "area",
+      ...frame,
+      content: "one",
+      fontSize: 12,
+      ranges: [{ start: 0, end: 1, rotation: 90 }],
+    }),
+  ).toEqual(frame);
 });
