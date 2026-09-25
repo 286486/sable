@@ -385,7 +385,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 - **F-ILL-01** 画笔系统：Calligraphic（角度、圆度、直径，可绑定压力）P0；Art Brush（沿路径拉伸一段图稿，可分段缩放）P1；Scatter Brush P1；Pattern Brush（边 / 角瓦片）P2；Bristle P2。画笔描边为非破坏性，可 Expand 为路径。（见括注）
 - **F-ILL-02** Image Trace：置入位图 → 预设（自动色 / 高色 / 低色 / 灰度 / 黑白 / 轮廓线）→ 参数（颜色数、阈值、路径拟合度、角点、噪点、方法 abutting / overlapping、忽略白色）→ 预览 → Expand 为路径组。实现采用 imagetracerjs（Unlicense）或自研，不使用 GPL 的 potrace。（P1）
 - **F-ILL-03** Recolor Artwork（见 F-APP-11）。（P1）
-- **F-ILL-04** 参考图工作流：置入图像为模板图层，设不透明度，锁定；Agent 可以 `image_place` + 描摹。（P0）
+- **F-ILL-04** 参考图工作流：置入图像为模板图层，设不透明度，锁定；Agent 可以 `image_place` + 描摹。（P0）现状（ADR-0027）：`image_place` 的 `asTemplate` 建锁定的 Template Layer，Image 不透明度 50%；不打印待 Layer 的 `template` 标志。
 - **F-ILL-05** 对称绘制（Mirror Repeat 的实时版，画一半自动镜像）。（P1，随 Repeat）
 - **F-ILL-06** 图标网格与像素对齐：24 / 16 网格预设、Snap to Pixel、整数描边宽度检查（validate 工具报告）。（P0）
 - **F-ILL-07** 导出资产：Asset Export（收集对象为资产，多倍率 PNG / SVG 一次导出）。（P1）
@@ -405,7 +405,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 **导入**
 - **F-IO-01** SVG 1.1 导入（P0）：`path / rect / circle / ellipse / line / polyline / polygon / text / tspan / textPath / g / use / symbol / defs / linearGradient / radialGradient / pattern / clipPath / mask / image`，`transform`、`style` 与 presentation attributes、`viewBox`；Inkscape 约定：`inkscape:groupmode="layer"` → Layer、`inkscape:label` → 名称、`sodipodi:insensitive` → 锁定、`display:none` → 隐藏、`<inkscape:page>` → Artboard、`sodipodi:type="star"/"arc"` → Live Shape、`z-<ULID>` id 对回原 Node。祖先 `transform` 合入叶子（ADR-0007），路径归一化为绝对 `M L C Q Z`，单位换算为 pt（px 按 1 pt 计，与 Illustrator 一致）。Zibel 路线图内但尚未实现的内容先降级并提示，实现后原样映射；Zibel 不建模的（Inkscape 路径效果、`flowRoot`、3D box、Effects 之前的 filter）取可见几何并提示；不保留原始 XML 片段（ADR-0017）。SVG `<text>` 映射到文本对象，字体名原样保存（F-TEXT-11）。三种入口：打开（`doc_open`，新 Document）、替换（`doc_replace`，三方合并回原 Document）、置入（`svg_import`，一个 Group）。
-- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；链接另立 issue。
+- **F-IO-02** 位图置入 PNG / JPG / WebP / GIF（首帧）；链接或嵌入；裁切。（P0）现状（ADR-0023）：PNG / JPEG / GIF 嵌入；WebP 在 resvg 与 Inkscape 1.2 能绘制之前拒绝并提示转 PNG；裁切用 Clipping Mask；`image_place` 可从 http(s) URL 置入（ADR-0027）；链接另立 issue。
 - **F-IO-03** PDF 导入（第一页或指定页；矢量路径与文字尽力提取，不保证图层）；`.ai`（PDF 兼容模式保存的文件）按 PDF 处理。（P2）在此之前 `.ai` 经 Inkscape 另存 SVG 进入（ADR-0017）。
 - **F-IO-04** 粘贴：剪贴板 SVG 文本、Figma / Illustrator / Inkscape 复制出来的 SVG、位图。SVG 粘贴与拖放 `.svg` 到画布都按置入处理，放在视口中心。（P0 SVG 与位图）
 - **F-IO-05** 原生 `.zibel.json` 与 `.svg` 打开（文档列表页"打开文件"）；文档页工具栏"从文件更新…"走替换。（P0）
@@ -450,7 +450,7 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 4. **分层读取**：`doc_outline`（稀疏）→ `node_get`（详情）→ `export`（全量）。默认返回 `concise`，可选 `detailed`。
 5. **视觉反馈内建**：`render` 返回 MCP image content；写工具可选 `returnPreview: true` 附带受影响区域缩略图。
 6. **事务即撤销单元**：`tx_begin / tx_commit / tx_rollback`。
-7. **工具 annotations 全部声明**：`readOnlyHint`、`destructiveHint`、`idempotentHint`、`openWorldHint`（本服务全部为 false，除 `image_place` 从 URL 拉图时）。
+7. **工具 annotations 全部声明**：`readOnlyHint`、`destructiveHint`、`idempotentHint`、`openWorldHint`（本服务全部为 false，除 `image_place`：它可从 URL 拉图，annotations 按工具声明，故恒为 true，ADR-0027）。
 8. **`outputSchema` + `structuredContent`**：每个工具声明输出 schema，客户端可程序化消费。
 9. **错误即修正提示**：错误消息包含 `code`、`message`、`hint`（下一步该做什么）、`path`（schema 中出错字段），不返回堆栈。
 10. **Skill 文档随服务分发**：`skill://zibel/*` 资源提供绘图约定、坐标 / 颜色规范、推荐工作流（骨架优先 → 填充 → 校验），客户端按需加载，不塞进工具描述。
@@ -581,7 +581,7 @@ flowchart LR
 |---|---|---|---|
 | `node_create` | `docId`, `nodes[]`：每项含 `type`、`parentId`（**必填**，某个 `layer` 或 `group` 的 id；`doc_create` 的回执含默认图层 id，Agent 永远有可用父级；不接受 artboardId）、`index?`、类型专属几何（rect: x/y/w/h/radius；ellipse；polygon；star；line；path: `d`；text: content/kind/box；image: src（data URL 或已有图像 id）/x/y/width?/height?/preserveAspectRatio；group: children[] 内联嵌套）、`appearance`、`name`、`tags`、`meta` | `WriteReceipt`（含每个输入项对应的新 id，顺序一致） | 批量，一次可建数百节点 |
 | `svg_import` | `docId`, `svg`（文本）, `parentId`, `position?`, `fit?` | 生成节点树的回执与大纲 | 置入：整体一个 Group，SVG 图层变 Group，页面忽略，全部新 id；`position` 为 Group 几何边界中心的文档坐标，默认父级所在画板的中心；`fit: true` 等比缩放（含描边）以放进该画板（ADR-0017） |
-| `image_place` | `docId`, `src`（data URL / http URL / 本地路径）, `parentId`, `frame?`, `embed`, `asTemplate?` | 回执 | openWorldHint 若为 URL；未实现，data URL 置入先走 `node_create` 的 `image`（ADR-0023） |
+| `image_place` | `docId`, `src`（http(s) URL 或 data URL；本地路径拒绝）, `parentId`, `frame?`（`x, y, width?, height?`，缺省居中于父级所在画板）, `asTemplate?` | 回执 | openWorldHint；Worker 拉取，SSRF 防护；恒为嵌入，`embed` 待 Links；`asTemplate` 建 Template Layer（ADR-0027） |
 | `freehand_stroke` | `docId`, `parentId`, `points[]`（x, y, pressure?）, `tool`（pencil / brush / blob）, `fidelity`, `width`, `appearance` | 生成路径回执 | |
 | `text_create` | 归入 `node_create` type=text；此处保留别名，便于发现 | | |
 
@@ -763,7 +763,7 @@ flowchart LR
 - MCP 远程模式：OAuth 2.1（MCP authorization 规范）签发的 Bearer token；每文档权限（owner / editor / viewer）；`run_script` 单独授权。
 - Cloudflare 托管：WAF 与速率限制（按用户与按文档）；R2 对象仅经预签名 URL 访问；D1 中密钥字段加密；DO 只接受来自 Worker 的内部调用与已鉴权的 WebSocket 升级。
 - 脚本沙箱：无网络、无文件系统、CPU / 内存 / 时间配额；宿主 API 白名单。
-- `image_place` 拉取 URL：白名单或用户确认；大小上限 20 MB；SSRF 防护（禁内网地址）。
+- `image_place` 拉取 URL：Worker 拉取，读取上限 20 MB、10 秒；SSRF 防护：只允许 http / https，拒绝 localhost 与回环、私网、链路本地等 IP 字面量，重定向手动跟随至多 5 次且逐跳检查；解析到私网的域名由平台网络拦截（Cloudflare 边缘、workerd 缺省 `allow = ["public"]`）。用户确认需要 elicitation（ADR-0006 禁止），改由 `openWorldHint` 交给客户端；白名单待 M1 用户设置（ADR-0027）。
 - SVG 导入：剥离 `<script>`、事件属性、外部实体、`foreignObject`；位图 data URL 每个 ≤ 5 MB（解码后字节），SVG 的 5 MB 上限只计 data URL 之外的文本；链接的外部图像不拉取，丢弃并警告（ADR-0023）。
 - 文件存储：本地优先；托管模式数据加密静置；审计日志记录 Agent 的每个事务（who / what / when）。
 
@@ -976,6 +976,7 @@ zibel/
 | 41 | 多行文字与区域文字（2026-09-25） | Point Type 的 `content` 可含硬回车 `\n`；Area Type 是 `kind: "area"` 加矩形框 `width`/`height`；新增 `leading`（缺省即 Auto，字号的 120%）；区域文字的首行基线、换行与溢出按 Inkscape 1.2 实测排版；SVG 中点文字为 `sodipodi:role="line"` 行，区域文字为 `shape-inside` 引用 `<defs>` 中的矩形 | ADR-0022、#33 |
 | 42 | 置入图像（2026-09-25） | 新增 `image` 节点：框、`preserveAspectRatio`（缺省 `none`）与 `src`（文件的 SHA-256）；字节按 id 分块存 DO SQLite，M1 随 R2 迁移；PNG / JPEG / GIF，WebP 暂拒；裁切即 Clipping Mask；SVG 中为 `<image xlink:href="data:…">`（Inkscape 1.2 只绘制 `xlink:href`）；`.zibel.json` 顶层 `images` 按 id 内嵌 base64 | ADR-0023、#32 |
 | 43 | 渐变（2026-09-25） | 线性与径向渐变内联在 Fill / Stroke 中，不设 `gradientId` 与 `assets.gradients[]`（几何本就逐个 Fill；渐变色板施加即复制）；位置在 Node 自身坐标中、随 `transform` 移动，改参数不移动；只有 pad；中点随 Gradient 面板加入；SVG 中为元素前 `<defs>` 里自包含的 `userSpaceOnUse` 渐变，导入折叠 `gradientTransform`、`objectBoundingBox` 与 `href` 链，reflect / repeat 展开为色标 | ADR-0026、#22 |
+| 44 | 从 URL 置入图像（2026-09-25） | `image_place` 由 Worker 拉取 http(s) URL（20 MB、10 秒、SSRF 防护、手动重定向逐跳检查），`FETCH_FAILED` 新错误码，`openWorldHint: true`；`embed` 与本地路径去掉；`asTemplate` 在父级 Layer 下方建锁定的 Template Layer，Image 不透明度 50%，不打印待 `template` 标志 | ADR-0027、#61 |
 
 **剩余开放问题**
 
