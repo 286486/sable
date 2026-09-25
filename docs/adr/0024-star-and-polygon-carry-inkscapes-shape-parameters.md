@@ -31,7 +31,7 @@ Derived from Inkscape 1.2.2's output, not its source: 40 random stars and polygo
 The seed is quantised at 1/1024 of a unit, so the same star moved by a fraction of a unit draws a different jitter. That fixes three rules:
 
 1. **`angle` is a parameter, not a matrix.** ADR-0017 folded `arg1 ≠ −π/2` into `transform` as a rotation about the centre. For a randomized shape that moves every `U` point, so every seed, and the imported shape would not be the one Inkscape drew. Import now maps `arg1` to `angle` for every star and polygon, randomized or not, so one rule holds.
-2. **Randomized shapes are not baked or rounded on import.** ADR-0017 bakes a move plus a uniform scale into the parameters and rounds them to 3 decimals. For a shape with `randomized ≠ 0` both would re-roll the jitter: its `cx`, `cy`, `r1`, `r2`, `angle` and `twist` are kept exactly as the file has them, and a non-identity matrix stays in `transform` at 6 decimals. Other stars and polygons bake and round as before.
+2. **Randomized shapes are not baked or rounded on import.** ADR-0017 bakes a move plus a uniform scale into the parameters and rounds them to 3 decimals. For a shape with `randomized ≠ 0` both would re-roll the jitter: its `cx`, `cy`, `r1`, `r2`, `angle` and `twist` are kept exactly as the file has them, and a non-identity matrix stays in `transform` at 6 decimals. `angle` and `twist` are derived from `arg1` and `arg2` in floating point, so they round to 9 decimals of a degree, which moves a vertex at radius 1000 by 2 × 10⁻⁸ units against a seed quantum of 1/1024. Other stars and polygons bake and round as before.
 3. **Export writes `sodipodi:cx`, `cy`, `r1`, `r2`, `arg1` and `arg2` at full precision**, not through the 3-decimal `formatNumber`, so Inkscape seeds from the values Zibel drew with. `d` stays at 3 decimals; Inkscape rebuilds it from the parameters on load anyway.
 
 `node_transform` composes into `transform` (ADR-0007), so moving a randomized star keeps its jitter. `node_update` of `cx` or `cy` moves the seed points and re-rolls it, as moving a randomized star in Inkscape with its default optimized transforms does.
@@ -52,6 +52,6 @@ On a star that is both twisted and rounded, Inkscape's handle directions differ 
 
 ## Consequences
 
-- Schema: polygon and star gain `angle`, `rounded` and `randomized`; star gains `twist`. Existing Documents read them as 0, which draws what they drew.
+- Schema: polygon and star gain `angle`, `rounded` and `randomized`; star gains `twist`. Existing Documents read them as 0, which draws what they drew: a `.zibel.json` through the schema defaults, a Node already stored in a Document where it is drawn and exported, without rewriting storage, so its `node_get` shows the fields after its next write.
 - An imported turned star or polygon now has its turn in `angle` and an identity `transform`, where it had a rotation matrix. A Document exported before this change and replaced after reports `transform` and `angle` changed on such Nodes once.
 - ADR-0017's star rows are amended: `arg1` carries `angle`, `arg2` carries `twist`, `rounded` and `randomized` are written as set, and the parameters are at full precision.
