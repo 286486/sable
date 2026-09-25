@@ -169,7 +169,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Make a new Document from a file's text: .zibel.json as zibel_export returns it with format zibel_json, or SVG (Inkscape, Zibel's own export or plain SVG 1.1, at most 5 MB outside its embedded images, each image at most 5 MB), told apart by content. Pass the file's content, not a path.",
         "The new Document gets its own docId and starts at rev 1. Ids from .zibel.json, and z-<id> ids from SVG, are kept; SVG layers and pages become Layers and Artboards, units become pt (px counts as pt). nodes is its Layer list, as zibel_doc_outline returns it at depth 1.",
-        "Embedded PNG, JPEG and GIF images come back as Images; a linked image is dropped with LINKED_IMAGE_DROPPED. SVG content Zibel cannot hold yet (gradients, filters, masks, WebP) imports as close as it can, or is dropped, and warnings lists each kind once. A file that is not valid fails with a path into it and creates nothing.",
+        "Embedded PNG, JPEG and GIF images come back as Images; a linked image is dropped with LINKED_IMAGE_DROPPED. SVG content Zibel cannot hold yet (patterns, mesh gradients, filters, masks, WebP) imports as close as it can, or is dropped, and warnings lists each kind once. A file that is not valid fails with a path into it and creates nothing.",
       ].join(" "),
       inputSchema: {
         content: z.string().min(1).describe("The whole .zibel.json or .svg text."),
@@ -237,6 +237,8 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         'text {x, y, content, fontSize, leading}: Point Type; x, y is where the baseline of the first character starts, and content breaks only at \\n. With kind "area" and width, height it is Area Type: x, y, width, height is its frame, content wraps at spaces, and what does not fit is not drawn and warns TEXT_OVERFLOW. fontSize is in pt, default 12; leading is the distance between baselines in pt, omitted for Auto (120% of fontSize). fontFamily is any font name, kept as written; only Source Sans 3 is bundled, so others render in it and the receipt warns FONT_MISSING.',
         "image {src, x, y, width, height, preserveAspectRatio}: src is a data: URL of a PNG, JPEG or GIF file (WebP is refused: convert it to PNG), or the src id of an Image already in the Document, which reuses its file without resending it; x, y, width, height is its frame, width and height both or neither, default the file's pixel size at 1 pt per pixel; preserveAspectRatio is SVG's, default none (stretch to the frame). An image has no appearance; crop one with zibel_mask_make.",
         "Live Shapes, paths and text take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}; omit it for a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke.",
+        'A Fill or Stroke may instead be {type: "gradient", gradient}, with gradient {type: "linear", stops, start, end} or {type: "radial", stops, center, radius, aspectRatio, angle, focus}; stops are at least 2 {offset 0-1, color}, the color\'s alpha is the stop\'s opacity. Positions are in the Node\'s own coordinates and move with zibel_node_transform. Leave the geometry out to span the Node\'s bounds: linear left to right, or along angle (degrees clockwise, not stored); radial from the center with Illustrator\'s radius. aspectRatio scales the radius across angle; focus is where the first stop sits. zibel_node_get detail full returns the full geometry.',
+
         "Give each node a clientKey to find its new id in the receipt's keyMap.",
         "At most 2000 Nodes per call, counting inline children.",
         "Also accepts tags and meta (any JSON) on each node.",
@@ -300,7 +302,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Change Nodes with one JSON Merge Patch (RFC 7396) each: objects merge, null deletes a key, arrays and everything else replace.",
         "Writable on every Node: name, visible, locked, opacity (0-1), blendMode (stored, not rendered yet), tags, meta. A Live Shape or path also takes its parameters (see zibel_node_create) and appearance; a path takes d; a text takes content, fontSize, leading (null for Auto), x, y and appearance, and an Area Type also width and height; a text's kind is fixed. An image takes x, y, width, height and preserveAspectRatio; its src is read-only.",
-        "fills and strokes replace as a whole list, so send every Fill or Stroke you want to keep.",
+        "fills and strokes replace as a whole list, so send every Fill or Stroke you want to keep; a gradient's geometry left out is taken from the Node's bounds after the patch.",
         "Move, rotate or scale with zibel_node_transform; transform, type, parentId and derived bounds are read-only.",
         coordinates,
       ].join(" "),

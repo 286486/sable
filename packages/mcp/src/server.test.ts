@@ -105,16 +105,10 @@ describe("write tools pass the write and its options apart", () => {
       { nodeId: "c", patch: { preserveAspectRatio: "xMidYMid meet" } },
     ];
     await call("zibel_node_update", { docId: "d", updates, ...opts });
-    // A Fill is always solid so far; the list replaces, and strokes is not sent.
-    const fills = [{ type: "solid", color: "#FF0000" }];
     const [docId, sent, options] = service.updateNodes.mock.calls[0] ?? [];
     expect([docId, options]).toEqual(["d", { ...opts, partial: false }]);
     // Strict: a default filled in as an undefined key would still reach the Durable Object.
-    expect(sent).toStrictEqual([
-      updates[0],
-      { nodeId: "b", patch: { appearance: { fills } } },
-      updates[2],
-    ]);
+    expect(sent).toStrictEqual([updates[0], updates[1], updates[2]]);
   });
 
   it("node_delete", async () => {
@@ -593,7 +587,13 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     expect(described("zibel_node_create")).toContain(param);
     expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${param}"`);
   }
+  for (const word of ["gradient", "stops", "radial", "aspectRatio", "focus"]) {
+    expect(described("zibel_node_create")).toContain(word);
+    expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${word}"`);
+  }
+  expect(described("zibel_node_update")).toContain("gradient");
   expect(described("zibel_doc_open")).toContain("LINKED_IMAGE_DROPPED");
+  expect(described("zibel_doc_open")).not.toMatch(/\(gradients/);
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({
       readOnlyHint: expect.any(Boolean),
@@ -634,6 +634,8 @@ it("serves skill://zibel/drawing-conventions and points at it in the instruction
     "LIMIT_EXCEEDED",
     "## Images",
     "INVALID_IMAGE",
+    '"type": "gradient"',
+    "aspectRatio",
   ]) {
     expect(text).toContain(fact);
   }

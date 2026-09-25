@@ -192,6 +192,12 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     'inkscape:flatsided="false" inkscape:rounded="0.18" inkscape:randomized="0.1"',
     // ADR-0025: a cut ellipse as an Inkscape arc, its angles in radians at full precision.
     `sodipodi:type="arc" sodipodi:cx="740" sodipodi:cy="30" sodipodi:rx="30" sodipodi:ry="20" sodipodi:start="0" sodipodi:end="${(3 * Math.PI) / 2}" sodipodi:arc-type="slice"`,
+    // ADR-0026: a gradient as a self-contained userSpaceOnUse element in the <defs> before its
+    // element, a radial's ellipse as its gradientTransform, a stop's alpha as stop-opacity.
+    `<defs><linearGradient id="fill-0-z-01M38T29STGRAD1ENT0000000A" gradientUnits="userSpaceOnUse" x1="830" y1="25" x2="880" y2="25">`,
+    'cx="910" cy="30" r="20" fx="913.330127" fy="21.535898" gradientTransform="matrix(0.866025 0.5 -0.25 0.433013 129.416883 -437.990381)"',
+    '<stop offset="1" stop-color="#9FD0FF" stop-opacity="0"/>',
+    'stroke="url(#stroke-0-z-01M38T29STGRAD1ENT0000000C)"',
   ]) {
     expect(svg).toContain(part);
   }
@@ -200,8 +206,8 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
   );
   // resvg in the Worker draws the same file, namespaces and all, over every Artboard.
   expect(await render({ docId })).toEqual({
-    docRect: { x: 0, y: 0, width: 820, height: 200 },
-    pixelSize: { width: 820, height: 200 },
+    docRect: { x: 0, y: 0, width: 940, height: 200 },
+    pixelSize: { width: 940, height: 200 },
     scale: 1,
   });
 });

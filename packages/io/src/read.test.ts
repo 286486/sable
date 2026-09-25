@@ -1,4 +1,7 @@
 import {
+  createDocument,
+  createNodes,
+  type Fill,
   type ImageNode,
   normalizePath,
   readImage,
@@ -9,7 +12,7 @@ import {
 } from "@zibel/core";
 import { describe, expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
-import { MAX_DEPTH, parseFile, parseSvg, SVG_LIMIT } from "./index.ts";
+import { MAX_DEPTH, parseFile, parseSvg, SVG_LIMIT, toSvg } from "./index.ts";
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -226,6 +229,7 @@ it("resolves presentation attributes, <style> classes, style and inheritance int
   });
   expect(look(stroked)?.strokes).toEqual([
     {
+      type: "solid",
       color: "#00000080",
       width: 1,
       cap: "round",
@@ -236,10 +240,8 @@ it("resolves presentation attributes, <style> classes, style and inheritance int
   ]);
   expect(look(gradient)?.fills).toEqual([{ type: "solid", color: "#123456" }]);
   expect(look(missing)).toEqual({ fills: [], strokes: [] });
-  expect(file.warnings.map((w) => w.code).sort()).toEqual([
-    "GRADIENT_FLATTENED",
-    "UNSUPPORTED_PAINT",
-  ]);
+  // One stop is a solid paint, as SVG draws it and Inkscape stores a solid Swatch.
+  expect(file.warnings.map((w) => w.code)).toEqual(["UNSUPPORTED_PAINT"]);
 });
 
 it("scales Stroke widths and dashes with the user unit", () => {
@@ -1062,5 +1064,281 @@ describe("<image>", () => {
       `<desc>${"x".repeat(SVG_LIMIT)}</desc><image href="${RED_2x2_PNG}"/>`,
     );
     expect(errorOf(() => parseFile(markup))).toMatchObject({ code: "LIMIT_EXCEEDED" });
+  });
+});
+
+describe("gradients (ADR-0026)", () => {
+  const stops = [
+    { offset: 0, color: "#1F5FBF" },
+    { offset: 1, color: "#9FD0FF00" },
+  ];
+  const STOPS =
+    '<stop offset="0" stop-color="#1F5FBF"/><stop offset="1" stop-color="#9FD0FF" stop-opacity="0"/>';
+  /** The first Fill of the first leaf of `body`, and the file's warning codes. */
+  const fillOf = (body: string, defs = "") => {
+    const file = parseFile(svg('width="200" height="200"', `<defs>${defs}</defs>${body}`));
+    const [leaf] = leaves(file);
+    const fill = leaf && "appearance" in leaf ? leaf.appearance.fills[0] : undefined;
+    return { fill, codes: file.warnings.map((w) => w.code) };
+  };
+  const gradientOf = (body: string, defs = "") => {
+    const { fill } = fillOf(body, defs);
+    if (fill?.type !== "gradient") throw new Error(`not a gradient: ${JSON.stringify(fill)}`);
+    return fill.gradient;
+  };
+
+  it("reads back what toSvg writes: linear, elliptical radial, Stroke, text, stack and a turned Node", () => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "D",
+      name: "Doc",
+      artboards: [{ width: 200, height: 200 }],
+    });
+    const linear = { type: "gradient", gradient: { type: "linear", stops } } as const;
+    const radial = (angle: number, aspectRatio: number) =>
+      ({
+        type: "gradient",
+        gradient: { type: "radial", stops, aspectRatio, angle, focus: { x: 20, y: 22 } },
+      }) as const;
+    const { nodes } = createNodes(doc, [
+      {
+        type: "rect",
+        parentId,
+        x: 0,
+        y: 0,
+        width: 50,
+        height: 30,
+        appearance: { fills: [linear] },
+      },
+      {
+        type: "ellipse",
+        parentId,
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 40,
+        appearance: { fills: [radial(30, 0.5)], strokes: [{ ...radial(200, 2.5), width: 3 }] },
+      },
+      { type: "text", parentId, x: 10, y: 100, content: "Hi", appearance: { fills: [linear] } },
+      {
+        type: "line",
+        parentId,
+        x1: 0,
+        y1: 150,
+        x2: 100,
+        y2: 150,
+        appearance: { fills: [{ color: "#FF0000" }, linear], strokes: [linear] },
+      },
+      {
+        type: "rect",
+        parentId,
+        x: 100,
+        y: 0,
+        width: 50,
+        height: 30,
+        appearance: { fills: [linear] },
+      },
+    ]);
+    const turned = nodes[4];
+    if (!turned) throw new Error("setup");
+    doc.nodes.set(turned.id, { ...turned, transform: [0.866025, 0.5, -0.5, 0.866025, 10, 5] });
+    const read = parseSvg(toSvg(doc));
+    expect(read.warnings).toEqual([]);
+    for (const n of nodes) {
+      const back = read.nodes.find((r) => r.id === n.id);
+      expect(back && "appearance" in back && back.appearance).toEqual(
+        "appearance" in n && n.appearance,
+      );
+    }
+  });
+
+  it("follows href for stops and each attribute, and folds stop-opacity and fill-opacity in", () => {
+    const g = gradientOf(
+      '<rect x="0" y="0" width="10" height="10" fill="url(#pos)" fill-opacity=".5"/>',
+      `<linearGradient id="vec"><stop offset="0" stop-color="red" stop-opacity=".5"/><stop offset="1" style="stop-color:#00F"/></linearGradient>` +
+        '<linearGradient id="mid" href="#vec" gradientUnits="userSpaceOnUse" x2="100"/>' +
+        '<linearGradient id="pos" xlink:href="#mid" x1="20" y1="5" y2="5" xmlns:xlink="http://www.w3.org/1999/xlink"/>',
+    );
+    expect(g).toEqual({
+      type: "linear",
+      stops: [
+        { offset: 0, color: "#FF000040" },
+        { offset: 1, color: "#0000FF80" },
+      ],
+      start: { x: 20, y: 5 },
+      end: { x: 100, y: 5 },
+    });
+  });
+
+  it("clamps offsets to 0-1 and never lets them decrease", () => {
+    const g = gradientOf(
+      '<rect width="10" height="10" fill="url(#g)"/>',
+      '<linearGradient id="g"><stop offset="-1" stop-color="#000"/><stop offset="80%" stop-color="#111"/>' +
+        '<stop offset=".5" stop-color="#222"/><stop offset="2" stop-color="#333"/></linearGradient>',
+    );
+    expect(g.stops.map((s) => s.offset)).toEqual([0, 0.8, 0.8, 1]);
+  });
+
+  it("moves and scales a userSpaceOnUse gradient with a baked leaf", () => {
+    const g = gradientOf(
+      '<rect transform="translate(5 5) scale(2)" width="10" height="10" fill="url(#g)"/>',
+      `<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" x2="10">${STOPS}</linearGradient>`,
+    );
+    expect(g).toMatchObject({ start: { x: 5, y: 5 }, end: { x: 25, y: 5 } });
+  });
+
+  it("maps objectBoundingBox, SVG's default, through the element's box", () => {
+    const g = gradientOf(
+      '<rect x="5" y="5" width="10" height="20" fill="url(#g)"/>',
+      `<linearGradient id="g">${STOPS}</linearGradient>`,
+    );
+    expect(g).toMatchObject({ start: { x: 5, y: 5 }, end: { x: 15, y: 5 } });
+    // Diagonal in a 10 × 20 box: the stripes run corner to corner, so the vector is not.
+    const d = gradientOf(
+      '<rect x="0" y="0" width="10" height="20" fill="url(#g)"/>',
+      `<linearGradient id="g" x2="1" y2="1">${STOPS}</linearGradient>`,
+    );
+    expect(d).toMatchObject({ start: { x: 0, y: 0 }, end: { x: 16, y: 8 } });
+  });
+
+  it("uses the fallback colour when the box has no area", () => {
+    const { fill } = fillOf(
+      '<line x1="0" y1="5" x2="10" y2="5" stroke="none" fill="url(#g) #ABCDEF"/>',
+      `<linearGradient id="g">${STOPS}</linearGradient>`,
+    );
+    expect(fill).toEqual({ type: "solid", color: "#ABCDEF" });
+  });
+
+  it("folds gradientTransform in: a turn, and a stretched radial becoming an ellipse", () => {
+    const turned = gradientOf(
+      '<rect width="100" height="100" fill="url(#g)"/>',
+      `<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="10" x2="30" gradientTransform="rotate(90)">${STOPS}</linearGradient>`,
+    );
+    expect(turned).toMatchObject({ start: { x: 0, y: 10 }, end: { x: 0, y: 30 } });
+    const stretched = gradientOf(
+      '<rect width="100" height="100" fill="url(#g)"/>',
+      `<radialGradient id="g" gradientUnits="userSpaceOnUse" cx="10" cy="10" r="5" fx="12" gradientTransform="scale(1 2)">${STOPS}</radialGradient>`,
+    );
+    expect(stretched).toEqual({
+      type: "radial",
+      stops,
+      center: { x: 10, y: 20 },
+      radius: 5,
+      aspectRatio: 2,
+      angle: 0,
+      focus: { x: 12, y: 20 },
+    });
+  });
+
+  it("keeps every stop's place under a skew", () => {
+    const g = gradientOf(
+      '<rect width="100" height="100" fill="url(#g)"/>',
+      `<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" x2="10" gradientTransform="skewX(30)">${STOPS}</linearGradient>`,
+    );
+    if (g.type !== "linear") throw new Error("linear");
+    // In gradient space t = x / 10; the skew maps (x, y) to (x + y tan 30, y).
+    const t = (px: number, py: number) => {
+      const [dx, dy] = [g.end.x - g.start.x, g.end.y - g.start.y];
+      return ((px - g.start.x) * dx + (py - g.start.y) * dy) / (dx * dx + dy * dy);
+    };
+    const tan = Math.tan(Math.PI / 6);
+    for (const [x, y] of [
+      [5, 0],
+      [5, 10],
+      [10, 40],
+    ] as const) {
+      expect(t(x + y * tan, y)).toBeCloseTo(x / 10, 2);
+    }
+  });
+
+  it.each([
+    [
+      "one stop",
+      '<linearGradient id="g"><stop offset=".3" stop-color="#FF0000"/></linearGradient>',
+      { type: "solid", color: "#FF0000" },
+    ],
+    [
+      "no length",
+      `<linearGradient id="g" x2="0">${STOPS}</linearGradient>`,
+      { type: "solid", color: "#9FD0FF00" },
+    ],
+    [
+      "r of 0",
+      `<radialGradient id="g" r="0">${STOPS}</radialGradient>`,
+      { type: "solid", color: "#9FD0FF00" },
+    ],
+    ["no stops", '<linearGradient id="g"/>', undefined],
+  ])("paints a gradient with %s as SVG does", (_, defs, fill) => {
+    expect(fillOf('<rect width="10" height="10" fill="url(#g)"/>', defs).fill).toEqual(fill);
+  });
+
+  it("unrolls repeat and reflect into stops over the element", () => {
+    const two = '<stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#FFF"/>';
+    const repeat = gradientOf(
+      '<rect x="0" y="0" width="30" height="10" fill="url(#g)"/>',
+      `<linearGradient id="g" gradientUnits="userSpaceOnUse" x2="10" spreadMethod="repeat">${two}</linearGradient>`,
+    );
+    const colors = (g: typeof repeat) => g.stops.map((s) => `${s.offset} ${s.color}`);
+    expect(repeat).toMatchObject({ start: { x: 0, y: 0 }, end: { x: 30, y: 0 } });
+    expect(colors(repeat)).toEqual([
+      "0 #000000",
+      "0.333 #FFFFFF",
+      "0.333 #000000",
+      "0.667 #FFFFFF",
+      "0.667 #000000",
+      "1 #FFFFFF",
+    ]);
+    const reflect = gradientOf(
+      '<rect x="-10" y="0" width="20" height="10" fill="url(#g)"/>',
+      `<linearGradient id="g" gradientUnits="userSpaceOnUse" x2="10" spreadMethod="reflect">${two}</linearGradient>`,
+    );
+    expect(reflect).toMatchObject({ start: { x: -10, y: 0 }, end: { x: 10, y: 0 } });
+    expect(colors(reflect)).toEqual(["0 #FFFFFF", "0.5 #000000", "0.5 #000000", "1 #FFFFFF"]);
+    const radial = gradientOf(
+      '<rect x="0" y="0" width="20" height="20" fill="url(#g)"/>',
+      `<radialGradient id="g" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="10" spreadMethod="repeat">${two}</radialGradient>`,
+    );
+    // The far corner is 2.83 radii out, so three periods.
+    expect(radial).toMatchObject({ center: { x: 0, y: 0 }, radius: 30 });
+    expect(radial.stops).toHaveLength(6);
+    // Stops short of the ends hold their colours out to each period's edge.
+    const inset = gradientOf(
+      '<rect x="0" y="0" width="20" height="10" fill="url(#g)"/>',
+      `<linearGradient id="g" gradientUnits="userSpaceOnUse" x2="10" spreadMethod="repeat"><stop offset=".3" stop-color="#000"/><stop offset="1" stop-color="#FFF"/></linearGradient>`,
+    );
+    expect(colors(inset)).toEqual([
+      "0 #000000",
+      "0.15 #000000",
+      "0.5 #FFFFFF",
+      "0.5 #000000",
+      "0.65 #000000",
+      "1 #FFFFFF",
+    ]);
+  });
+
+  it("warns about fr and drops a pattern as before", () => {
+    const { codes } = fillOf(
+      '<rect width="10" height="10" fill="url(#g)"/><rect width="10" height="10" fill="url(#p)"/>',
+      `<radialGradient id="g" fr=".2">${STOPS}</radialGradient><pattern id="p"/>`,
+    );
+    expect(codes.sort()).toEqual(["UNSUPPORTED_ATTRIBUTE", "UNSUPPORTED_PAINT"]);
+  });
+
+  it("reads Inkscape's split vector and positioned gradients, moved after saving, as one", () => {
+    const g = gradientOf(
+      '<rect x="0" y="0" width="100" height="50" style="fill:url(#linearGradient2)"/>',
+      '<linearGradient id="linearGradient1" inkscape:collect="always"><stop style="stop-color:#1f5fbf;stop-opacity:1" offset="0"/>' +
+        '<stop style="stop-color:#9fd0ff;stop-opacity:0" offset="1"/></linearGradient>' +
+        '<linearGradient inkscape:collect="always" xlink:href="#linearGradient1" id="linearGradient2" x1="0" y1="25" x2="100" y2="25" ' +
+        'gradientUnits="userSpaceOnUse" gradientTransform="translate(10,0)" xmlns:xlink="http://www.w3.org/1999/xlink"/>',
+    );
+    expect(g).toEqual({
+      type: "linear",
+      stops: [
+        { offset: 0, color: "#1F5FBF" },
+        { offset: 1, color: "#9FD0FF00" },
+      ],
+      start: { x: 10, y: 25 },
+      end: { x: 110, y: 25 },
+    });
   });
 });

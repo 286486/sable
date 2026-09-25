@@ -148,6 +148,50 @@ it("reads a star, a polygon and an ellipse written before ADR-0024 and ADR-0025 
   expect(ellipse).toMatchObject({ startAngle: 0, endAngle: 360, arcType: "slice" });
 });
 
+describe("gradients", () => {
+  const stops = [
+    { offset: 0, color: "#1F5FBF" },
+    { offset: 1, color: "#9FD0FF00" },
+  ];
+  const linear = { type: "linear", stops, start: { x: 0, y: 5 }, end: { x: 20, y: 5 } };
+  const withGradient = () => {
+    const doc = scene();
+    const rect = [...doc.nodes.values()].find((n) => n.type === "rect");
+    if (rect?.type !== "rect") throw new Error("setup");
+    rect.appearance.fills = [{ type: "gradient", gradient: linear as never }];
+    return { doc, rect };
+  };
+
+  it("reads a gradient Fill back as it was written", () => {
+    const { doc, rect } = withGradient();
+    const back = parseDocument(serializeDocument(doc)).nodes.find((n) => n.id === rect.id);
+    expect(back).toMatchObject({ appearance: { fills: [{ type: "gradient", gradient: linear }] } });
+  });
+
+  it("reads a Stroke written before ADR-0026, without a type, as solid", () => {
+    const file = JSON.parse(serializeDocument(scene()));
+    const rect = file.nodes.find((n: { type: string }) => n.type === "rect");
+    delete rect.appearance.strokes[0].type;
+    const back = parseDocument(JSON.stringify(file)).nodes.find((n) => n.id === rect.id);
+    expect(back).toMatchObject({ appearance: { strokes: [{ type: "solid", color: "#000000" }] } });
+  });
+
+  it("refuses a stored gradient without its geometry", () => {
+    const { doc, rect } = withGradient();
+    const file = JSON.parse(serializeDocument(doc));
+    const i = file.nodes.findIndex((n: { id: string }) => n.id === rect.id);
+    delete file.nodes[i].appearance.fills[0].gradient.end;
+    expect(() => parseDocument(JSON.stringify(file))).toThrow(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          code: "INVALID_DOCUMENT",
+          path: `nodes[${i}].appearance.fills[0].gradient.end`,
+        }),
+      }),
+    );
+  });
+});
+
 describe("migrations", () => {
   // A test migration: version 1 called the name `title`.
   const up: Migration = ({ title, ...rest }) => ({ ...rest, name: title });

@@ -209,6 +209,58 @@ it("creates a slice, a chord and an open arc of an ellipse, and renders a quarte
   });
 });
 
+it("fills in a gradient's geometry, reads it back in full, and names start = end", async () => {
+  const doc = await newDoc();
+  const stops = [
+    { offset: 0, color: "#1F5FBF" },
+    { offset: 1, color: "#9FD0FF00" },
+  ];
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "rect",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 50,
+        appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+      },
+    ],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  const get = async () =>
+    (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+      .structuredContent.nodes[0];
+  expect((await get()).appearance.fills).toEqual([
+    {
+      type: "gradient",
+      gradient: { type: "linear", stops, start: { x: 10, y: 45 }, end: { x: 110, y: 45 } },
+    },
+  ]);
+  const strokes = [{ type: "gradient", gradient: { type: "radial", stops }, width: 4 }];
+  const updated = await call("zibel_node_update", {
+    docId: doc.docId,
+    updates: [{ nodeId: id, patch: { appearance: { strokes } } }],
+  });
+  expect(updated.isError).toBeFalsy();
+  expect((await get()).appearance.strokes[0].gradient).toMatchObject({
+    center: { x: 60, y: 45 },
+    radius: 39.528,
+    focus: { x: 60, y: 45 },
+  });
+  const flat = { type: "linear", stops, start: { x: 0, y: 0 }, end: { x: 0, y: 0 } };
+  const refused = await call("zibel_node_update", {
+    docId: doc.docId,
+    updates: [
+      { nodeId: id, patch: { appearance: { fills: [{ type: "gradient", gradient: flat }] } } },
+    ],
+  });
+  expect(refused.isError).toBe(true);
+  expect(refused.content[0].text).toMatch(/Input validation error[\s\S]*end/);
+});
+
 it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", async () => {
   const doc = await newDoc();
   const created = await call("zibel_node_create", {

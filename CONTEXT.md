@@ -130,6 +130,14 @@ _Avoid_: Background、Color（泛指时）
 Appearance 中沿 Path 轮廓绘制的一层，有宽度、端点、连接、虚线、箭头等属性。一个 Node 可有多个 Stroke。
 _Avoid_: Outline、Border、Line、笔迹（那是 Ink）
 
+**Gradient（渐变）**：
+Fill 或 Stroke 的一种颜色：若干 Color Stop 之间的平滑过渡，线性（沿起点到终点）或径向（从焦点向外到中心、半径、长宽比与角度定出的椭圆）。它的位置属于这一个 Fill 或 Stroke，在 Node 自身坐标中，随 Node 的变换移动；改 Live Shape 参数或锚点不会移动它。它内联在 Fill 或 Stroke 里，不引用 Asset（ADR-0026）。
+_Avoid_: Ramp、Blend（那是另一个概念）、Gradient fill 作为类型名
+
+**Color Stop（色标）**：
+Gradient 上的一个位置（0–1）与颜色，透明度即颜色的 alpha。一个 Gradient 至少两个。
+_Avoid_: Stop（泛指时）、Key、Color point
+
 **Effect（效果）**：
 Appearance 中非破坏性修改几何或像素的一层，如阴影、模糊、偏移路径。
 _Avoid_: Filter（保留给 SVG filter 的技术语境）
@@ -163,7 +171,7 @@ _Avoid_: Smoothing、Tolerance
 ## 资源
 
 **Asset（资源）**：
-Document 级可被多个 Node 引用的共享定义：色板、渐变、图案、符号、Graphic Style、字符与段落样式、画笔、图表主题。修改 Asset 即更新所有引用处。
+Document 级的可复用定义：色板、图案、符号、Graphic Style、字符与段落样式、画笔、图表主题。被引用的 Asset（全局色板、符号、Graphic Style 等）修改后所有引用处同步；渐变色板在施加时复制进 Fill 或 Stroke，Gradient 不引用它（ADR-0026）。
 _Avoid_: Library item、Resource、Definition
 
 **Symbol（符号）**：
@@ -171,7 +179,7 @@ _Avoid_: Library item、Resource、Definition
 _Avoid_: Component、Master、Template
 
 **Swatch（色板）**：
-命名的颜色或渐变 Asset。标记为全局的 Swatch 被修改时，所有使用处同步变化。
+命名的颜色或渐变 Asset。标记为全局的颜色 Swatch 被修改时，所有使用处同步变化；渐变 Swatch 施加时复制进 Fill 或 Stroke。
 _Avoid_: Palette entry、Color token
 
 ## 编辑与协作

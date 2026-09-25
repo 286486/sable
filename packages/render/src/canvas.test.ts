@@ -1,5 +1,5 @@
 import { createDocument, createNodes, makeMask, type ShapeNode, shapeSegments } from "@zibel/core";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { type Canvas2D, drawDocument, imagePlacement } from "./canvas.ts";
 
 /** A context that logs every call and property write, with save/restore of its state. */
@@ -17,6 +17,13 @@ function recorder() {
               if (k === "save") stack.push({ ...state });
               if (k === "restore") state = stack.pop() ?? state;
               log.push([k, ...args].join(" "));
+              if (k.startsWith("create")) {
+                return {
+                  addColorStop: (...stop: unknown[]) =>
+                    log.push(["addColorStop", ...stop].join(" ")),
+                  toString: () => "[gradient]",
+                };
+              }
             },
       set: (_, k: string, v) => {
         state[k] = v;
@@ -305,4 +312,119 @@ it("draws an Image once its file is decoded, clipped to its frame under slice", 
   expect(drawn((id) => (id === src ? { image: "IMG", width: 30, height: 10 } : undefined))).toEqual(
     ["drawImage IMG 10 10 60 40", "rect 10 10 60 40", "clip", "drawImage IMG -20 10 120 40"],
   );
+});
+
+describe("gradients (ADR-0026)", () => {
+  const stops = [
+    { offset: 0, color: "#1F5FBF" },
+    { offset: 1, color: "#9FD0FF00" },
+  ];
+  const drawn = (input: Record<string, unknown>) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    createNodes(doc, [{ parentId, ...input } as never]);
+    const { ctx, log } = recorder();
+    drawDocument(ctx, doc);
+    // After the background and the Layer's and the leaf's save and transform, before their restores.
+    const body = log.filter((l) => !PATH_OPS.test(l) && !/^(globalAlpha|beginPath)/.test(l));
+    return body.slice(6, -2);
+  };
+  const rect = { type: "rect", x: 10, y: 20, width: 100, height: 50 };
+
+  it("fills with a linear gradient from start to end", () => {
+    const fills = [{ type: "gradient", gradient: { type: "linear", stops } }];
+    expect(drawn({ ...rect, appearance: { fills } })).toEqual([
+      "createLinearGradient 10 45 110 45",
+      "addColorStop 0 #1F5FBF",
+      "addColorStop 1 #9FD0FF00",
+      "fillStyle=[gradient]",
+      "fill",
+    ]);
+  });
+
+  it("fills an elliptical radial gradient under its ellipse only, and a circle without one", () => {
+    const radial = {
+      type: "radial",
+      stops,
+      radius: 40,
+      aspectRatio: 0.5,
+      angle: 30,
+      focus: { x: 70, y: 45 },
+    };
+    const log = drawn({ ...rect, appearance: { fills: [{ type: "gradient", gradient: radial }] } });
+    const n3 = (l: string) =>
+      l.replace(/-?\d+\.\d+/g, (n) => String(Math.round(Number(n) * 1e3) / 1e3));
+    expect(log.map(n3)).toEqual([
+      // The focus back through the ellipse, which maps it to (70, 45).
+      "createRadialGradient 68.66 35 0 60 45 40",
+      "addColorStop 0 #1F5FBF",
+      "addColorStop 1 #9FD0FF00",
+      "fillStyle=[gradient]",
+      "save",
+      "transform 0.866 0.5 -0.25 0.433 19.288 -4.486",
+      "fill",
+      "restore",
+    ]);
+    const circle = drawn({
+      ...rect,
+      appearance: { fills: [{ type: "gradient", gradient: { type: "radial", stops } }] },
+    });
+    expect(circle.filter((l) => l.startsWith("transform"))).toEqual([]);
+    expect(circle).toContain("createRadialGradient 60 45 0 60 45 39.528");
+  });
+
+  it("draws an elliptical radial gradient as its circle on a Stroke and on text", () => {
+    const radial = {
+      type: "gradient",
+      gradient: {
+        type: "radial",
+        stops,
+        radius: 40,
+        aspectRatio: 0.5,
+        angle: 30,
+        center: { x: 60, y: 45 },
+        focus: { x: 70, y: 45 },
+      },
+    };
+    const stroked = drawn({
+      ...rect,
+      appearance: { fills: [], strokes: [{ ...radial, width: 3 }] },
+    });
+    const text = drawn({
+      type: "text",
+      x: 10,
+      y: 50,
+      content: "Hi",
+      appearance: { fills: [radial] },
+    });
+    for (const log of [stroked, text]) {
+      expect(log).toContain("createRadialGradient 70 45 0 60 45 40");
+      expect(log.filter((l) => l.startsWith("transform"))).toEqual([]);
+    }
+  });
+
+  it("strokes and fills text with a gradient", () => {
+    const paint = { type: "gradient", gradient: { type: "linear", stops } };
+    const stroked = drawn({
+      ...rect,
+      appearance: { fills: [], strokes: [{ ...paint, width: 3 }] },
+    });
+    expect(stroked).toEqual(
+      expect.arrayContaining([
+        "createLinearGradient 10 45 110 45",
+        "strokeStyle=[gradient]",
+        "lineWidth=3",
+        "stroke",
+      ]),
+    );
+    const text = drawn({
+      type: "text",
+      x: 10,
+      y: 50,
+      content: "Hi",
+      appearance: { fills: [paint] },
+    });
+    expect(text.indexOf("fillStyle=[gradient]")).toBeLessThan(
+      text.findIndex((l) => l.startsWith("fillText")),
+    );
+  });
 });

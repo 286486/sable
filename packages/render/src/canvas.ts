@@ -1,10 +1,15 @@
 import {
+  applyTo,
   BUNDLED_FONT,
   childrenOf,
   clippingPath,
   type Document,
+  ellipseMatrix,
+  type Fill,
+  invert,
   type LeafNode,
   layoutText,
+  type Matrix,
   type Node,
   type Rect,
   type Segment,
@@ -46,6 +51,40 @@ export interface Canvas2D {
   strokeText(text: string, x: number, y: number): void;
   rect(x: number, y: number, w: number, h: number): void;
   drawImage(image: unknown, x: number, y: number, w: number, h: number): void;
+  createLinearGradient(x0: number, y0: number, x1: number, y1: number): CanvasGradient2D;
+  createRadialGradient(
+    x0: number,
+    y0: number,
+    r0: number,
+    x1: number,
+    y1: number,
+    r1: number,
+  ): CanvasGradient2D;
+}
+
+export interface CanvasGradient2D {
+  addColorStop(offset: number, color: string): void;
+}
+
+/**
+ * A paint as a canvas style, the same field `toSvg` writes (ADR-0026). With `ellipse`, an
+ * elliptical radial gradient comes with its ellipse, for the caller to put in force only while it
+ * fills, so the traced outline is not distorted; without, it draws as its circle.
+ */
+function styleOf(ctx: Canvas2D, p: Fill, ellipse: boolean): { style: unknown; m?: Matrix } {
+  if (p.type === "solid") return { style: p.color };
+  const g = p.gradient;
+  let style: CanvasGradient2D;
+  let m: Matrix | undefined;
+  if (g.type === "linear") {
+    style = ctx.createLinearGradient(g.start.x, g.start.y, g.end.x, g.end.y);
+  } else {
+    m = ellipse ? ellipseMatrix(g) : undefined;
+    const [fx, fy] = m ? applyTo(invert(m), g.focus.x, g.focus.y) : [g.focus.x, g.focus.y];
+    style = ctx.createRadialGradient(fx, fy, 0, g.center.x, g.center.y, g.radius);
+  }
+  for (const s of g.stops) style.addColorStop(s.offset, s.color);
+  return { style, m };
 }
 
 /** An Image's file, decoded for the canvas, with its pixel size. */
@@ -141,13 +180,23 @@ function draw(
       trace(ctx, shapeSegments(n));
     }
     for (const f of n.appearance.fills) {
-      ctx.fillStyle = f.color;
+      // ponytail: the ellipse would distort glyphs, so text draws an elliptical radial gradient as
+      // its circle; SVG draws it exactly. Draw glyph outlines when Create Outlines lands.
+      const { style, m } = styleOf(ctx, f, !lines);
+      ctx.fillStyle = style;
+      if (m) {
+        ctx.save();
+        ctx.transform(...m);
+      }
       if (lines) for (const l of lines) ctx.fillText(l.text, l.x, l.y);
       else if (n.type === "path" && n.fillRule === "evenodd") ctx.fill("evenodd");
       else ctx.fill();
+      if (m) ctx.restore();
     }
     for (const s of n.appearance.strokes) {
-      ctx.strokeStyle = s.color;
+      // ponytail: the ellipse would also scale the pen, so a Stroke draws an elliptical radial
+      // gradient as its circle; SVG draws it exactly. Stroke to an offscreen layer when it matters.
+      ctx.strokeStyle = styleOf(ctx, s, false).style;
       ctx.lineWidth = s.width;
       ctx.lineCap = s.cap;
       ctx.lineJoin = s.join;

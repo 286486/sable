@@ -2,12 +2,15 @@ import { DOMParser, type Element } from "@xmldom/xmldom";
 import {
   type Appearance,
   type Artboard,
+  applyTo,
   BlendMode,
   BUNDLED_FONT,
   cssColor,
+  type Fill,
   formatPath,
   IDENTITY,
   type ImageFile,
+  invert,
   type Matrix,
   MIGRATIONS,
   multiply,
@@ -44,6 +47,7 @@ import {
   xmlId,
   type ZibelAttr,
 } from "./dialect.ts";
+import { type Geometry, mapped, unroll } from "./gradient.ts";
 import { computeStyle, type Rule, type Style, stylesheet } from "./style.ts";
 
 export type Warning = WriteReceipt["warnings"][number];
@@ -240,6 +244,7 @@ class Reader {
     private readonly rules: Rule[],
     private readonly byId: Map<string, Element>,
     private readonly artboards: Artboard[],
+    private readonly viewport: { width: number; height: number },
     /** The id of a data URL the caller wrote itself, so it needs no hashing (Replace). */
     private readonly known?: (url: string) => string | undefined,
   ) {}
@@ -380,13 +385,11 @@ class Reader {
     const artboardId = zibelAttr(e, "artboard");
     if (artboardId) {
       const artboard = this.artboards.find((a) => a.id === artboardId);
-      const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"]);
+      const fill = this.color(style.fill ?? "black", style, style["fill-opacity"]);
       if (artboard && fill) artboard.background = fill;
       return;
     }
     if (zibelAttr(e, "background")) return;
-    /** What Stroke widths scale by: the leaf's scale when it bakes into the parameters. */
-    const scaleOf = (el: Element, m: Matrix) => (this.baked(el, m) ? m[0] : 1);
     let shape: Record<string, unknown> | null;
     let appearance: Appearance | undefined;
     if (tag === "image") {
@@ -397,7 +400,7 @@ class Reader {
       const paints = elements(e).map((c) => {
         const s = computeStyle(c, style, this.rules);
         const m = multiply(matrix, parseTransform(c.getAttribute("transform")));
-        return { shape: this.shape(c, m, s), look: this.appearance(s, scaleOf(c, m)) };
+        return { shape: this.shape(c, m, s), look: this.appearance(s, c, m) };
       });
       shape = paints.find((p) => p.shape)?.shape ?? null;
       appearance = {
@@ -407,10 +410,10 @@ class Reader {
     } else if (tag === "text") {
       const text = this.text(e, style, matrix);
       shape = text?.shape ?? null;
-      appearance = this.appearance(text?.style ?? style, scaleOf(e, matrix));
+      appearance = this.appearance(text?.style ?? style, e, matrix);
     } else {
       shape = this.shape(e, matrix, style);
-      appearance = this.appearance(style, scaleOf(e, matrix));
+      appearance = this.appearance(style, e, matrix);
     }
     if (!shape) return;
     this.unsupported(e, style);
@@ -467,7 +470,7 @@ class Reader {
     // Inside a <clipPath> SVG reads clip-rule, never fill-rule.
     const shape = this.shape(e, m, { ...style, "fill-rule": style["clip-rule"] ?? "nonzero" });
     if (!shape) return;
-    const appearance = this.appearance(style, this.baked(e, m) ? m[0] : 1);
+    const appearance = this.appearance(style, e, m);
     // SVG draws nothing through a hidden clip path, and a Clipping Path is never hidden.
     const base = { ...this.base(e, parentId, undefined, style), visible: true };
     this.add({ ...base, ...shape, appearance, clipping: true } as Node);
@@ -599,10 +602,15 @@ class Reader {
     return box && box.width > 0 && box.height > 0 ? box : undefined;
   }
 
-  /** Fills and Strokes from resolved style, SVG's defaults where it says nothing. */
-  private appearance(style: Style, k: number): Appearance {
-    const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"]);
-    const stroke = this.paint(style.stroke ?? "none", style, style["stroke-opacity"]);
+  /**
+   * Fills and Strokes from resolved style, SVG's defaults where it says nothing. Widths scale, and
+   * gradients move, with `m` when the leaf bakes it into its parameters.
+   */
+  private appearance(style: Style, e: Element, m: Matrix): Appearance {
+    const own = this.baked(e, m) ? m : IDENTITY;
+    const k = own[0];
+    const fill = this.paint(style.fill ?? "black", style, style["fill-opacity"], e, own);
+    const stroke = this.paint(style.stroke ?? "none", style, style["stroke-opacity"], e, own);
     const width = n3((length(style["stroke-width"]) ?? 1) * k);
     const join = JOINS.includes(style["stroke-linejoin"] ?? "")
       ? style["stroke-linejoin"]
@@ -616,12 +624,12 @@ class Reader {
     // An odd list repeats to make it even (SVG 1.1 §11.4).
     if (dash.length % 2) dash = [...dash, ...dash];
     return {
-      fills: fill ? [{ type: "solid", color: fill }] : [],
+      fills: fill ? [fill] : [],
       strokes:
         stroke && width > 0
           ? [
               {
-                color: stroke,
+                ...stroke,
                 width,
                 cap: (CAPS.includes(style["stroke-linecap"] ?? "")
                   ? style["stroke-linecap"]
@@ -640,40 +648,156 @@ class Reader {
     };
   }
 
-  /** A fill or stroke value as a colour, or null for none. A gradient gives its first stop. */
-  private paint(value: string, style: Style, opacity: string | undefined): string | null {
-    const url = /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)\s*(.*)$/.exec(value.trim());
-    let hex: string | null;
-    if (url) {
-      const stop = this.firstStop(url[1] ?? "");
-      hex = stop ?? cssColor(url[2] ?? "");
-      if (stop) {
-        this.warn(
-          "GRADIENT_FLATTENED",
-          "",
-          "Gradients are solid Fills and Strokes in their first stop's colour until gradients land (#22).",
-        );
-      } else if (!hex) {
-        this.warn("UNSUPPORTED_PAINT", "", "Patterns and unknown paint servers are dropped.");
-      }
-    } else if (value.trim().toLowerCase() === "currentcolor")
-      hex = cssColor(style.color ?? "black");
-    else hex = cssColor(value);
+  /** A colour value, `currentColor` included, with `opacity` folded into its alpha; null for none. */
+  private color(value: string, style: Style, opacity: string | undefined): string | null {
+    const hex =
+      value.trim().toLowerCase() === "currentcolor"
+        ? cssColor(style.color ?? "black")
+        : cssColor(value);
     return hex && withAlpha(hex, alpha(opacity));
   }
 
-  /** The first stop's colour of a gradient, following href to the gradient that has the stops. */
-  private firstStop(id: string, depth = 0): string | null {
-    const g = this.byId.get(id);
-    if (!g || !/Gradient$/.test(g.localName ?? "") || depth > 8) return null;
-    const stop = elements(g).find((c) => c.localName === "stop");
-    if (stop) {
-      const s = computeStyle(stop, {}, this.rules);
-      const hex = cssColor(s["stop-color"] ?? "black");
-      return hex && withAlpha(hex, alpha(s["stop-opacity"]));
+  /**
+   * A fill or stroke value as a paint, or null for none: a colour, or a gradient in the leaf's own
+   * coordinates, which `own` maps the element's user space into (ADR-0026).
+   */
+  private paint(
+    value: string,
+    style: Style,
+    opacity: string | undefined,
+    e: Element,
+    own: Matrix,
+  ): Fill | null {
+    const url = /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)\s*(.*)$/.exec(value.trim());
+    if (!url) {
+      const hex = this.color(value, style, opacity);
+      return hex ? { type: "solid", color: hex } : null;
     }
-    const href = g.getAttribute("href") ?? g.getAttributeNS(NS.xlink, "href");
-    return href?.startsWith("#") ? this.firstStop(href.slice(1), depth + 1) : null;
+    // What SVG draws when the paint server cannot be used.
+    const fallback = (): Fill | null => {
+      const hex = this.color(url[2] || "none", style, opacity);
+      return hex ? { type: "solid", color: hex } : null;
+    };
+    const chain = this.chain(url[1] ?? "");
+    if (chain.length > 0) return this.gradient(chain, alpha(opacity), e, style, own, fallback);
+    const paint = fallback();
+    if (!paint)
+      this.warn("UNSUPPORTED_PAINT", "", "Patterns and unknown paint servers are dropped.");
+    return paint;
+  }
+
+  /** The gradient `id` names and those its `href` chain reaches, nearest first. */
+  private chain(id: string): Element[] {
+    const out: Element[] = [];
+    let g = this.byId.get(id);
+    while (g && /^(linear|radial)Gradient$/.test(g.localName ?? "") && !out.includes(g)) {
+      out.push(g);
+      const href = g.getAttribute("href") || g.getAttributeNS(NS.xlink, "href");
+      g = href?.startsWith("#") ? this.byId.get(href.slice(1)) : undefined;
+    }
+    return out;
+  }
+
+  /**
+   * A gradient paint from its `href` chain (ADR-0026): the stops from the nearest gradient that has
+   * any, each attribute from the nearest that sets it; every transform folded into the geometry;
+   * reflect and repeat unrolled; what SVG draws as one colour made solid.
+   */
+  private gradient(
+    chain: Element[],
+    opacity: number,
+    e: Element,
+    style: Style,
+    own: Matrix,
+    fallback: () => Fill | null,
+  ): Fill | null {
+    const attr = (name: string) =>
+      chain.map((g) => g.getAttribute(name)).find((v) => v) || undefined;
+    const holder = chain.find((g) => elements(g).some((c) => c.localName === "stop"));
+    const inherited = holder ? computeStyle(holder, {}, this.rules) : {};
+    let last = 0;
+    const stops = elements(holder ?? (chain[0] as Element))
+      .filter((c) => c.localName === "stop")
+      .map((stop) => {
+        const s = computeStyle(stop, inherited, this.rules);
+        const raw = stop.getAttribute("offset")?.trim() || "0";
+        const offset = raw.endsWith("%") ? Number.parseFloat(raw) / 100 : Number(raw);
+        // Offsets clamp to 0-1 and never decrease (SVG 1.1 §13.2.4).
+        last = Math.max(last, Math.min(1, offset || 0));
+        const hex = this.color(s["stop-color"] ?? "black", s, "1") ?? "#000000";
+        return { offset: n3(last), color: withAlpha(hex, alpha(s["stop-opacity"]) * opacity) };
+      });
+    const [first] = stops;
+    const end = stops.at(-1);
+    if (!first || !end) return null;
+    const solid = (color: string): Fill => ({ type: "solid", color });
+    if (stops.length === 1) return solid(first.color);
+    const bbox = !attr("gradientUnits") || attr("gradientUnits") === "objectBoundingBox";
+    const spread = attr("spreadMethod");
+    const box = bbox || spread === "reflect" || spread === "repeat" ? this.bbox(e, style) : null;
+    // SVG ignores a bounding-box gradient on a box without area.
+    if (bbox && !(box && box.width > 0 && box.height > 0)) return fallback();
+    // A percentage is of the box, or of the viewport for userSpaceOnUse; r's of its diagonal / √2.
+    const { width: vw, height: vh } = bbox ? { width: 1, height: 1 } : this.viewport;
+    const coordinate = (name: string, initial: string, axis: "x" | "y" | "r") => {
+      const v = attr(name) ?? initial;
+      if (!v.endsWith("%")) return (bbox ? Number(v) : length(v)) || 0;
+      const of = axis === "x" ? vw : axis === "y" ? vh : Math.hypot(vw, vh) / Math.SQRT2;
+      return (Number.parseFloat(v) / 100) * of;
+    };
+    let g: Geometry;
+    if (chain[0]?.localName === "linearGradient") {
+      const p1 = { x: coordinate("x1", "0%", "x"), y: coordinate("y1", "0%", "y") };
+      const p2 = { x: coordinate("x2", "100%", "x"), y: coordinate("y2", "0%", "y") };
+      if (p1.x === p2.x && p1.y === p2.y) return solid(end.color);
+      g = { type: "linear", p1, p2 };
+    } else {
+      const c = { x: coordinate("cx", "50%", "x"), y: coordinate("cy", "50%", "y") };
+      const r = coordinate("r", "50%", "r");
+      if (!(r > 0)) return solid(end.color);
+      if (Number(attr("fr") ?? 0)) {
+        this.warn("UNSUPPORTED_ATTRIBUTE", "fr", "A radial gradient's fr is drawn as 0.");
+      }
+      let f = {
+        x: attr("fx") ? coordinate("fx", "", "x") : c.x,
+        y: attr("fy") ? coordinate("fy", "", "y") : c.y,
+      };
+      // A focus outside the circle moves onto it, as SVG 1.1 does.
+      const out = Math.hypot(f.x - c.x, f.y - c.y) / r;
+      if (out > 1) f = { x: c.x + (f.x - c.x) / out, y: c.y + (f.y - c.y) / out };
+      g = { type: "radial", c, r, f };
+    }
+    let space = parseTransform(attr("gradientTransform") ?? null);
+    if (bbox && box) space = multiply([box.width, 0, 0, box.height, box.x, box.y], space);
+    const [a, b, c, d] = space;
+    if (!(Math.abs(a * d - b * c) > 1e-12)) return fallback();
+    let placed = stops;
+    if ((spread === "reflect" || spread === "repeat") && box) {
+      // The element's visible box, its Stroke included, in the gradient's own space.
+      const grow =
+        style.stroke && style.stroke !== "none" ? (length(style["stroke-width"]) ?? 1) / 2 : 0;
+      const back = invert(space);
+      const corners = [
+        [box.x - grow, box.y - grow],
+        [box.x + box.width + grow, box.y - grow],
+        [box.x - grow, box.y + box.height + grow],
+        [box.x + box.width + grow, box.y + box.height + grow],
+      ].map(([x, y]) => {
+        const [gx, gy] = applyTo(back, x as number, y as number);
+        return { x: gx, y: gy };
+      });
+      ({ g, stops: placed } = unroll(g, stops, spread, corners));
+    }
+    return { type: "gradient", gradient: mapped(g, placed, multiply(own, space)) };
+  }
+
+  /** An element's geometric bounding box in its user space, as objectBoundingBox measures it. */
+  private bbox(e: Element, style: Style): Rect | null {
+    const shape = this.shape(e, IDENTITY, style);
+    if (!shape) return null;
+    return shape.type === "text"
+      ? textBox(shape as unknown as Parameters<typeof textBox>[0])
+      : pathBounds(shapeSegments(shape as unknown as Shape));
   }
 
   /**
@@ -996,7 +1120,11 @@ export function parseSvg(
         };
       })
     : [{ id: newId(), name: "Artboard 1", frame: rect(frame) }];
-  const reader = new Reader(rules, byId, artboards, known);
+  // In user units, as userSpaceOnUse percentages measure.
+  const viewport = hasViewBox
+    ? { width: vw, height: vh }
+    : { width: width ?? 300, height: height ?? 150 };
+  const reader = new Reader(rules, byId, artboards, viewport, known);
   const matrix: Matrix = [scale, 0, 0, scale, 0, 0];
   const ctx = { parentId: null, layerLevel: true, matrix, style: {}, depth: 0 };
   for (const e of elements(root)) reader.walk(e, ctx);

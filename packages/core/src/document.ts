@@ -12,7 +12,10 @@ import {
   type Artboard,
   type ArtboardInput,
   type ChildInput,
+  type ColorStop,
   type Document,
+  type Fill,
+  type Gradient,
   ImageShape,
   imageFrame,
   type LayerNode,
@@ -23,6 +26,7 @@ import {
   type Rect,
   Shape,
   type ShapeNode,
+  type Stroke,
   TextShape,
   textFrame,
 } from "./schema.ts";
@@ -126,7 +130,11 @@ export function createNodes(
       node = { ...at, type: input.type, name };
     } else if (input.type === "text") {
       const text = TextShape.superRefine(textFrame).parse(input);
-      const appearance = paint(input.appearance ?? defaultTypeAppearance(), `${path}.appearance`);
+      const appearance = paint(
+        input.appearance ?? defaultTypeAppearance(),
+        `${path}.appearance`,
+        text,
+      );
       node = { ...at, ...text, name, appearance };
     } else if (input.type === "image") {
       node = { ...at, ...imageOf(doc, input, path), name };
@@ -134,7 +142,11 @@ export function createNodes(
       // Parsing with the Shape schema keeps the parameters and drops clientKey, name and the rest.
       const shape = Shape.parse(input);
       if (shape.type === "path") shape.d = formatPath(parsePath(shape.d, `${path}.d`));
-      const appearance = paint(input.appearance ?? defaultAppearance(), `${path}.appearance`);
+      const appearance = paint(
+        input.appearance ?? defaultAppearance(),
+        `${path}.appearance`,
+        shape,
+      );
       node = { ...at, ...shape, name, appearance };
     }
     out.nodes.push(node);
@@ -278,16 +290,86 @@ const defaultAppearance = () =>
 /** Illustrator's default for new type: a black Fill and no Stroke. */
 const defaultTypeAppearance = () => AppearanceInput.parse({ fills: [{ color: "#000000" }] });
 
-export function paint(a: AppearanceInput, path: string): Appearance {
+const r3 = (n: number) => Math.round(n * 1000) / 1000 || 0;
+const point = (x: number, y: number) => ({ x: r3(x), y: r3(y) });
+
+/** Geometric bounds in a leaf's own coordinates, before its transform. */
+const ownBounds = (leaf: Shape | TextShape): Rect =>
+  (leaf.type === "text" ? textBox(leaf) : pathBounds(shapeSegments(leaf))) ?? {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  };
+
+/** The gradient with the geometry left out filled in from the leaf's own bounds (ADR-0026). */
+function placed(
+  g: z.output<typeof Gradient>,
+  stops: ColorStop[],
+  leaf: Shape | TextShape,
+): Gradient {
+  if (g.type === "linear" && g.start && g.end) {
+    return { type: "linear", stops, start: g.start, end: g.end };
+  }
+  const own = ownBounds(leaf);
+  const cx = own.x + own.width / 2;
+  const cy = own.y + own.height / 2;
+  if (g.type === "linear") {
+    const t = ((g.angle ?? 0) * Math.PI) / 180;
+    const [ux, uy] = [Math.cos(t), Math.sin(t)];
+    // Half the bounds' extent along the direction, so the stops touch opposite sides.
+    const extent = (Math.abs(own.width * ux) + Math.abs(own.height * uy)) / 2;
+    const half = extent > 1e-9 ? extent : 0.5;
+    const start = point(cx - half * ux, cy - half * uy);
+    return { type: "linear", stops, start, end: point(cx + half * ux, cy + half * uy) };
+  }
+  const { aspectRatio, angle } = g;
+  const center = g.center ?? point(cx, cy);
+  // Illustrator's default: half the width on a square.
+  const radius = g.radius ?? (r3(Math.sqrt((own.width ** 2 + own.height ** 2) / 8)) || 1);
+  let focus = g.focus ?? center;
+  // A focus outside the ellipse moves onto it, as SVG 1.1 does, so every renderer agrees.
+  const t = (angle * Math.PI) / 180;
+  const dx = focus.x - center.x;
+  const dy = focus.y - center.y;
+  const reach = Math.hypot(
+    (dx * Math.cos(t) + dy * Math.sin(t)) / radius,
+    (dy * Math.cos(t) - dx * Math.sin(t)) / (radius * aspectRatio),
+  );
+  if (reach > 1) focus = point(center.x + dx / reach, center.y + dy / reach);
+  return { type: "radial", stops, center, radius, aspectRatio, angle, focus };
+}
+
+/**
+ * A radial gradient's ellipse as a matrix mapping its circle of `radius` about `center` onto it:
+ * turned by `angle`, scaled by `aspectRatio` across it. SVG's `gradientTransform`; undefined for a
+ * circle.
+ */
+export function ellipseMatrix(g: Extract<Gradient, { type: "radial" }>): Matrix | undefined {
+  if (g.angle === 0 && g.aspectRatio === 1) return undefined;
+  const t = (g.angle * Math.PI) / 180;
+  const [cos, sin] = [Math.cos(t), Math.sin(t)];
+  const { x, y } = g.center;
+  return multiply(
+    [cos, sin, -sin * g.aspectRatio, cos * g.aspectRatio, x, y],
+    [1, 0, 0, 1, -x, -y],
+  );
+}
+
+/** Parses the colours, fills in `type` and every gradient's geometry, and sorts its stops. */
+export function paint(a: AppearanceInput, path: string, leaf: Shape | TextShape): Appearance {
+  const one = <T extends AppearanceInput["fills" | "strokes"][number]>(p: T, at: string) => {
+    if (p.type !== "gradient") {
+      return { ...p, type: "solid", color: parseColor(p.color, `${at}.color`) };
+    }
+    const stops = p.gradient.stops
+      .map((s, k) => ({ ...s, color: parseColor(s.color, `${at}.gradient.stops[${k}].color`) }))
+      .sort((s, t) => s.offset - t.offset);
+    return { ...p, gradient: placed(p.gradient, stops, leaf) };
+  };
   return {
-    fills: a.fills.map((f, i) => ({
-      ...f,
-      color: parseColor(f.color, `${path}.fills[${i}].color`),
-    })),
-    strokes: a.strokes.map((s, i) => ({
-      ...s,
-      color: parseColor(s.color, `${path}.strokes[${i}].color`),
-    })),
+    fills: a.fills.map((f, i) => one(f, `${path}.fills[${i}]`) as Fill),
+    strokes: a.strokes.map((s, i) => one(s, `${path}.strokes[${i}]`) as Stroke),
   };
 }
 

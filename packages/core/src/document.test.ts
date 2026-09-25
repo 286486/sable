@@ -13,7 +13,7 @@ import {
 } from "./document.ts";
 import { ZibelError } from "./errors.ts";
 import { compose } from "./matrix.ts";
-import { type Node, NodeQuery } from "./schema.ts";
+import { AppearanceInput, type Node, NodeQuery } from "./schema.ts";
 
 const newDoc = () =>
   createDocument({ id: "d", name: "Doc", artboards: [{ width: 200, height: 100 }] });
@@ -113,6 +113,177 @@ it("stores an Appearance with its defaults filled in", () => {
         { color: "#000000AA", width: 2, cap: "round", join: "miter", miterLimit: 10, dash: [4, 2] },
       ],
     },
+  });
+});
+
+describe("gradients", () => {
+  const last = { offset: 1, color: "#9FD0FF00" };
+  const first = { offset: 0, color: "#1F5FBF" };
+  const stops = [last, first];
+  const linear = { type: "linear", stops, start: { x: 0, y: 5 }, end: { x: 20, y: 5 } } as const;
+  const radial = {
+    type: "radial",
+    stops,
+    center: { x: 30, y: 25 },
+    radius: 20,
+    aspectRatio: 0.5,
+    angle: 30,
+    focus: { x: 35, y: 25 },
+  } as const;
+
+  it("stores a gradient Fill and Stroke with sorted stops beside a solid Fill", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const [node] = createNodes(doc, [
+      {
+        ...rect(defaultLayerId),
+        appearance: {
+          fills: [{ color: "#FF8800" }, { type: "gradient", gradient: linear }],
+          strokes: [{ type: "gradient", gradient: radial, width: 2 }],
+        },
+      },
+    ]).nodes;
+    const sorted = [first, last];
+    expect(node).toMatchObject({
+      appearance: {
+        fills: [
+          { type: "solid", color: "#FF8800" },
+          { type: "gradient", gradient: { ...linear, stops: sorted } },
+        ],
+        strokes: [{ type: "gradient", gradient: { ...radial, stops: sorted }, width: 2 }],
+      },
+    });
+  });
+
+  it("keeps equal offsets in the order given, for a hard edge", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const edge = [
+      { offset: 0.5, color: "#FF0000" },
+      { offset: 0.5, color: "#0000FF" },
+      { offset: 0, color: "#000000" },
+    ];
+    const [node] = createNodes(doc, [
+      {
+        ...rect(defaultLayerId),
+        appearance: { fills: [{ type: "gradient", gradient: { ...linear, stops: edge } }] },
+      },
+    ]).nodes;
+    expect(node).toMatchObject({
+      appearance: { fills: [{ gradient: { stops: [edge[2], edge[0], edge[1]] } }] },
+    });
+  });
+
+  it("answers a bad stop colour with INVALID_COLOR at its path", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const bad = [last, { offset: 0, color: "red" }];
+    expect(
+      codeOf(() =>
+        createNodes(doc, [
+          {
+            ...rect(defaultLayerId),
+            appearance: { fills: [{ type: "gradient", gradient: { ...linear, stops: bad } }] },
+          },
+        ]),
+      ),
+    ).toMatchObject({
+      code: "INVALID_COLOR",
+      path: "nodes[0].appearance.fills[0].gradient.stops[1].color",
+    });
+  });
+
+  it.each([
+    ["one stop", { ...linear, stops: [last] }, "stops"],
+    [
+      "an offset above 1",
+      { ...linear, stops: [last, { offset: 1.5, color: "#000000" }] },
+      "stops.1.offset",
+    ],
+    ["start without end", { type: "linear", stops, start: { x: 0, y: 0 } }, "end"],
+    ["start equal to end", { ...linear, end: linear.start }, "end"],
+    ["a radius of 0", { ...radial, radius: 0 }, "radius"],
+    ["an aspect ratio of 0", { ...radial, aspectRatio: 0 }, "aspectRatio"],
+  ])("refuses %s with the field's path", (_, gradient, path) => {
+    const parsed = AppearanceInput.safeParse({ fills: [{ type: "gradient", gradient }] });
+    expect(parsed.error?.issues[0]?.path.join(".")).toBe(`fills.0.gradient.${path}`);
+  });
+
+  describe("geometry left out comes from the leaf's own bounds", () => {
+    const fillOf = (input: Record<string, unknown>, gradient: Record<string, unknown>) => {
+      const { doc, defaultLayerId } = newDoc();
+      const [node] = createNodes(doc, [
+        {
+          type: "rect",
+          x: 10,
+          y: 20,
+          width: 100,
+          height: 50,
+          ...input,
+          parentId: defaultLayerId,
+          appearance: { fills: [{ type: "gradient", gradient: { stops, ...gradient } }] },
+        } as never,
+      ]).nodes;
+      if (!node || !("appearance" in node)) throw new Error("setup");
+      const [fill] = node.appearance.fills;
+      if (fill?.type !== "gradient") throw new Error("setup");
+      return fill.gradient;
+    };
+
+    it.each([
+      [undefined, { x: 10, y: 45 }, { x: 110, y: 45 }],
+      [90, { x: 60, y: 20 }, { x: 60, y: 70 }],
+      [180, { x: 110, y: 45 }, { x: 10, y: 45 }],
+      // Along the diagonal the box projects to (100 + 50) / sqrt(2).
+      [45, { x: 22.5, y: 7.5 }, { x: 97.5, y: 82.5 }],
+    ])("spans the bounds at angle %j, and does not store the angle", (angle, start, end) => {
+      const g = fillOf({}, { type: "linear", angle });
+      expect(g).toEqual({ type: "linear", stops: [first, last], start, end });
+    });
+
+    it("gives a radial gradient Illustrator's centre and radius", () => {
+      expect(fillOf({}, { type: "radial" })).toEqual({
+        type: "radial",
+        stops: [first, last],
+        center: { x: 60, y: 45 },
+        radius: 39.528,
+        aspectRatio: 1,
+        angle: 0,
+        focus: { x: 60, y: 45 },
+      });
+    });
+
+    it("makes a vector 1 pt long where the bounds have no extent", () => {
+      const g = fillOf({ height: 0 }, { type: "linear", angle: 90 });
+      expect(g).toMatchObject({ start: { x: 60, y: 19.5 }, end: { x: 60, y: 20.5 } });
+      expect(fillOf({ width: 0, height: 0 }, { type: "radial" })).toMatchObject({ radius: 1 });
+    });
+
+    it("moves a focus outside the ellipse onto it", () => {
+      const g = fillOf(
+        {},
+        { type: "radial", radius: 10, aspectRatio: 2, angle: 90, focus: { x: 160, y: 45 } },
+      );
+      // Across angle 90 is horizontal, where the radius is 10 × 2.
+      expect(g).toMatchObject({ focus: { x: 80, y: 45 } });
+    });
+
+    it("takes a text's bounds from its box", () => {
+      const { doc, defaultLayerId } = newDoc();
+      const [node] = createNodes(doc, [
+        {
+          type: "text",
+          kind: "area",
+          parentId: defaultLayerId,
+          x: 0,
+          y: 0,
+          width: 40,
+          height: 20,
+          content: "Hi",
+          appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+        },
+      ]).nodes;
+      expect(node).toMatchObject({
+        appearance: { fills: [{ gradient: { start: { x: 0, y: 10 }, end: { x: 40, y: 10 } } }] },
+      });
+    });
   });
 });
 

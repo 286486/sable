@@ -207,9 +207,10 @@ it("draws the fixture Document with known pixels", async () => {
   // a third Artboard holding three Images, one cropped by a Clipping Mask; by #34, a fourth holding
   // a rounded, randomized, twisted star, a rounded, randomized polygon and a randomized star whose
   // round-number vertices sit on Inkscape's seed grid; by #35, a fifth holding a slice, a chord
-  // and an open arc.
+  // and an open arc; by #22, a sixth holding linear and radial gradients on Fills, a Stroke, a
+  // text, a turned rect and a stack.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "38cd2ed042e8944eba50d124289ea629f831c6f7033dd0a1ba22fdea0bfd2054",
+    "0fa895930bdcbb1abffe3efb1f166eb144508b042fc6c2c60aa5503c9ecc6871",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
@@ -275,4 +276,56 @@ it("draws an Image's pixels in its frame and nowhere else", async () => {
   const drawn = await ink(toSvg(doc, docRect(doc), { images: () => RED_2x2_PNG }));
   expect(drawn.length).toBe(400);
   expect(drawn.filter(([x, y]) => x < 10 || x >= 30 || y < 10 || y >= 30)).toEqual([]);
+});
+
+it("draws a linear gradient from start to end, and a radial one's first stop at its focus", async () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 100, height: 60, background: "#FFFFFF" }],
+  });
+  const stops = [
+    { offset: 0, color: "#FF0000" },
+    { offset: 1, color: "#0000FF" },
+  ];
+  createNodes(doc, [
+    {
+      type: "rect",
+      parentId,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 10,
+      appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+    },
+    {
+      type: "rect",
+      parentId,
+      x: 0,
+      y: 20,
+      width: 40,
+      height: 40,
+      appearance: {
+        fills: [
+          {
+            type: "gradient",
+            gradient: { type: "radial", stops, radius: 20, focus: { x: 8, y: 40 } },
+          },
+        ],
+      },
+    },
+  ]);
+  const { pixels, width } = await svgToPixels(toSvg(doc, docRect(doc)), 1);
+  const at = (x: number, y: number) => [
+    ...pixels.subarray((y * width + x) * 4, (y * width + x) * 4 + 3),
+  ];
+  const [r0, , b0] = at(2, 5);
+  const [r1, , b1] = at(97, 5);
+  expect(r0).toBeGreaterThan(240);
+  expect(b0).toBeLessThan(15);
+  expect(r1).toBeLessThan(15);
+  expect(b1).toBeGreaterThan(240);
+  // Red at the focus, left of the centre, and already half way to blue at the centre.
+  expect(at(8, 40)[0]).toBeGreaterThan(230);
+  expect(at(20, 40)[0]).toBeLessThan(200);
 });

@@ -6,7 +6,7 @@ import {
   type ShapeNode,
   shapeSegments,
 } from "@zibel/core";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { scopeRect, svgRect, toSvg } from "./write.ts";
 
 const newDoc = () =>
@@ -594,6 +594,18 @@ it("writes an evenodd Clipping Path's clip-rule, and one element for a painted o
     `fill-rule="evenodd" id="z-${clip.id}" fill="#FF0000" clip-rule="evenodd"/></clipPath>`,
   );
   expect(svg).not.toContain("zibel:stack");
+  // A <clipPath> cannot hold <defs>, and its paint is never drawn: a gradient on it is none.
+  const stops = [
+    { offset: 0, color: "#000000" },
+    { offset: 1, color: "#FFFFFF" },
+  ];
+  const start = { x: 0, y: 0 };
+  const gradient = { type: "linear" as const, stops, start, end: { x: 9, y: 0 } };
+  const shaded = { fills: [{ type: "gradient" as const, gradient }], strokes: [] };
+  doc.nodes.set(clip.id, { ...(doc.nodes.get(clip.id) as ShapeNode), appearance: shaded });
+  const clipped = toSvg(doc);
+  expect(clipped).toContain(`id="z-${clip.id}" fill="none" clip-rule="evenodd"/></clipPath>`);
+  expect(clipped).not.toContain("Gradient");
 });
 
 it("keeps the clip around a listed Node inside a Clipping Mask, and draws only that Node", () => {
@@ -627,4 +639,75 @@ it("writes an Image as <image xlink:href>, which Inkscape 1.2 draws, with its fi
   expect(() => toSvg(doc)).toThrow(
     expect.objectContaining({ data: expect.objectContaining({ code: "INVALID_IMAGE" }) }),
   );
+});
+
+describe("gradients (ADR-0026)", () => {
+  const stops = [
+    { offset: 0, color: "#1F5FBF" },
+    { offset: 1, color: "#9FD0FF00" },
+  ];
+  const rectWith = (appearance: object) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    const [rect] = createNodes(doc, [
+      { type: "rect", parentId, x: 10, y: 20, width: 100, height: 50, appearance },
+    ]).nodes;
+    return { svg: toSvg(doc), id: rect?.id };
+  };
+  const stopsSvg =
+    '<stop offset="0" stop-color="#1F5FBF"/><stop offset="1" stop-color="#9FD0FF" stop-opacity="0"/>';
+
+  it("writes a linear Fill as a userSpaceOnUse gradient in a <defs> before its element", () => {
+    const { svg, id } = rectWith({
+      fills: [{ type: "gradient", gradient: { type: "linear", stops } }],
+    });
+    expect(svg).toContain(
+      `<defs><linearGradient id="fill-0-z-${id}" gradientUnits="userSpaceOnUse" x1="10" y1="45" x2="110" y2="45">${stopsSvg}</linearGradient></defs>` +
+        `<rect x="10" y="20" width="100" height="50" id="z-${id}" fill="url(#fill-0-z-${id})"/>`,
+    );
+  });
+
+  it("writes a radial ellipse as a gradientTransform about its centre, and its focus inside it", () => {
+    const radial = { type: "radial", stops, radius: 40, aspectRatio: 0.5, angle: 30 };
+    const { svg, id } = rectWith({
+      fills: [{ type: "gradient", gradient: { ...radial, focus: { x: 70, y: 45 } } }],
+    });
+    expect(svg).toContain(
+      `<radialGradient id="fill-0-z-${id}" gradientUnits="userSpaceOnUse" cx="60" cy="45" r="40" fx="68.660254" fy="35" ` +
+        `gradientTransform="matrix(0.866025 0.5 -0.25 0.433013 19.288476 -4.485572)">${stopsSvg}</radialGradient>`,
+    );
+    const round = rectWith({ fills: [{ type: "gradient", gradient: { type: "radial", stops } }] });
+    expect(round.svg).toContain(
+      `<radialGradient id="fill-0-z-${round.id}" gradientUnits="userSpaceOnUse" cx="60" cy="45" r="39.528">`,
+    );
+  });
+
+  it("writes a gradient Stroke with its width, and a stack's gradients in one <defs>", () => {
+    const linear = { type: "gradient", gradient: { type: "linear", stops } };
+    const one = rectWith({ fills: [], strokes: [{ ...linear, width: 3, dash: [2, 1] }] });
+    expect(one.svg).toContain(
+      `fill="none" stroke="url(#stroke-0-z-${one.id})" stroke-width="3" stroke-miterlimit="10" stroke-dasharray="2 1"/>`,
+    );
+    const { svg, id } = rectWith({
+      fills: [{ color: "#FF0000" }, linear],
+      strokes: [linear],
+    });
+    expect(svg.match(/<defs>/g)).toHaveLength(1);
+    expect(svg).toMatch(
+      new RegExp(
+        `<defs><linearGradient id="fill-1-z-${id}"[^]*<linearGradient id="stroke-0-z-${id}"[^]*</defs><g id="z-${id}" zibel:stack="true">`,
+      ),
+    );
+    expect(svg).toContain(`fill="url(#fill-1-z-${id})"/>`);
+    expect(svg).toContain(`stroke="url(#stroke-0-z-${id})"`);
+  });
+
+  it("writes an Area Type's frame and gradient in one <defs>", () => {
+    const { svg, id } = areaText("Hi", {
+      appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+    });
+    expect(svg).toMatch(
+      new RegExp(`<defs><rect id="area-z-${id}"[^>]*/><linearGradient id="fill-0-z-${id}"`),
+    );
+    expect(svg).toContain(`fill="url(#fill-0-z-${id})"`);
+  });
 });
