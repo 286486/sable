@@ -9,6 +9,7 @@ export type ErrorCode =
   | "INVALID_PATCH"
   | "INVALID_MASK"
   | "INVALID_DOCUMENT"
+  | "INVALID_IMAGE"
   | "LIMIT_EXCEEDED"
   | "PERMISSION_DENIED"
   | "REV_CONFLICT"

@@ -510,6 +510,8 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       return tool("zibel_tx_commit", { txId });
     },
     INVALID_DOCUMENT: () => call("zibel_doc_open", { content: "{" }).then(errorOf),
+    // Until node_create ingests images in the Document (#32).
+    INVALID_IMAGE: null,
     INVALID_MASK: async () =>
       tool("zibel_mask_make", { clipNodeId: defaultLayerId, contentIds: [await create(rect)] }),
     // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).
