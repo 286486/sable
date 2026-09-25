@@ -1,15 +1,22 @@
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
 import wasm from "@resvg/resvg-wasm/index_bg.wasm";
 import { BUNDLED_FONT } from "@zibel/core";
-import font from "../fonts/SourceSans3-Regular.ttf";
+import black from "../fonts/SourceSans3-Black.ttf";
+import blackItalic from "../fonts/SourceSans3-BlackIt.ttf";
+import bold from "../fonts/SourceSans3-Bold.ttf";
+import boldItalic from "../fonts/SourceSans3-BoldIt.ttf";
+import italic from "../fonts/SourceSans3-It.ttf";
+import regular from "../fonts/SourceSans3-Regular.ttf";
 
 // Workers forbid compiling wasm from bytes at runtime, so the module is imported statically
 // and initialised once per isolate.
 const ready = initWasm(wasm);
 
-// The one bundled font (ADR-0013); workerd has no system fonts to fall back on.
+// The bundled faces (ADR-0013, ADR-0028); workerd has no system fonts to fall back on.
 const fonts = {
-  fontBuffers: [new Uint8Array(font)],
+  fontBuffers: [regular, italic, bold, boldItalic, black, blackItalic].map(
+    (f) => new Uint8Array(f),
+  ),
   loadSystemFonts: false,
   // Also what every family the bundle lacks falls back to (ADR-0017).
   defaultFontFamily: BUNDLED_FONT,

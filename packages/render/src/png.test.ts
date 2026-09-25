@@ -51,6 +51,44 @@ it("draws text in the bundled font, inside the bounds node_get reports", async (
   expect(drawn.filter((p) => !inside(p))).toEqual([]);
 });
 
+it("draws each bundled face inside its own bounds (ADR-0028)", async () => {
+  const styles = ["Regular", "Italic", "Bold", "Bold Italic", "Black", "Black Italic"] as const;
+  const drawn = await Promise.all(
+    styles.map(async (fontStyle) => {
+      const { doc, defaultLayerId } = createDocument({
+        id: "d",
+        name: "Doc",
+        artboards: [{ width: 300, height: 100, background: "#FFFFFF" }],
+      });
+      const [text] = createNodes(doc, [
+        {
+          type: "text",
+          parentId: defaultLayerId,
+          x: 20,
+          y: 70,
+          content: "HHHH",
+          fontSize: 48,
+          fontStyle,
+        },
+      ]).nodes;
+      const b = text && bounds(doc, text);
+      if (!b) throw new Error("setup");
+      const pixels = await ink(toSvg(doc));
+      const outside = pixels.filter(
+        ([x, y]) => x < b.x - 1 || x >= b.x + b.width + 1 || y < b.y - 1 || y >= b.y + b.height + 1,
+      );
+      return { outside, right: Math.max(...pixels.map(([x]) => x)), key: pixels.join(";") };
+    }),
+  );
+  expect(drawn.map((d) => d.outside)).toEqual(styles.map(() => []));
+  const [regular, italic, bold, , black] = drawn;
+  // Only Regular is drawn when a face is missing, so each wider face shows it loaded.
+  expect(bold?.right).toBeGreaterThan(regular?.right ?? Infinity);
+  expect(black?.right).toBeGreaterThan(bold?.right ?? Infinity);
+  expect(italic?.key).not.toBe(regular?.key);
+  expect(new Set(drawn.map((d) => d.key)).size).toBe(6);
+});
+
 /** The runs of consecutive rows that hold ink: one per drawn line of text. */
 const bands = (drawn: [number, number][]) =>
   [...new Set(drawn.map(([, y]) => y))]
