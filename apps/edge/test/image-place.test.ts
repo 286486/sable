@@ -1,5 +1,6 @@
-import { expect, it } from "vitest";
-import { RED_2x2_PNG } from "../../../fixtures/images.ts";
+import { readImage } from "@zibel/core";
+import { afterEach, expect, it, vi } from "vitest";
+import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { call, errorOf } from "./rpc.ts";
 
 const newDoc = async () =>
@@ -62,3 +63,119 @@ it.each(["file:///tmp/a.png", "/tmp/a.png"])(
     });
   },
 );
+
+const RED = readImage(RED_2x2_PNG, "src").bytes;
+const redirect = (location: string) => new Response(null, { status: 302, headers: { location } });
+/**
+ * Stubs the Worker's outbound fetch with one reply per call, in order. Each is built inside the
+ * call: a body made in the test's context cannot be read from the Worker's request.
+ */
+const replies = (...rs: (() => Response | Error)[]) => {
+  const spy = vi.spyOn(globalThis, "fetch");
+  for (const r of rs) {
+    spy.mockImplementationOnce(async () => {
+      const reply = r();
+      if (reply instanceof Error) throw reply;
+      return reply;
+    });
+  }
+  return spy;
+};
+afterEach(() => vi.restoreAllMocks());
+
+const placeUrl = async (src: string, extra: object = {}) => {
+  const { docId, defaultLayerId } = await newDoc();
+  const result = await call("zibel_image_place", {
+    docId,
+    src,
+    parentId: defaultLayerId,
+    ...extra,
+  });
+  return { docId, result, error: errorOf(result) };
+};
+
+it("fetches a URL through a redirect, typing the file by its bytes, and names the Template Layer after it", async () => {
+  const spy = replies(
+    () => redirect("https://cdn.example/photos/red%20dot.png?v=2"),
+    () => new Response(RED, { headers: { "content-type": "text/plain" } }),
+  );
+  const { docId, result, error } = await placeUrl("https://example.com/a", { asTemplate: true });
+  expect(error).toBeNull();
+  const [layerId, imageId] = result.structuredContent.createdIds;
+  const got = await call("zibel_node_get", { docId, nodeIds: [layerId, imageId], detail: "full" });
+  expect(got.structuredContent.nodes).toMatchObject([
+    { name: "Template red dot.png" },
+    { type: "image", width: 2, height: 2 },
+  ]);
+  expect(spy.mock.calls.map(([url]) => String(url))).toEqual([
+    "https://example.com/a",
+    "https://cdn.example/photos/red%20dot.png?v=2",
+  ]);
+  for (const [, init] of spy.mock.calls) {
+    expect(init).toMatchObject({ redirect: "manual", signal: expect.any(AbortSignal) });
+  }
+});
+
+it("refuses a private address before fetching, and a redirect into one", async () => {
+  const none = replies();
+  expect((await placeUrl("http://127.0.0.1/a.png")).error).toMatchObject({
+    code: "FETCH_FAILED",
+    path: "src",
+  });
+  expect(none).not.toHaveBeenCalled();
+  const once = replies(() => redirect("http://169.254.169.254/latest/meta-data"));
+  expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
+    code: "FETCH_FAILED",
+    message: expect.stringContaining("169.254.169.254"),
+  });
+  expect(once).toHaveBeenCalledTimes(1);
+});
+
+it("fails FETCH_FAILED on a bad status, too many redirects, a network error and the timeout", async () => {
+  replies(() => new Response("gone", { status: 404 }));
+  expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
+    code: "FETCH_FAILED",
+    message: expect.stringContaining("404"),
+  });
+  replies(...Array.from({ length: 6 }, (_, i) => () => redirect(`https://example.com/${i}`)));
+  expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
+    code: "FETCH_FAILED",
+    message: expect.stringContaining("redirect"),
+  });
+  replies(() => new TypeError("Network connection lost."));
+  expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
+    code: "FETCH_FAILED",
+  });
+  replies(() => new DOMException("The operation timed out.", "TimeoutError"));
+  expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
+    code: "FETCH_FAILED",
+    message: expect.stringContaining("10 s"),
+  });
+});
+
+it("stops reading past 20 MB, and a file past 5 MB or not an image fails the image checks", async () => {
+  const cancel = vi.fn();
+  const chunk = new Uint8Array(1024 * 1024);
+  replies(
+    () => new Response(new ReadableStream<Uint8Array>({ pull: (c) => c.enqueue(chunk), cancel })),
+  );
+  expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    message: expect.stringContaining("20 MB"),
+  });
+  expect(cancel).toHaveBeenCalled();
+
+  const big = new Uint8Array(6 * 1024 * 1024);
+  big.set(RED.subarray(0, 24));
+  replies(() => new Response(big));
+  expect((await placeUrl("https://example.com/a.png")).error).toMatchObject({
+    code: "LIMIT_EXCEEDED",
+    message: expect.stringContaining(String(big.length)),
+  });
+
+  replies(() => new Response(Uint8Array.fromBase64(WEBP_HEADER.split(",")[1] as string)));
+  expect((await placeUrl("https://example.com/a.webp")).error).toMatchObject({
+    code: "INVALID_IMAGE",
+    hint: expect.stringContaining("PNG"),
+  });
+});
