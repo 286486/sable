@@ -79,7 +79,8 @@ it("keeps a file over 1 MiB in chunks and reads it back whole", async () => {
   const id = await imageId(big);
   expect(ok(await s.get(receipt.createdIds, "full", "a")).nodes[0]).toMatchObject({ src: id });
   expect(await rows(s)).toEqual({ images: 1, chunks: 2 });
-  expect(ok(await s.image(id)).bytes).toEqual(big);
+  // Deep equality walks 1.5M elements one by one and times out on CI; base64 compares exactly.
+  expect(ok(await s.image(id)).bytes.toBase64()).toBe(big.toBase64());
 });
 
 it("refuses an id the Document does not hold", async () => {
