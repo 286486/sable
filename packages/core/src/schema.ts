@@ -106,20 +106,45 @@ export const LineShape = z.object({
   x2: z.number(),
   y2: z.number(),
 });
+/** Inkscape's star and polygon parameters (ADR-0024). */
+const inkscape = {
+  angle: z
+    .number()
+    .default(0)
+    .describe("Direction of the first vertex, degrees clockwise from straight up."),
+  rounded: z
+    .number()
+    .min(-10)
+    .max(10)
+    .default(0)
+    .describe("Handle length at each vertex as a fraction of the edge; 0 is sharp."),
+  randomized: z
+    .number()
+    .min(-10)
+    .max(10)
+    .default(0)
+    .describe("Vertex jitter as a fraction of the larger radius; 0 is regular."),
+};
 export const PolygonShape = z.object({
   type: z.literal("polygon"),
   cx: z.number(),
   cy: z.number(),
-  radius: size.describe("Center to each vertex; the first vertex is straight up."),
+  radius: size.describe("Center to each vertex."),
   sides: count,
+  ...inkscape,
 });
 export const StarShape = z.object({
   type: z.literal("star"),
   cx: z.number(),
   cy: z.number(),
-  outerRadius: size.describe("Center to each point; the first point is straight up."),
+  outerRadius: size.describe("Center to each point."),
   innerRadius: size.describe("Center to each inner vertex."),
   points: count,
+  ...inkscape,
+  twist: z
+    .number()
+    .default(0)
+    .describe("Degrees the inner vertices turn clockwise off the half step."),
 });
 export const PathShape = z.object({
   type: z.literal("path"),

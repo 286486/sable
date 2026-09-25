@@ -233,6 +233,21 @@ describe("updateNodes", () => {
     ]);
   });
 
+  it("changes a star's Inkscape parameters, and refuses twist on a polygon", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const at = { parentId: defaultLayerId, cx: 0, cy: 0 };
+    const [star, polygon] = createNodes(doc, [
+      { type: "star", ...at, outerRadius: 10, innerRadius: 4, points: 5 },
+      { type: "polygon", ...at, radius: 10, sides: 6 },
+    ]).nodes;
+    if (!star || !polygon) throw new Error("setup");
+    updateNodes(doc, [{ nodeId: star.id, patch: { rounded: 0.5, twist: 5, angle: 45 } }]);
+    expect(shape(doc, star.id)).toMatchObject({ rounded: 0.5, twist: 5, angle: 45 });
+    expect(
+      errorOf(() => updateNodes(doc, [{ nodeId: polygon.id, patch: { twist: 5 } }])),
+    ).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.twist" });
+  });
+
   it("normalises a Path's new d", () => {
     const { doc, p } = setup();
     updateNodes(doc, [{ nodeId: p.id, patch: { d: "M 0 0 L 10.0004 0" } }]);

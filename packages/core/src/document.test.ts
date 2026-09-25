@@ -197,6 +197,26 @@ it("creates every leaf type and nested Layers, with bounds from their geometry",
   expect(box.path).toEqual({ x: 0, y: 0, width: 10, height: 10 });
 });
 
+it("keeps a star's and a polygon's Inkscape parameters, 0 when omitted (ADR-0024)", () => {
+  const { doc, defaultLayerId: layer } = newDoc();
+  const star = {
+    type: "star" as const,
+    parentId: layer,
+    cx: 0,
+    cy: 0,
+    outerRadius: 10,
+    innerRadius: 3,
+  };
+  const { nodes } = createNodes(doc, [
+    { ...star, points: 5, angle: 30, twist: 10, rounded: 0.3, randomized: 0.1 },
+    { type: "polygon", parentId: layer, cx: 50, cy: 50, radius: 10, sides: 6 },
+  ]);
+  expect(nodes[0]).toMatchObject({ angle: 30, twist: 10, rounded: 0.3, randomized: 0.1 });
+  expect(nodes[1]).toMatchObject({ angle: 0, rounded: 0, randomized: 0 });
+  expect(nodes[1]).not.toHaveProperty("twist");
+  expect(() => createNodes(doc, [{ ...star, points: 5, rounded: 11 } as never])).toThrow(/rounded/);
+});
+
 it("returns INVALID_PATH at the item's d", () => {
   const { doc, defaultLayerId } = newDoc();
   expect(

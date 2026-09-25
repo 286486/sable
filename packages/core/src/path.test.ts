@@ -3,6 +3,8 @@ import { ZibelError } from "./errors.ts";
 import { formatPath, normalizePath, parsePath, pathBounds, shapeSegments } from "./path.ts";
 import type { Rect, Shape } from "./schema.ts";
 
+const regular = { angle: 0, rounded: 0, randomized: 0 };
+
 const errorOf = (fn: () => unknown) => {
   try {
     fn();
@@ -91,12 +93,21 @@ it("derives d for each Live Shape, with bounds equal to the shape's box", () => 
       { x: 0, y: 5, width: 30, height: 40 },
     ],
     [
-      { type: "polygon", cx: 50, cy: 50, radius: 10, sides: 4 },
+      { type: "polygon", cx: 50, cy: 50, radius: 10, sides: 4, ...regular },
       "M 50 40 L 60 50 L 50 60 L 40 50 Z",
       { x: 40, y: 40, width: 20, height: 20 },
     ],
     [
-      { type: "star", cx: 0, cy: 0, outerRadius: 10, innerRadius: 5, points: 4 },
+      {
+        type: "star",
+        cx: 0,
+        cy: 0,
+        outerRadius: 10,
+        innerRadius: 5,
+        points: 4,
+        ...regular,
+        twist: 0,
+      },
       null,
       { x: -10, y: -10, width: 20, height: 20 },
     ],
@@ -122,6 +133,7 @@ it("clamps the corner radius and draws four arcs", () => {
 });
 
 it("gives a 5-point star 10 vertices, alternating outer and inner, first at the top", () => {
+  // Stored before ADR-0024, so without angle, twist, rounded or randomized.
   const segments = shapeSegments({
     type: "star",
     cx: 0,
@@ -129,7 +141,7 @@ it("gives a 5-point star 10 vertices, alternating outer and inner, first at the 
     outerRadius: 10,
     innerRadius: 4,
     points: 5,
-  });
+  } as Shape);
   const vertices = segments.filter((s) => s.cmd !== "Z");
   expect(vertices).toHaveLength(10);
   expect(vertices[0]?.args[0]).toBeCloseTo(0, 9);
