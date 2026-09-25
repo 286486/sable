@@ -22,6 +22,16 @@
       },
       "id": "01M38T29S9V6NZ3YY4ARKXBP1G",
       "name": "Artboard 2"
+    },
+    {
+      "frame": {
+        "height": 100,
+        "width": 100,
+        "x": 460,
+        "y": 0
+      },
+      "id": "01M38T29SQARTB0ARD3000000Z",
+      "name": "Images"
     }
   ],
   "nodes": [
@@ -254,6 +264,7 @@
       },
       "blendMode": "normal",
       "d": "M 330 110 L 410 110 L 370 150 Z",
+      "fillRule": "nonzero",
       "id": "01M38T29SF5XG8X1F6BB53G505",
       "index": "a7",
       "locked": false,
@@ -287,6 +298,7 @@
       },
       "blendMode": "normal",
       "d": "M 330 20 L 400 40 C 420 80 380 110 340 90 Z",
+      "fillRule": "nonzero",
       "id": "01M38T29SFMVZ9S4MNJSJD618Z",
       "index": "a6",
       "locked": false,
@@ -473,6 +485,7 @@
       },
       "blendMode": "normal",
       "d": "M 230 85 Q 265 60 295 85",
+      "fillRule": "nonzero",
       "id": "01M38T29SJ8D2F6G1H3K5M7N9P",
       "index": "a0",
       "locked": false,
@@ -537,6 +550,7 @@
       },
       "blendMode": "normal",
       "d": "M 415 130 L 432 150 L 415 170",
+      "fillRule": "nonzero",
       "id": "01M38T29SJF2H4K6M8P0R2T4V6",
       "index": "aD",
       "locked": false,
@@ -767,6 +781,107 @@
       "visible": true,
       "x": 324,
       "y": 162
+    },
+    {
+      "blendMode": "normal",
+      "height": 16,
+      "id": "01M38T29SQ1MAGEHATNAT1VE00",
+      "index": "aJ",
+      "locked": false,
+      "meta": {},
+      "name": "Native",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "preserveAspectRatio": "none",
+      "src": "2a8450608ca998d0ac9e68eef1df18d0d98520c6c6481b591b7b1f51b771d894",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "image",
+      "visible": true,
+      "width": 24,
+      "x": 470,
+      "y": 10
+    },
+    {
+      "blendMode": "normal",
+      "height": 48,
+      "id": "01M38T29SQ1MAGEHATS11CEX00",
+      "index": "aK",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "preserveAspectRatio": "xMidYMid slice",
+      "src": "2a8450608ca998d0ac9e68eef1df18d0d98520c6c6481b591b7b1f51b771d894",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "image",
+      "visible": true,
+      "width": 48,
+      "x": 470,
+      "y": 40
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "clipping": true,
+      "height": 10,
+      "id": "01M38T29SQCR0PC11PRECT0000",
+      "index": "a1",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SQCR0PPEDGR0VP0000",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 12,
+      "x": 534,
+      "y": 12
+    },
+    {
+      "blendMode": "normal",
+      "height": 16,
+      "id": "01M38T29SQCR0PPED1MAGE0000",
+      "index": "a0",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29SQCR0PPEDGR0VP0000",
+      "preserveAspectRatio": "none",
+      "src": "2a8450608ca998d0ac9e68eef1df18d0d98520c6c6481b591b7b1f51b771d894",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "image",
+      "visible": true,
+      "width": 24,
+      "x": 530,
+      "y": 10
+    },
+    {
+      "blendMode": "normal",
+      "id": "01M38T29SQCR0PPEDGR0VP0000",
+      "index": "aL",
+      "locked": false,
+      "meta": {},
+      "name": "Cropped",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "group",
+      "visible": true
     }
-  ]
+  ],
+  "images": {
+    "2a8450608ca998d0ac9e68eef1df18d0d98520c6c6481b591b7b1f51b771d894": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAQCAIAAACDRijCAAAAJ0lEQVR4nGN4ZulGEGnN7SeIGEYNGtEGqbkFE0RfFiUSRKMGjWiDAIAuCn99ZBemAAAAAElFTkSuQmCC"
+  }
 }

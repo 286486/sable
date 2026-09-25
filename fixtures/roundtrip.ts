@@ -36,6 +36,8 @@ interface Doc {
   name: string;
   artboards: Record<string, unknown>[];
   nodes: Record<string, unknown>[];
+  /** Each image file by id, as a data URL (ADR-0023). */
+  images?: Record<string, string>;
 }
 
 function inkscape(...args: string[]) {
@@ -74,6 +76,9 @@ function firstDifference(want: Doc, got: Doc): string | undefined {
   }
   const extra = got.nodes.find((n) => !want.nodes.some((a) => a.id === n.id));
   if (extra) return `nodes[${extra.id}]: not in the original`;
+  // Ids are the files' hashes, so equal ids mean Inkscape kept every byte.
+  const files = (doc: Doc) => show(Object.keys(doc.images ?? {}));
+  if (files(want) !== files(got)) return `images: ${files(got)}, want ${files(want)}`;
   // Fractional indexes may be renumbered; only the order of each parent's children must hold.
   const order = (doc: Doc, parentId: unknown) =>
     doc.nodes

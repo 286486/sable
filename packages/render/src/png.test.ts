@@ -1,4 +1,11 @@
-import { bounds, createDocument, createNodes, makeMask, parseDocument } from "@zibel/core";
+import {
+  bounds,
+  createDocument,
+  createNodes,
+  imageSource,
+  makeMask,
+  parseDocument,
+} from "@zibel/core";
 import { docRect, scopeRect, toSvg } from "@zibel/io";
 import { expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
@@ -147,6 +154,7 @@ it("reads the root's pt as one pixel per point at scale 1", async () => {
 
 it("draws the fixture Document with known pixels", async () => {
   const file = parseDocument(fixture);
+  const images = imageSource(file.images);
   const doc = {
     id: "d",
     version: 1 as const,
@@ -167,11 +175,12 @@ it("draws the fixture Document with known pixels", async () => {
   // The whole Document again, by #27: the fixture gained a Sublayer, a multiply rect, a two-Stroke
   // path with a translucent Stroke and a hidden ellipse. Writing alpha as fill-opacity did not
   // move a pixel. Again by #30: the fixture gained an evenodd ring; by #31, a Clipping Mask; by #33,
-  // a multi-line Point Type and an Area Type (writing text as line tspans moved no pixel).
-  expect(await hash(toSvg(doc, docRect(doc)))).toBe(
-    "5793280a8ec851b815aea337ae42382566f48f1d372c37d35208dfc8d9a22862",
+  // a multi-line Point Type and an Area Type (writing text as line tspans moved no pixel); by #32,
+  // a third Artboard holding three Images, one cropped by a Clipping Mask.
+  expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
+    "724d1157429efbbe19e26b51e4d60038444d314a174a51bc047539169afa8a19",
   );
-  expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned }))).toBe(
+  expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
   );
 });

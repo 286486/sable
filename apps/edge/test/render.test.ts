@@ -182,6 +182,11 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     `<path d="M 150 155 L 215 155 L 215 195 L 150 195 Z M 170 165 L 195 165 L 195 185 L 170 185 Z" fill-rule="evenodd" ${z("SK0MP0VNDPATH0RVNG")}`,
     '<text x="20" y="195" font-family="Source Sans 3" font-size="14"',
     'zibel:tags="[&quot;badge&quot;,&quot;export&quot;]" zibel:meta="{&quot;quote\\&quot;d&quot;:[1,2],&quot;source&quot;:&quot;fixture&quot;}"',
+    // ADR-0023: an Image as <image xlink:href>, which Inkscape 1.2 draws, cropped by a Clipping Mask.
+    'xmlns:xlink="http://www.w3.org/1999/xlink"',
+    '<image x="470" y="10" width="24" height="16" preserveAspectRatio="none" xlink:href="data:image/png;base64,iVBOR',
+    `<image x="470" y="40" width="48" height="48" preserveAspectRatio="xMidYMid slice" xlink:href="data:image/png;base64,`,
+    `<g ${z("SQCR0PPEDGR0VP0000")} inkscape:label="Cropped" clip-path="url(#clip-z-01M38T29SQCR0PPEDGR0VP0000)">`,
   ]) {
     expect(svg).toContain(part);
   }
@@ -190,8 +195,8 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
   );
   // resvg in the Worker draws the same file, namespaces and all, over every Artboard.
   expect(await render({ docId })).toEqual({
-    docRect: { x: 0, y: 0, width: 440, height: 200 },
-    pixelSize: { width: 440, height: 200 },
+    docRect: { x: 0, y: 0, width: 560, height: 200 },
+    pixelSize: { width: 560, height: 200 },
     scale: 1,
   });
 });
