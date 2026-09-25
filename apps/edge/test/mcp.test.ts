@@ -173,6 +173,42 @@ it("creates a rounded, randomized, twisted star and gets its parameters and deri
   expect(full.d).toBe(formatPath(shapeSegments(full as ShapeNode)));
 });
 
+it("creates a slice, a chord and an open arc of an ellipse, and renders a quarter pie over its own bounds", async () => {
+  const doc = await newDoc();
+  const box = { type: "ellipse", parentId: doc.defaultLayerId, x: 0, y: 0, width: 100, height: 60 };
+  const cuts = [
+    { startAngle: 0, endAngle: 270, arcType: "slice" },
+    { startAngle: 0, endAngle: 270, arcType: "chord" },
+    { startAngle: 0, endAngle: 270, arcType: "open" },
+    { startAngle: 0, endAngle: 90, arcType: "slice" },
+  ];
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: cuts.map((cut) => ({ ...box, ...cut })),
+  });
+  const ids = created.structuredContent.createdIds as string[];
+  const nodes = (await call("zibel_node_get", { docId: doc.docId, nodeIds: ids, detail: "full" }))
+    .structuredContent.nodes;
+  nodes.forEach((n: ShapeNode & { d: string }, i: number) => {
+    expect(n).toMatchObject(cuts[i] ?? {});
+    expect(n.d).toBe(formatPath(shapeSegments(n)));
+  });
+  const [slice, chord, open] = nodes;
+  expect(slice.d).toMatch(/ 50 0 L 50 30 Z$/);
+  expect(chord.d).toMatch(/ 50 0 Z$/);
+  expect(open.d).toMatch(/ 50 0$/);
+  expect([slice.closed, chord.closed, open.closed]).toEqual([true, true, false]);
+  const quarter = await call("zibel_render", { docId: doc.docId, scope: { nodeIds: [ids[3]] } });
+  expect(quarter.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
+  // The quarter's visible bounds, its default 1 pt Stroke included, not the whole ellipse's.
+  expect(quarter.structuredContent.viewport.docRect).toEqual({
+    x: 49.5,
+    y: 29.5,
+    width: 51,
+    height: 31,
+  });
+});
+
 it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", async () => {
   const doc = await newDoc();
   const created = await call("zibel_node_create", {

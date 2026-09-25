@@ -228,7 +228,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "layer {name}: parent is the root or another Layer.",
         "group {children}: children are nodes of any type but layer, without parentId, created inside the Group.",
         "rect {x, y, width, height, radius}: radius is the corner radius.",
-        "ellipse {x, y, width, height}: its bounding box.",
+        "ellipse {x, y, width, height, startAngle, endAngle, arcType}: x, y, width, height is its bounding box. startAngle and endAngle cut a pie, in degrees clockwise from 3 o'clock, default 0 and 360 for the whole ellipse; they are parametric, so a stretched pie keeps its share of the outline. arcType closes the ends: slice through the center (default), chord straight across, open not at all.",
         "line {x1, y1, x2, y2}.",
         "polygon {cx, cy, radius, sides, angle, rounded, randomized}: radius is center to vertex.",
         "star {cx, cy, outerRadius, innerRadius, points, angle, twist, rounded, randomized}.",
