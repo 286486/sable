@@ -52,6 +52,11 @@
       },
       "id": "01M38T29SSARCSARTB0ARD0000",
       "name": "Arcs"
+    },
+    {
+      "frame": { "height": 120, "width": 120, "x": 820, "y": 0 },
+      "id": "01M38T29STGRAD1ENTSARTB0RD",
+      "name": "Gradients"
     }
   ],
   "nodes": [
@@ -1090,6 +1095,249 @@
       "width": 40,
       "x": 770,
       "y": 60
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "gradient": {
+              "end": { "x": 880, "y": 25 },
+              "start": { "x": 830, "y": 25 },
+              "stops": [{ "color": "#1F5FBF", "offset": 0 }, { "color": "#9FD0FF00", "offset": 1 }],
+              "type": "linear"
+            },
+            "type": "gradient"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 30,
+      "id": "01M38T29STGRAD1ENT0000000A",
+      "index": "aS",
+      "locked": false,
+      "meta": {},
+      "name": "Linear",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "rect",
+      "visible": true,
+      "width": 50,
+      "x": 830,
+      "y": 10
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "gradient": {
+              "angle": 30,
+              "aspectRatio": 0.5,
+              "center": { "x": 910, "y": 30 },
+              "focus": { "x": 915, "y": 28 },
+              "radius": 20,
+              "stops": [
+                { "color": "#FF6A00", "offset": 0 },
+                { "color": "#FFD200", "offset": 0.6 },
+                { "color": "#FFFFFF80", "offset": 1 }
+              ],
+              "type": "radial"
+            },
+            "type": "gradient"
+          }
+        ],
+        "strokes": []
+      },
+      "arcType": "slice",
+      "blendMode": "normal",
+      "endAngle": 360,
+      "height": 40,
+      "id": "01M38T29STGRAD1ENT0000000B",
+      "index": "aT",
+      "locked": false,
+      "meta": {},
+      "name": "Elliptical",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "startAngle": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 40,
+      "x": 890,
+      "y": 10
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "round",
+            "dash": [],
+            "gradient": {
+              "end": { "x": 870, "y": 70 },
+              "start": { "x": 830, "y": 70 },
+              "stops": [
+                { "color": "#FF6A00", "offset": 0 },
+                { "color": "#FFD200", "offset": 0.6 },
+                { "color": "#FFFFFF80", "offset": 1 }
+              ],
+              "type": "linear"
+            },
+            "join": "round",
+            "miterLimit": 10,
+            "type": "gradient",
+            "width": 4
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "d": "M 830 60 L 870 60 L 850 80",
+      "fillRule": "nonzero",
+      "id": "01M38T29STGRAD1ENT0000000C",
+      "index": "aU",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "path",
+      "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "gradient": {
+              "end": { "x": 915, "y": 70 },
+              "start": { "x": 880, "y": 70 },
+              "stops": [{ "color": "#1F5FBF", "offset": 0 }, { "color": "#9FD0FF00", "offset": 1 }],
+              "type": "linear"
+            },
+            "type": "gradient"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "content": "Grad",
+      "fontFamily": "Source Sans 3",
+      "fontSize": 16,
+      "id": "01M38T29STGRAD1ENT0000000D",
+      "index": "aV",
+      "kind": "point",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "text",
+      "visible": true,
+      "x": 880,
+      "y": 78
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "gradient": {
+              "end": { "x": 860, "y": 100 },
+              "start": { "x": 830, "y": 100 },
+              "stops": [
+                { "color": "#FF6A00", "offset": 0 },
+                { "color": "#FFD200", "offset": 0.6 },
+                { "color": "#FFFFFF80", "offset": 1 }
+              ],
+              "type": "linear"
+            },
+            "type": "gradient"
+          }
+        ],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "height": 20,
+      "id": "01M38T29STGRAD1ENT0000000E",
+      "index": "aW",
+      "locked": false,
+      "meta": {},
+      "name": "Turned gradient",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 0,
+      "tags": [],
+      "transform": [0.866025, 0.5, -0.5, 0.866025, 163.208875, -409.1025],
+      "type": "rect",
+      "visible": true,
+      "width": 30,
+      "x": 830,
+      "y": 90
+    },
+    {
+      "appearance": {
+        "fills": [
+          { "color": "#FFE08A", "type": "solid" },
+          {
+            "gradient": {
+              "angle": 0,
+              "aspectRatio": 1,
+              "center": { "x": 902.5, "y": 102.5 },
+              "focus": { "x": 898, "y": 98 },
+              "radius": 12.5,
+              "stops": [{ "color": "#1F5FBF", "offset": 0 }, { "color": "#9FD0FF00", "offset": 1 }],
+              "type": "radial"
+            },
+            "type": "gradient"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "dash": [],
+            "gradient": {
+              "end": { "x": 915, "y": 102.5 },
+              "start": { "x": 890, "y": 102.5 },
+              "stops": [
+                { "color": "#FF6A00", "offset": 0 },
+                { "color": "#FFD200", "offset": 0.6 },
+                { "color": "#FFFFFF80", "offset": 1 }
+              ],
+              "type": "linear"
+            },
+            "join": "miter",
+            "miterLimit": 10,
+            "type": "gradient",
+            "width": 2
+          }
+        ]
+      },
+      "arcType": "slice",
+      "blendMode": "normal",
+      "endAngle": 360,
+      "height": 25,
+      "id": "01M38T29STGRAD1ENT0000000F",
+      "index": "aX",
+      "locked": false,
+      "meta": {},
+      "name": "Stack",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "startAngle": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 25,
+      "x": 890,
+      "y": 90
     }
   ],
   "images": {
