@@ -246,7 +246,7 @@ export function Viewer({ docId }: { docId: string }) {
    * Place at the centre of the canvas, in the Selection's Layer or the top one: an SVG as a Group
    * (ADR-0017), any other file as an Image, which the Worker checks (ADR-0023).
    */
-  const place = async (file: File | string) => {
+  const place = (file: File | string) => {
     const { doc, viewport: v, selection } = useStore.getState();
     const parentId = doc && placeParent(doc, selection);
     if (!v || !parentId) return;
@@ -256,7 +256,10 @@ export function Viewer({ docId }: { docId: string }) {
       postFile(`/api/docs/${docId}/place?${query}`, file, "place the pasted SVG");
     } else if (isSvg(file)) {
       query.set("name", file.name);
-      postFile(`/api/docs/${docId}/place?${query}`, await file.text(), `place ${file.name}`);
+      file.text().then(
+        (text) => postFile(`/api/docs/${docId}/place?${query}`, text, `place ${file.name}`),
+        (e) => useStore.setState({ notice: `Could not place ${file.name}: ${String(e)}` }),
+      );
     } else {
       postFile(`/api/docs/${docId}/place-image?${query}`, file, `place ${file.name}`);
     }

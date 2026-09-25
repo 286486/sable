@@ -93,6 +93,7 @@ async function placeBitmap(docId: string, request: Request, env: Env): Promise<R
     const frame = Number.isFinite(x) && Number.isFinite(y);
     return unwrap(
       await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).placeImage(
+        // The name only titles a Template Layer, which paste and drop never make.
         { ...file, name: "Image" },
         "user",
         {
