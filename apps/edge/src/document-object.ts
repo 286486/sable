@@ -173,6 +173,7 @@ export class DocumentObject extends DurableObject<Env> {
         rev: 0,
         artboards: input.artboards,
         nodes: new Map(input.nodes.map((n) => [n.id, n])),
+        images: new Map(),
       };
       const rev = this.init(doc, input.actor, `Open Document "${doc.name}"`, input.intent);
       const nodes = outline(doc, { depth: 1 });
@@ -886,6 +887,7 @@ export class DocumentObject extends DurableObject<Env> {
       rev: row.rev,
       artboards: JSON.parse(row.artboards),
       nodes,
+      images: new Map(),
     };
   }
 

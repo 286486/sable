@@ -8,6 +8,7 @@ const AUTO_NAMES: Record<Exclude<Node["type"], "text">, string> = {
   polygon: "<Polygon>",
   star: "<Star>",
   path: "<Path>",
+  image: "<Image>",
   group: "<Group>",
   layer: "<Layer>",
 };

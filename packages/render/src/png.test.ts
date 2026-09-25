@@ -2,6 +2,7 @@ import { bounds, createDocument, createNodes, makeMask, parseDocument } from "@z
 import { docRect, scopeRect, toSvg } from "@zibel/io";
 import { expect, it } from "vitest";
 import fixture from "../../../fixtures/documents/inkscape.zibel.json?raw";
+import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { svgToPixels, svgToPng } from "./png.ts";
 
 it("rasterises SVG with resvg-wasm inside workerd", async () => {
@@ -218,4 +219,20 @@ it("draws a Clipping Mask's content only inside its Clipping Path", async () => 
   const drawn = await ink(toSvg(doc));
   expect(drawn.some(([x, y]) => x === 50 && y === 50)).toBe(true);
   expect(drawn.every(([x, y]) => x >= 39 && x <= 60 && y >= 39 && y <= 60)).toBe(true);
+});
+
+it("draws an Image's pixels in its frame and nowhere else", async () => {
+  const { doc, defaultLayerId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 40, height: 40, background: "#FFFFFF" }],
+  });
+  const src = "a".repeat(64);
+  doc.images.set(src, { mime: "image/png", width: 2, height: 2 });
+  createNodes(doc, [
+    { type: "image", parentId: defaultLayerId, src, x: 10, y: 10, width: 20, height: 20 },
+  ]);
+  const drawn = await ink(toSvg(doc, docRect(doc), { images: () => RED_2x2_PNG }));
+  expect(drawn.length).toBe(400);
+  expect(drawn.filter(([x, y]) => x < 10 || x >= 30 || y < 10 || y >= 30)).toEqual([]);
 });

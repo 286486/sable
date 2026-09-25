@@ -7,6 +7,7 @@ import {
   cssColor,
   formatPath,
   IDENTITY,
+  type ImageFile,
   type Matrix,
   MIGRATIONS,
   multiply,
@@ -49,6 +50,8 @@ export interface OpenedFile {
   name: string;
   artboards: Artboard[];
   nodes: Node[];
+  /** The file of every Image `src` names, by that key (ADR-0023). */
+  images: Map<string, ImageFile>;
   warnings: Warning[];
   /** Where a Zibel SVG export came from, for Replace: its `zibel:doc`, `zibel:rev` and `zibel:scope`. */
   origin?: Origin;
@@ -61,8 +64,6 @@ export interface Origin {
   /** Absent at doc scope. */
   scope?: RenderScope;
 }
-
-const XLINK_NS = "http://www.w3.org/1999/xlink";
 
 const invalid = (message: string) =>
   new ZibelError({
@@ -661,7 +662,7 @@ class Reader {
       const hex = cssColor(s["stop-color"] ?? "black");
       return hex && withAlpha(hex, alpha(s["stop-opacity"]));
     }
-    const href = g.getAttribute("href") ?? g.getAttributeNS(XLINK_NS, "href");
+    const href = g.getAttribute("href") ?? g.getAttributeNS(NS.xlink, "href");
     return href?.startsWith("#") ? this.firstStop(href.slice(1), depth + 1) : null;
   }
 

@@ -71,6 +71,8 @@ function draw(ctx: Canvas2D, doc: Document, n: Node) {
       ctx.clip(clip.type === "path" && clip.fillRule === "evenodd" ? "evenodd" : "nonzero");
     }
     for (const c of childrenOf(doc, n.id)) if (c !== clip) draw(ctx, doc, c);
+  } else if (n.type === "image") {
+    // ponytail: drawn once the canvas is given the decoded files (#32 U11).
   } else {
     // Overflowing Area Type is not laid out, so it is not drawn (ADR-0022).
     const lines = n.type === "text" ? layoutText(n).lines : null;

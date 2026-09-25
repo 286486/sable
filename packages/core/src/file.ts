@@ -4,6 +4,7 @@ import { parseColor } from "./color.ts";
 import { assertParent, paint } from "./document.ts";
 import { zodPath } from "./edit.ts";
 import { ZibelError } from "./errors.ts";
+import { type ImageFile, preserveAspectRatio } from "./image.ts";
 import { formatPath, parsePath } from "./path.ts";
 import {
   type AppearanceInput,
@@ -66,6 +67,18 @@ const appearance = z.strictObject({
 const StoredNode = z.discriminatedUnion("type", [
   z.strictObject({ ...base, type: z.literal("layer") }),
   z.strictObject({ ...base, type: z.literal("group") }),
+  z.strictObject({
+    ...base,
+    type: z.literal("image"),
+    src: z.string(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+    preserveAspectRatio: z
+      .string()
+      .refine((v) => preserveAspectRatio(v) === v, "none, or an alignment and meet or slice."),
+  }),
   z.strictObject({ ...base, ...TextShape.shape, appearance }).superRefine(textFrame),
   ...Object.values(SHAPES).map((s) =>
     z.strictObject({ ...base, ...s.shape, appearance, clipping: z.boolean().optional() }),
@@ -103,7 +116,7 @@ const invalid = (path: string, message: string, hint = HINT) =>
 export function parseDocument(
   text: string,
   migrations = MIGRATIONS,
-): { name: string; artboards: Artboard[]; nodes: Node[] } {
+): { name: string; artboards: Artboard[]; nodes: Node[]; images: Map<string, ImageFile> } {
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -146,7 +159,7 @@ export function parseDocument(
     }),
   );
   const nodes = parsed.data.nodes.map((n, i): Node => {
-    if (n.type === "layer" || n.type === "group") return n;
+    if (n.type === "layer" || n.type === "group" || n.type === "image") return n;
     const at = `nodes[${i}]`;
     const painted = {
       ...n,
@@ -179,6 +192,7 @@ export function parseDocument(
     rev: 0,
     artboards,
     nodes: new Map(nodes.map((n) => [n.id, n])),
+    images: new Map(),
   };
   const siblings = new Set<string>();
   const clipped = new Set<string | null>();
@@ -228,5 +242,5 @@ export function parseDocument(
       "Every Document has at least one Layer at its root.",
     );
   }
-  return { name: parsed.data.name, artboards, nodes };
+  return { name: parsed.data.name, artboards, nodes, images: new Map() };
 }

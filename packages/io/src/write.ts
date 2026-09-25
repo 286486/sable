@@ -7,6 +7,7 @@ import {
   formatNumber,
   formatPath,
   IDENTITY,
+  type ImageSource,
   layoutText,
   lookup,
   type Node,
@@ -102,6 +103,8 @@ export interface SvgOptions {
   background?: string;
   /** Markup after the artwork, given the Nodes drawn but Layers: `render` adds Render Overlays so. */
   trailer?: (drawn: Node[]) => string;
+  /** The file of each Image by id; the Document holds only the ids (ADR-0023). */
+  images?: ImageSource;
 }
 
 /** Which Nodes a walk draws: all of them, or those inside `scope`. */
@@ -112,6 +115,7 @@ interface Walk {
   hidden?: boolean;
   /** Collects the Nodes drawn, but Layers, for the trailer. */
   drawn: Node[];
+  images: ImageSource | undefined;
 }
 
 /**
@@ -151,7 +155,7 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
   ].join("");
   const drawn: Node[] = [];
   const body = childrenOf(doc, null)
-    .map((n) => node(doc, n, { scope: nodeIds, inside: !nodeIds, drawn }))
+    .map((n) => node(doc, n, { scope: nodeIds, inside: !nodeIds, drawn, images: opts.images }))
     .join("");
   const trailer = opts.trailer?.(drawn) ?? "";
   const root = attrs({
@@ -268,6 +272,26 @@ function node(doc: Document, n: Node, walk: Walk): string {
     return `<g${attrs({ ...own, ...layer, "clip-path": clipPath, style: style(...looks) })}>${kids.join("")}</g>`;
   }
   if (!inside) return "";
+  if (n.type === "image") {
+    const href = walk.images?.(n.src);
+    if (href === undefined) {
+      throw new ZibelError({
+        code: "INVALID_IMAGE",
+        message: `The file of image ${n.src} was not given to the SVG writer.`,
+        hint: "Pass every Image's file through toSvg's images option.",
+        path: "src",
+      });
+    }
+    const { x, y, width, height, preserveAspectRatio } = n;
+    return `<image${attrs({
+      ...num({ x, y, width, height }),
+      // Always written: Zibel's default, none, is not SVG's.
+      preserveAspectRatio,
+      "xlink:href": href,
+      ...own,
+      style: style(...looks),
+    })}/>`;
+  }
   const element = (a: Attrs, extra: (string | false)[] = []) =>
     n.type === "text"
       ? text(n, a, extra)
