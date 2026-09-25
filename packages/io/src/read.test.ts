@@ -329,7 +329,7 @@ const star = (attrs: Record<string, string | number>) =>
     .map(([k, v]) => `${k}="${v}"`)
     .join(" ")}/>`;
 
-it("reads Inkscape stars and polygons back as Live Shapes, a turned one with its matrix", () => {
+it("reads Inkscape stars and polygons back as Live Shapes, a turned one with its angle", () => {
   const file = parseFile(
     svg(
       'width="400" height="300"',
@@ -358,23 +358,63 @@ it("reads Inkscape stars and polygons back as Live Shapes, a turned one with its
     type: "star",
     cx: 260,
     cy: 150,
-    transform: [0, 1, -1, 0, 410, -110],
+    angle: 90,
+    twist: 0,
+    transform: [1, 0, 0, 1, 0, 0],
   });
   expect(file.warnings).toEqual([]);
 });
 
-it("imports what a Live Shape cannot hold yet as a Path, with a warning", () => {
+it("reads rounded, twisted and randomized stars as Live Shapes; an arc is still a Path", () => {
   const file = parseFile(
     svg(
       'width="400" height="300"',
       star({ "inkscape:rounded": 0.2 }) +
         star({ "sodipodi:arg2": -Math.PI / 2 + Math.PI / 5 + 0.1 }) +
+        // arg2 past -π: the twist is still 0.1 rad.
+        star({ "sodipodi:arg1": 3, "sodipodi:arg2": 3 + Math.PI / 5 + 0.1 - 2 * Math.PI }) +
         '<path sodipodi:type="arc" sodipodi:cx="5" sodipodi:cy="5" sodipodi:rx="5" sodipodi:ry="5" sodipodi:start="0" sodipodi:end="3" sodipodi:arc-type="slice" d="M 10 5 A 5 5 0 0 1 0 5 L 5 5 Z"/>',
     ),
   );
-  expect(leaves(file).map((n) => n.type)).toEqual(["path", "path", "path"]);
-  expect(leaves(file)[0]).toMatchObject({ d: "M 260 115 L 270 140 L 250 140 Z" });
-  expect(file.warnings.map((w) => w.code)).toEqual(["STAR_AS_PATH", "ARC_AS_PATH"]);
+  const [rounded, twisted, wrapped, arc] = leaves(file);
+  expect(rounded).toMatchObject({ type: "star", rounded: 0.2, twist: 0, randomized: 0 });
+  expect(twisted).toMatchObject({ type: "star", twist: 5.73, angle: 0 });
+  expect(wrapped).toMatchObject({ type: "star", twist: 5.73, angle: 261.887 });
+  expect(arc?.type).toBe("path");
+  expect(file.warnings.map((w) => w.code)).toEqual(["ARC_AS_PATH"]);
+});
+
+it("keeps a randomized star's parameters as written, its matrix unbaked (ADR-0024)", () => {
+  const moved = (attrs: Record<string, string | number>) =>
+    `<g transform="translate(10.0004 0) scale(2)">${star({ style: "stroke:#000000;stroke-width:2", ...attrs })}</g>`;
+  const file = parseFile(
+    svg(
+      'width="400" height="300"',
+      moved({ "sodipodi:cx": 260.00012345, "inkscape:randomized": 0.1 }) + moved({}),
+    ),
+  );
+  const [randomized, regular] = leaves(file);
+  expect(randomized).toMatchObject({
+    type: "star",
+    cx: 260.00012345,
+    outerRadius: 35,
+    randomized: 0.1,
+    transform: [2, 0, 0, 2, 10.0004, 0],
+    appearance: { strokes: [{ width: 2 }] },
+  });
+  expect(regular).toMatchObject({
+    cx: 530,
+    outerRadius: 70,
+    transform: [1, 0, 0, 1, 0, 0],
+    appearance: { strokes: [{ width: 4 }] },
+  });
+  expect(file.warnings).toEqual([]);
+});
+
+it("reads a star whose rounding Zibel cannot hold as its Path", () => {
+  const file = parseFile(svg("", star({ "inkscape:rounded": 11 })));
+  expect(leaves(file)[0]?.type).toBe("path");
+  expect(file.warnings.map((w) => w.code)).toEqual(["STAR_AS_PATH"]);
 });
 
 it("reads a star with missing parameters as its Path", () => {

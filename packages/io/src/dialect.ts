@@ -133,9 +133,12 @@ export function starAttrs(n: Extract<ShapeNode, { type: "polygon" | "star" }>) {
   };
 }
 
+/** Radians as degrees at 9 decimals, which absorbs the float error of the round trip (ADR-0024). */
+const degrees = (rad: number) => Math.round(((rad * 180) / Math.PI) * 1e9) / 1e9 || 0;
+
 /**
- * The Live Shape a star's parameters hold, the inverse of `starAttrs`: `turn` is how far its first
- * vertex is turned from straight up, and `twisted` whether its inner vertices are off the half step.
+ * The Live Shape a star's parameters hold, the inverse of `starAttrs`: `angle` from arg1, and a
+ * star's `twist` from how far arg2 is off the half step, within ±180°.
  */
 export function starOf(p: {
   sides: number;
@@ -144,13 +147,18 @@ export function starOf(p: {
   arg1: number;
   arg2: number;
   flat: boolean;
+  rounded: number;
+  randomized: number;
 }) {
-  const shape = p.flat
-    ? { type: "polygon" as const, radius: p.r1, sides: p.sides }
-    : { type: "star" as const, outerRadius: p.r1, innerRadius: p.r2, points: p.sides };
+  const common = { angle: degrees(p.arg1 - ARG1), rounded: p.rounded, randomized: p.randomized };
+  if (p.flat) return { type: "polygon" as const, radius: p.r1, sides: p.sides, ...common };
+  const off = p.arg2 - p.arg1 - Math.PI / p.sides;
   return {
-    shape,
-    turn: p.arg1 - ARG1,
-    twisted: !p.flat && Math.abs(p.arg2 - p.arg1 - Math.PI / p.sides) > 1e-6,
+    type: "star" as const,
+    outerRadius: p.r1,
+    innerRadius: p.r2,
+    points: p.sides,
+    ...common,
+    twist: degrees(off - 2 * Math.PI * Math.round(off / (2 * Math.PI))),
   };
 }

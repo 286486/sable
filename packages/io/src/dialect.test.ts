@@ -111,24 +111,40 @@ it("reads back every Render Scope, id and alpha byte it writes", () => {
   }
 });
 
-it("reads back a polygon's and a star's parameters, unturned and untwisted", () => {
+it("reads back a polygon's and a star's parameters exactly", () => {
   const { doc, defaultLayerId: parentId } = createDocument({ id: "d", name: "Doc", artboards: [] });
+  const inkscape = { angle: -15, rounded: 0.25, randomized: 0.1 };
   const [polygon, star] = createNodes(doc, [
-    { type: "polygon", parentId, cx: 0, cy: 0, radius: 30, sides: 6 },
-    { type: "star", parentId, cx: 0, cy: 0, outerRadius: 35, innerRadius: 15, points: 5 },
+    { type: "polygon", parentId, cx: 0, cy: 0, radius: 30, sides: 6, ...inkscape },
+    {
+      type: "star",
+      parentId,
+      cx: 0,
+      cy: 0,
+      outerRadius: 35,
+      innerRadius: 15,
+      points: 5,
+      ...inkscape,
+      angle: 30,
+      twist: 10,
+    },
   ]).nodes;
   if (polygon?.type !== "polygon" || star?.type !== "star") throw new Error("setup");
   expect(starOf(starAttrs(polygon))).toEqual({
-    shape: { type: "polygon", radius: 30, sides: 6 },
-    turn: 0,
-    twisted: false,
+    type: "polygon",
+    radius: 30,
+    sides: 6,
+    ...inkscape,
   });
   expect(starOf(starAttrs(star))).toEqual({
-    shape: { type: "star", outerRadius: 35, innerRadius: 15, points: 5 },
-    turn: 0,
-    twisted: false,
+    type: "star",
+    outerRadius: 35,
+    innerRadius: 15,
+    points: 5,
+    ...inkscape,
+    angle: 30,
+    twist: 10,
   });
-  expect(starOf({ ...starAttrs(star), arg2: 0 }).twisted).toBe(true);
 });
 
 it("names the scope a file was exported from in its origin", () => {
