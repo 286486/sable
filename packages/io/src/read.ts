@@ -7,6 +7,7 @@ import {
   BUNDLED_FONT,
   cssColor,
   type Fill,
+  fontStyleName,
   formatPath,
   IDENTITY,
   type ImageFile,
@@ -150,6 +151,16 @@ const characters = (e: Element): string =>
 
 /** The id in `url(#id)`, as `clip-path` and `shape-inside` name an element. */
 const urlId = (value: string) => /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(value.trim())?.[1];
+
+/**
+ * `font-weight` as a CSS weight, 100 to 900 (ADR-0028). `bolder` and `lighter` resolve against 400
+ * as CSS Fonts' table does, not against the inherited weight.
+ */
+function fontWeight(value = "normal") {
+  const named: Record<string, number> = { normal: 400, bold: 700, bolder: 700, lighter: 100 };
+  const n = named[value.trim()] ?? Number.parseFloat(value);
+  return Number.isFinite(n) ? Math.min(900, Math.max(100, Math.round(n / 100) * 100)) : 400;
+}
 
 /**
  * `line-height` as leading in pt (ADR-0022): unitless 1.2, `normal` or none is Auto; another number
@@ -514,9 +525,14 @@ class Reader {
       ?.trim()
       .replace(/^['"]|['"]$/g, "");
     const leading = lineHeight(own["line-height"], fontSize, k);
+    const fontStyle = fontStyleName(
+      fontWeight(own["font-weight"]),
+      /^(italic|oblique)\b/.test(own["font-style"] ?? ""),
+    );
     const text = {
       type: "text",
       fontFamily: family || BUNDLED_FONT,
+      fontStyle,
       fontSize,
       ...(leading !== undefined && { leading }),
       transform: bake ? [...IDENTITY] : round(m),
@@ -564,7 +580,7 @@ class Reader {
     let x = k * first("x") + tx;
     if (centred) {
       const [top = ""] = content.split("\n");
-      const width = textBox({ x: 0, y: 0, content: top, fontSize }).width;
+      const width = textBox({ x: 0, y: 0, content: top, fontSize, fontStyle }).width;
       x -= anchor === "middle" ? width / 2 : width;
       if (content.includes("\n")) unaligned();
     }
