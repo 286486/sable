@@ -4,13 +4,19 @@ import {
   createDocument,
   createNodes,
   type Document,
+  type ImageSource,
+  imageId,
+  imageSource,
   makeMask,
   type Node,
   parseDocument,
   type RenderScope,
+  readImage,
+  resolveImages,
   serializeDocument,
 } from "@zibel/core";
 import { describe, expect, it, vi } from "vitest";
+import { BLUE_1x1_PNG, RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { parseFile } from "./index.ts";
 import { replaceFile } from "./replace.ts";
 import { toSvg } from "./write.ts";
@@ -45,11 +51,12 @@ function setup(id = "DOC") {
  * The Document as exported now: its SVG in `scope`, and a `rebuild` that gives back this rev, as
  * the Delta Log would. A deep copy, so edits made since do not reach the base.
  */
-function exportNow(doc: Document) {
+function exportNow(doc: Document, images?: ImageSource) {
   const base = structuredClone(doc);
   return {
-    svg: (scope?: RenderScope) => toSvg(base, undefined, { scope }),
+    svg: (scope?: RenderScope) => toSvg(base, undefined, { scope, images }),
     rebuild: vi.fn((rev: number) => (rev === base.rev ? structuredClone(base) : null)),
+    images,
   };
 }
 
@@ -72,6 +79,12 @@ const append = (svg: string, markup: string) => svg.replace(/<\/g><\/svg>$/, `${
 
 const replace = (doc: Document, text: string, opts: Parameters<typeof replaceFile>[2]) =>
   replaceFile(doc, parseFile(text), opts);
+/** As the Worker replaces: the file's images named by their hash first. */
+const replaceResolved = async (
+  doc: Document,
+  text: string,
+  opts: Parameters<typeof replaceFile>[2],
+) => replaceFile(doc, await resolveImages(parseFile(text)), opts);
 
 const x = (doc: Document, node: Node) => bounds(doc, doc.nodes.get(node.id) as Node)?.x;
 const fill = (doc: Document, node: Node) =>
@@ -96,7 +109,7 @@ const fixtures = import.meta.glob("../../../fixtures/documents/*.zibel.json", {
 describe("replaceFile", () => {
   it.each(Object.entries(fixtures).map(([path, text]) => [path.split("/").pop(), text]))(
     "changes nothing when an unedited export of %s comes back",
-    (_name, text) => {
+    async (_name, text) => {
       const file = parseDocument(text as string);
       const doc: Document = {
         ...file,
@@ -105,8 +118,8 @@ describe("replaceFile", () => {
         rev: 1,
         nodes: new Map(file.nodes.map((n) => [n.id, n])),
       };
-      const e = exportNow(doc);
-      expect(replace(doc, e.svg(), e)).toEqual({
+      const e = exportNow(doc, imageSource(file.images));
+      expect(await replaceResolved(doc, e.svg(), e)).toEqual({
         created: [],
         updated: [],
         deletedIds: [],
@@ -319,5 +332,54 @@ describe("replaceFile", () => {
     expect(pruned.warnings).toEqual([expect.objectContaining({ code: "NO_BASE" })]);
     expect(pruned.updated.map((n) => n.id)).toEqual([c.id]);
     expect([fill(doc, b), fill(doc, c)]).toEqual(["#FF0000", "#FF0000"]);
+  });
+});
+
+describe("replaceFile with Images", () => {
+  /** One Image of the red PNG, stored under its hash. */
+  async function withImage() {
+    const { doc, layer } = setup();
+    const red = readImage(RED_2x2_PNG, "src");
+    const src = await imageId(red.bytes);
+    doc.images.set(src, red);
+    const [image] = createNodes(doc, [
+      { type: "image", parentId: layer, src, x: 100, y: 0, width: 20, height: 20 },
+    ]).nodes as [Node];
+    return { doc, image, src, e: exportNow(doc, imageSource(new Map([[src, red]]))) };
+  }
+  const imageOf = (svg: string, id: string) =>
+    new RegExp(`<image [^>]*id="z-${id}"[^>]*/>`).exec(svg)?.[0] ?? "";
+
+  it("changes nothing when its unedited export comes back", async () => {
+    const { doc, e } = await withImage();
+    expect(await replaceResolved(doc, e.svg(), e)).toMatchObject({
+      created: [],
+      updated: [],
+      deletedIds: [],
+    });
+  });
+
+  it("moves an Image the designer moved, keeping its file", async () => {
+    const { doc, image, src, e } = await withImage();
+    const svg = e
+      .svg()
+      .replace(imageOf(e.svg(), image.id), (el) => el.replace('x="100"', 'x="50"'));
+    const { updated } = await replaceResolved(doc, svg, e);
+    expect(updated).toEqual([expect.objectContaining({ id: image.id, x: 50, src })]);
+  });
+
+  it("takes a file the designer relinked in the editor, and a new Image they placed", async () => {
+    const { doc, image, e } = await withImage();
+    const blue = await imageId(readImage(BLUE_1x1_PNG, "src").bytes);
+    const relinked = e
+      .svg()
+      .replace(imageOf(e.svg(), image.id), (el) => el.replace(RED_2x2_PNG, BLUE_1x1_PNG));
+    const placed = append(
+      relinked,
+      `<image x="0" y="0" width="5" height="5" xlink:href="${BLUE_1x1_PNG}"/>`,
+    );
+    const { created, updated } = await replaceResolved(doc, placed, e);
+    expect(updated).toEqual([expect.objectContaining({ id: image.id, src: blue })]);
+    expect(created).toEqual([expect.objectContaining({ type: "image", src: blue })]);
   });
 });

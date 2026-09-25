@@ -2,6 +2,7 @@ import {
   type Artboard,
   applyRows,
   type Document,
+  type ImageSource,
   type Node,
   type RenderScope,
   same,
@@ -18,11 +19,13 @@ import { toSvg } from "./write.ts";
  * from the Delta Log, or null once it no longer reaches it; without a base the file is compared
  * with `doc` as it is, with a NO_BASE warning. Throws INVALID_DOCUMENT for a file from another
  * Document and REV_CONFLICT for a base rev `doc` has not reached, before changing anything.
+ * `opts.images` gives the Document's image files, which the normalising export writes. The file's
+ * own images are the caller's to store.
  */
 export function replaceFile(
   doc: Document,
   file: OpenedFile & { format: "svg" | "zibel_json" },
-  opts: { baseRev?: number; rebuild: (rev: number) => Document | null },
+  opts: { baseRev?: number; rebuild: (rev: number) => Document | null; images?: ImageSource },
 ): {
   created: Node[];
   updated: Node[];
@@ -53,7 +56,8 @@ export function replaceFile(
     });
   }
   const { scope } = file.origin ?? {};
-  const norm = (d: Document) => (svg ? normalise(d, scope) : { ...d, nodes: new Map(d.nodes) });
+  const norm = (d: Document) =>
+    svg ? normalise(d, scope, opts.images) : { ...d, nodes: new Map(d.nodes) };
   const current = norm(doc);
   const base = baseRev === undefined ? null : opts.rebuild(baseRev);
   const warnings = [...file.warnings];
@@ -78,16 +82,30 @@ export function replaceFile(
 /**
  * `doc` passed through the export and import a file of `scope` took, so that rounding and the
  * importer's baking count the same on both sides of Replace's diff (ADR-0017). A nodeIds scope
- * keeps the ids `doc` still has.
+ * keeps the ids `doc` still has. `images` gives its image files.
  */
-export function normalise(doc: Document, scope: RenderScope | undefined): Document {
+export function normalise(
+  doc: Document,
+  scope: RenderScope | undefined,
+  images?: ImageSource,
+): Document {
   let s = scope;
   if (s && "nodeIds" in s) {
     const nodeIds = s.nodeIds.filter((id) => doc.nodes.has(id));
     if (nodeIds.length === 0) return { ...doc, nodes: new Map() };
     s = { nodeIds };
   }
-  const { artboards, nodes } = parseSvg(toSvg(doc, undefined, { scope: s }));
+  // Each data URL written maps back to its id, so the read needs no hashing (ADR-0023).
+  // ponytail: every image's bytes go through base64 and the parser twice per Replace; compare ids
+  // without writing bytes if large Documents make Replace slow.
+  const ids = new Map<string, string>();
+  const write = (id: string) => {
+    const url = images?.(id);
+    if (url !== undefined) ids.set(url, id);
+    return url;
+  };
+  const svg = toSvg(doc, undefined, { scope: s, images: write });
+  const { artboards, nodes } = parseSvg(svg, undefined, { known: (url) => ids.get(url) });
   return { ...doc, artboards, nodes: new Map(nodes.map((n) => [n.id, n])) };
 }
 
