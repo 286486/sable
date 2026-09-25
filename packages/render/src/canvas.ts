@@ -8,6 +8,7 @@ import {
   ellipseMatrix,
   type Fill,
   fontFace,
+  glyphs,
   invert,
   type LeafNode,
   layoutText,
@@ -16,6 +17,7 @@ import {
   type Rect,
   type Segment,
   shapeSegments,
+  type TextNode,
   transformSegments,
 } from "@zibel/core";
 
@@ -170,9 +172,6 @@ function draw(
       ctx.drawImage(file.image, r.x, r.y, r.width, r.height);
     }
   } else {
-    // Overflowing Area Type is not laid out, so it is not drawn (ADR-0022).
-    const lines = n.type === "text" ? layoutText(n).lines : null;
-    // Tested on n, not lines, so the else branch narrows n to a Live Shape or Path.
     if (n.type === "text") {
       // Every font renders in the bundled face its bounds are measured in (ADR-0017, ADR-0028).
       const { weight, italic } = fontFace(bundledStyle(n.fontStyle));
@@ -192,13 +191,13 @@ function draw(
     for (const f of n.appearance.fills) {
       // ponytail: the ellipse would distort glyphs, so text draws an elliptical radial gradient as
       // its circle; SVG draws it exactly. Draw glyph outlines when Create Outlines lands.
-      const { style, m } = styleOf(ctx, f, !lines);
+      const { style, m } = styleOf(ctx, f, n.type !== "text");
       ctx.fillStyle = style;
       if (m) {
         ctx.save();
         ctx.transform(...m);
       }
-      if (lines) for (const l of lines) ctx.fillText(l.text, l.x, l.y);
+      if (n.type === "text") text(ctx, n, (t, x, y) => ctx.fillText(t, x, y), style);
       else if (n.type === "path" && n.fillRule === "evenodd") ctx.fill("evenodd");
       else ctx.fill();
       if (m) ctx.restore();
@@ -212,11 +211,46 @@ function draw(
       ctx.lineJoin = s.join;
       ctx.miterLimit = s.miterLimit;
       ctx.setLineDash(s.dash);
-      if (lines) for (const l of lines) ctx.strokeText(l.text, l.x, l.y);
+      if (n.type === "text") text(ctx, n, (t, x, y) => ctx.strokeText(t, x, y));
       else ctx.stroke();
     }
   }
   ctx.restore();
+}
+
+/**
+ * Paints a text's shown lines, so overflowing Area Type is not drawn (ADR-0022). With tracking or
+ * ranges each character paints on its own at its origin, raised by its baseline shift and turned
+ * about the origin by its rotation, in its range's fill when `fill` is the Fill's style (ADR-0029).
+ */
+function text(
+  ctx: Canvas2D,
+  n: TextNode,
+  paint: (text: string, x: number, y: number) => void,
+  fill?: unknown,
+) {
+  if (!n.tracking && !n.ranges) {
+    for (const l of layoutText(n).lines) paint(l.text, l.x, l.y);
+    return;
+  }
+  let style = fill;
+  for (const g of glyphs(n)) {
+    if (g.char === "\n") continue;
+    if (fill !== undefined && (g.fill ?? fill) !== style) {
+      style = g.fill ?? fill;
+      ctx.fillStyle = style;
+    }
+    const turned = g.rotation || g.baselineShift;
+    if (turned) {
+      const a = ((g.rotation ?? 0) * Math.PI) / 180;
+      const [cos, sin] = [Math.cos(a), Math.sin(a)];
+      const y = g.y - (g.baselineShift ?? 0);
+      ctx.save();
+      ctx.transform(cos, sin, -sin, cos, g.x - cos * g.x + sin * g.y, y - sin * g.x - cos * g.y);
+    }
+    paint(g.char, g.x, g.y);
+    if (turned) ctx.restore();
+  }
 }
 
 function trace(ctx: Canvas2D, segments: Segment[]) {
