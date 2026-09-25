@@ -25,6 +25,22 @@ it("carries the font's vertical metrics", () => {
   expect([unitsPerEm, ascender, descender]).toEqual([1000, 1000, -326]);
 });
 
+// Read straight from the other five TTFs: advances of H, and Bold's .notdef.
+it("carries each bundled face's advances", () => {
+  const { faces } = SOURCE_SANS_3;
+  expect(
+    [
+      faces.Regular,
+      faces.Italic,
+      faces.Bold,
+      faces["Bold Italic"],
+      faces.Black,
+      faces["Black Italic"],
+    ].map((f) => f.advances[72]),
+  ).toEqual([652, 622, 674, 652, 682, 664]);
+  expect(faces.Bold.notdef).toBe(690);
+});
+
 it("warns once for each text in a font Zibel does not bundle", () => {
   const text = (id: string, fontFamily: string) =>
     ({ id, type: "text", fontFamily }) as Parameters<typeof fontWarnings>[0][number];

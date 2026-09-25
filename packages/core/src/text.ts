@@ -1,7 +1,8 @@
 import type { Node, Rect, WriteReceipt } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
-const advances: Record<number, number> = SOURCE_SANS_3.advances;
+const { advances, notdef }: { advances: Record<number, number>; notdef: number } =
+  SOURCE_SANS_3.faces.Regular;
 
 /** What lays out a text: its kind, anchor or frame, content and character attributes. */
 interface TextLayout {
@@ -28,7 +29,7 @@ function advance(text: string) {
   // ponytail: advance sum, no shaping or kerning; HarfBuzz (F-TEXT-09, M1) replaces this with
   // shaped glyph positions.
   let width = 0;
-  for (const ch of text) width += advances[ch.codePointAt(0) as number] ?? SOURCE_SANS_3.notdef;
+  for (const ch of text) width += advances[ch.codePointAt(0) as number] ?? notdef;
   return width;
 }
 
