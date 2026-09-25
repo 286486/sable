@@ -67,6 +67,8 @@ The importer (`packages/io`, #26) settles the rest:
 
 ## Three ways in
 
+> Replace is removed by ADR-0030: an edited file comes back through Open, into a new tab, and art moves between Documents by copy and paste. The Replace rows and steps below, the 30-day Delta Log and `zibel:doc` / `zibel:rev` describe what was.
+
 | | Illustrator | Tool | Result |
 |---|---|---|---|
 | **Open** | File > Open | `doc_open(content)`, SVG or `.zibel.json` detected by content | a new Document; SVG Layers and pages become Layers and Artboards; ids from `z-` kept |
