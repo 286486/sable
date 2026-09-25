@@ -42,7 +42,7 @@ On a star that is both twisted and rounded, Inkscape's handle directions differ 
 
 ## Import
 
-`STAR_AS_PATH` now only covers a `sodipodi:type="star"` whose parameters are invalid (sides outside 3…1000, a non-finite value, a negative radius, `rounded` or `randomized` outside −10…10): it imports as the Path its `d` draws. `twist` is read as `(arg2 − arg1 − π/sides)` in degrees, normalised to −180…180; a polygon's `arg2` is ignored.
+`STAR_AS_PATH` now only covers a `sodipodi:type="star"` whose parameters are invalid (sides outside 3…1000, a non-finite value, a negative radius, `rounded` or `randomized` outside −10…10, or a randomized flatsided star whose `r2` exceeds `r1`, since Inkscape jitters it by `r2` and a polygon keeps no `r2`): it imports as the Path its `d` draws. `twist` is read as `(arg2 − arg1 − π/sides)` in degrees, normalised to −180…180; a polygon's `arg2` is ignored.
 
 ## Considered Options
 

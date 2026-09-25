@@ -707,13 +707,16 @@ class Reader {
       Number.isInteger(sides) &&
       sides >= 3 &&
       sides <= 1000 &&
-      [params.cx, params.cy, shape.angle, shape.type === "star" ? shape.twist : 0].every(
+      // The file's own angles: angle and twist are rounded, which turns NaN into 0.
+      [params.cx, params.cy, at("arg1"), shape.type === "star" ? at("arg2") : 0].every(
         Number.isFinite,
       ) &&
       at("r1") >= 0 &&
       at("r2") >= 0 &&
       Math.abs(shape.rounded) <= 10 &&
-      Math.abs(shape.randomized) <= 10;
+      Math.abs(shape.randomized) <= 10 &&
+      // A polygon keeps no r2, so it cannot jitter by an r2 larger than its radius.
+      !(shape.type === "polygon" && shape.randomized && at("r2") > at("r1"));
     if (!valid) {
       this.warn(
         "STAR_AS_PATH",

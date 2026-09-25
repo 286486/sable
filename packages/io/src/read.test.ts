@@ -464,16 +464,24 @@ it("opens a star and a polygon drawn in Inkscape as Live Shapes that draw Inksca
   });
 });
 
-it("reads a star whose rounding Zibel cannot hold as its Path", () => {
-  const file = parseFile(svg("", star({ "inkscape:rounded": 11 })));
+it.each([
+  [{ "inkscape:rounded": 11 }],
+  // Inkscape jitters a polygon by max(r1, r2); Zibel's polygon has no r2.
+  [{ "inkscape:flatsided": "true", "sodipodi:r2": 50, "inkscape:randomized": 0.1 }],
+])("reads a star whose parameters Zibel cannot hold as its Path: %j", (attrs) => {
+  const file = parseFile(svg("", star(attrs)));
   expect(leaves(file)[0]?.type).toBe("path");
   expect(file.warnings.map((w) => w.code)).toEqual(["STAR_AS_PATH"]);
 });
 
-it("reads a star with missing parameters as its Path", () => {
-  const file = parseFile(svg("", star({ "sodipodi:r2": "x" })));
-  expect(leaves(file)[0]?.type).toBe("path");
-});
+it.each(["sodipodi:r2", "sodipodi:arg1", "sodipodi:arg2"])(
+  "reads a star whose %s is not a number as its Path",
+  (name) => {
+    const file = parseFile(svg("", star({ [name]: "x" })));
+    expect(leaves(file)[0]?.type).toBe("path");
+    expect(file.warnings.map((w) => w.code)).toEqual(["STAR_AS_PATH"]);
+  },
+);
 
 it("reads <text> as one Point Type, its Inkscape lines joined by returns, keeping the font name", () => {
   const file = parseFile(

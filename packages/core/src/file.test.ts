@@ -103,6 +103,38 @@ it("reads a Path without fillRule as nonzero and keeps evenodd", () => {
   expect(rule(JSON.stringify(file))).toMatchObject({ fillRule: "evenodd" });
 });
 
+it("reads a star and a polygon written before ADR-0024 with its parameters at 0", () => {
+  const file = JSON.parse(serializeDocument(scene()));
+  const path = file.nodes.find((n: { type: string }) => n.type === "path");
+  const { d: _d, fillRule: _rule, ...base } = path;
+  const at = { cx: 0, cy: 0, index: "az", parentId: path.parentId };
+  file.nodes.push(
+    {
+      ...base,
+      ...at,
+      id: "01M38T29SRSTAR0000000000A0",
+      type: "star",
+      outerRadius: 9,
+      innerRadius: 4,
+      points: 5,
+    },
+    {
+      ...base,
+      ...at,
+      id: "01M38T29SRPENTAG0N000000A1",
+      index: "azV",
+      type: "polygon",
+      radius: 9,
+      sides: 6,
+    },
+  );
+  const [star, polygon] = parseDocument(JSON.stringify(file)).nodes.filter(
+    (n) => n.type === "star" || n.type === "polygon",
+  );
+  expect(star).toMatchObject({ angle: 0, twist: 0, rounded: 0, randomized: 0 });
+  expect(polygon).toMatchObject({ angle: 0, rounded: 0, randomized: 0 });
+});
+
 describe("migrations", () => {
   // A test migration: version 1 called the name `title`.
   const up: Migration = ({ title, ...rest }) => ({ ...rest, name: title });
