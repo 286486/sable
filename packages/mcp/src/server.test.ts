@@ -587,6 +587,11 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     expect(described("zibel_node_create")).toContain(param);
     expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${param}"`);
   }
+  for (const word of ["gradient", "stops", "radial", "aspectRatio", "focus"]) {
+    expect(described("zibel_node_create")).toContain(word);
+    expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${word}"`);
+  }
+  expect(described("zibel_node_update")).toContain("gradient");
   expect(described("zibel_doc_open")).toContain("LINKED_IMAGE_DROPPED");
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({
@@ -628,6 +633,8 @@ it("serves skill://zibel/drawing-conventions and points at it in the instruction
     "LIMIT_EXCEEDED",
     "## Images",
     "INVALID_IMAGE",
+    '"type": "gradient"',
+    "aspectRatio",
   ]) {
     expect(text).toContain(fact);
   }
