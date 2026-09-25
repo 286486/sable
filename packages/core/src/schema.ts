@@ -98,6 +98,23 @@ export const EllipseShape = z.object({
   y: z.number().describe("Top edge of the bounding box."),
   width: size,
   height: size,
+  // Parametric angles, as Inkscape's (ADR-0025); 0 and 360 are one direction, written one way.
+  startAngle: z
+    .number()
+    .min(0)
+    .lt(360)
+    .default(0)
+    .describe("Where a pie starts, degrees clockwise from 3 o'clock; equal to endAngle is whole."),
+  endAngle: z
+    .number()
+    .gt(0)
+    .max(360)
+    .default(360)
+    .describe("Where a pie ends, degrees clockwise from 3 o'clock."),
+  arcType: z
+    .enum(["slice", "chord", "open"])
+    .default("slice")
+    .describe("How a pie's ends close: through the center, straight across, or not at all."),
 });
 export const LineShape = z.object({
   type: z.literal("line"),

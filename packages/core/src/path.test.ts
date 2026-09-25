@@ -4,6 +4,7 @@ import { formatPath, normalizePath, parsePath, pathBounds, shapeSegments } from 
 import type { Rect, Shape } from "./schema.ts";
 
 const regular = { angle: 0, rounded: 0, randomized: 0 };
+const WHOLE = { startAngle: 0, endAngle: 360, arcType: "slice" } as const;
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -83,7 +84,7 @@ it("derives d for each Live Shape, with bounds equal to the shape's box", () => 
       { x: 0, y: 0, width: 40, height: 20 },
     ],
     [
-      { type: "ellipse", x: 10, y: 10, width: 80, height: 40 },
+      { type: "ellipse", x: 10, y: 10, width: 80, height: 40, ...WHOLE },
       null,
       { x: 10, y: 10, width: 80, height: 40 },
     ],
@@ -120,7 +121,7 @@ it("derives d for each Live Shape, with bounds equal to the shape's box", () => 
   }
   // An ellipse starts at its top and runs in cubics.
   expect(
-    formatPath(shapeSegments({ type: "ellipse", x: 10, y: 10, width: 80, height: 40 })),
+    formatPath(shapeSegments({ type: "ellipse", x: 10, y: 10, width: 80, height: 40, ...WHOLE })),
   ).toMatch(/^M 50 10 C/);
 });
 
