@@ -68,12 +68,12 @@ Gradients do not change bounds.
 | gradient id | `fill-<i>-z-<ULID>` or `stroke-<i>-z-<ULID>`, `<i>` the paint's index in its list, beside `clip-z-` and `area-z-` |
 | any gradient | `gradientUnits="userSpaceOnUse"`, no `spreadMethod` (pad is the default) |
 | linear | `x1 y1 x2 y2` from `start` and `end` |
-| radial | `cx cy r` from `center` and `radius`; `fx fy` from `focus`, left out when it is the centre; `gradientTransform` rotating by `angle` and scaling across it by `aspectRatio` about the centre, as a `matrix` at 6 decimals, left out when both are the defaults |
+| radial | `cx cy r` from `center` and `radius`; `fx fy` from `focus`, left out when it is the centre, mapped back through the `gradientTransform` and then at its 6 decimals so it reads back to the same point; `gradientTransform` rotating by `angle` and scaling across it by `aspectRatio` about the centre, as a `matrix` at 6 decimals, left out when both are the defaults |
 | Color Stop | `<stop offset stop-color="#RRGGBB">`, plus `stop-opacity` at 3 decimals when the alpha is not FF, since Inkscape 1.2 draws `#RRGGBBAA` as black (ADR-0017) |
 
 Inkscape 1.2.2 keeps such a gradient verbatim on a plain save, and when the designer moves the object it appends a `gradientTransform` to it in place (measured headless). When the designer edits the gradient, Inkscape splits it into a stops-only vector gradient and a positioned one that `xlink:href`s it. Import reads all three forms.
 
-**Canvas.** `drawDocument` builds the same field with `createLinearGradient` and `createRadialGradient`. For a radial gradient with an `angle` or `aspectRatio`, it traces the outline, then applies the ellipse as a transform only for the `fill()` or `stroke()` call, so the outline is not distorted. Text Fills and Strokes take the same styles.
+**Canvas.** `drawDocument` builds the same field with `createLinearGradient` and `createRadialGradient`. For a radial gradient with an `angle` or `aspectRatio`, it traces the outline, then applies the ellipse as a transform only for the `fill()` call, so the outline is not distorted. The same transform would also scale a Stroke's pen and a text's glyphs, so a Stroke or a text draws an elliptical radial gradient as its circle on the canvas until it can be drawn through an offscreen layer or glyph outlines; SVG, resvg and Inkscape draw it exactly. Text Fills and Strokes otherwise take the same styles.
 
 ## Import
 
