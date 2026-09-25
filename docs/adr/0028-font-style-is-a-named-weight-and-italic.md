@@ -57,7 +57,7 @@ The `FONT_MISSING` receipt warning now fires when a text's family or style is no
 
 ## Consequences
 
-- The Worker bundle grows by about 1.8 MB raw and 0.85 MB gzip, for five TTFs. `core` grows by five more advance tables of about 27 KB each.
+- The five TTFs add 1.8 MB, and five more advance tables in `core` add about 170 KB. `wrangler deploy --dry-run` measures the Worker at 6523 KiB, 2365 KiB gzip, against 4.2 MB and 1.4 MB gzip before (#19). Workers limit only the uncompressed size, to 64 MiB on both plans (docs/research/04-cloudflare-limits.md). The browser downloads the six TTFs, 2.2 MB uncompressed, beside the JavaScript bundle.
 - A text Node stored before this ADR has no `fontStyle`: the Durable Object loads stored Nodes without the schema, and the browser takes them as sent. Every reader goes through `fontFace` or `bundledStyle` in `core`, which read a missing style as `Regular`, and the schema default fills the field on the Node's next write. No hosted Document predates M1.
 - Italic bounds are advance sums, as upright bounds are. Italic overhang past the last advance is outside the geometric bounds until HarfBuzz and glyph bounds (F-TEXT-09).
 - The style of a range of characters arrives with runs (ADR-0013). `fontStyle` stays the Node-level default that a run overrides.
