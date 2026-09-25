@@ -14,6 +14,8 @@ import { expect, it } from "vitest";
 import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import {
   alpha,
+  arcAttrs,
+  arcOf,
   idOf,
   paintAttrs,
   scopeAttr,
@@ -145,6 +147,22 @@ it("reads back a polygon's and a star's parameters exactly", () => {
     angle: 30,
     twist: 10,
   });
+});
+
+it("reads back an ellipse's angles and arc type exactly", () => {
+  const { doc, defaultLayerId: parentId } = createDocument({ id: "d", name: "Doc", artboards: [] });
+  const box = { type: "ellipse" as const, parentId, x: 0, y: 0, width: 30, height: 20 };
+  const cuts = [
+    { startAngle: 300, endAngle: 60, arcType: "chord" },
+    { startAngle: 0, endAngle: 270, arcType: "open" },
+    { startAngle: 12.345, endAngle: 359.999, arcType: "slice" },
+    { startAngle: 0, endAngle: 360, arcType: "slice" },
+  ] as const;
+  for (const cut of cuts) {
+    const [n] = createNodes(doc, [{ ...box, ...cut }]).nodes;
+    if (n?.type !== "ellipse") throw new Error("setup");
+    expect(arcOf(arcAttrs(n))).toEqual(cut);
+  }
 });
 
 it("names the scope a file was exported from in its origin", () => {

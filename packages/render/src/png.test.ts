@@ -133,6 +133,34 @@ it("leaves an evenodd hole unpainted, and fills it under nonzero", async () => {
   expect(await inked()).toContain("35,35");
 });
 
+it("paints a slice, a chord and an open arc of an ellipse (ADR-0025)", async () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 140, background: "#FFFFFF" }],
+  });
+  const pie = { type: "ellipse" as const, parentId, width: 80, height: 60, endAngle: 270 };
+  const filled = { fills: [{ color: "#000000" }] };
+  const stroked = { fills: [], strokes: [{ color: "#000000", width: 4 }] };
+  createNodes(doc, [
+    { ...pie, x: 0, y: 0, appearance: filled },
+    { ...pie, x: 100, y: 0, arcType: "chord", appearance: filled },
+    { ...pie, x: 0, y: 70, arcType: "chord", appearance: stroked },
+    { ...pie, x: 100, y: 70, arcType: "open", appearance: stroked },
+  ]);
+  const drawn = new Set((await ink(toSvg(doc))).map((p) => p.join()));
+  // 270° to 360° is the top right quarter: the slice leaves it out, the chord only past its line.
+  expect(drawn.has("50,22")).toBe(false);
+  expect(drawn.has("30,37")).toBe(true);
+  expect(drawn.has("150,22")).toBe(true);
+  expect(drawn.has("165,10")).toBe(false);
+  // The chord's line is stroked, the open arc's is not; both stroke the arc.
+  expect(drawn.has("60,85")).toBe(true);
+  expect(drawn.has("160,85")).toBe(false);
+  expect(drawn.has("1,100")).toBe(true);
+  expect(drawn.has("101,100")).toBe(true);
+});
+
 it("rounds the pixel size to the nearest pixel and stretches the drawing to it", async () => {
   // Why fit() widens the rect to whole pixels: at 10.2 pt × 2 resvg draws 20 px, not 20.4.
   const size = async (width: number) =>
@@ -178,9 +206,10 @@ it("draws the fixture Document with known pixels", async () => {
   // a multi-line Point Type and an Area Type (writing text as line tspans moved no pixel); by #32,
   // a third Artboard holding three Images, one cropped by a Clipping Mask; by #34, a fourth holding
   // a rounded, randomized, twisted star, a rounded, randomized polygon and a randomized star whose
-  // round-number vertices sit on Inkscape's seed grid.
+  // round-number vertices sit on Inkscape's seed grid; by #35, a fifth holding a slice, a chord
+  // and an open arc.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "e9d487cce974d1a2bb22c1f47988f9f2750e258c43966d792bf97a37807b65db",
+    "38cd2ed042e8944eba50d124289ea629f831c6f7033dd0a1ba22fdea0bfd2054",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",

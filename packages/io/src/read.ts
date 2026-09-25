@@ -32,6 +32,7 @@ import {
 import { generateKeyBetween } from "fractional-indexing";
 import {
   alpha,
+  arcOf,
   idOf,
   MITER_LIMIT,
   NS,
@@ -680,15 +681,7 @@ class Reader {
    * parameters. Anything else reads as the Path its d draws.
    */
   private star(e: Element) {
-    const type = e.getAttributeNS(NS.sodipodi, "type");
-    if (type === "arc") {
-      this.warn(
-        "ARC_AS_PATH",
-        "",
-        "Ellipse arcs and slices import as Paths until the ellipse gains angles.",
-      );
-    }
-    if (type !== "star") return undefined;
+    if (e.getAttributeNS(NS.sodipodi, "type") !== "star") return undefined;
     const at = (name: string) => Number(e.getAttributeNS(NS.sodipodi, name));
     const ink = (name: string) => Number(e.getAttributeNS(NS.inkscape, name) || 0);
     const params = { cx: at("cx"), cy: at("cy") };
@@ -726,6 +719,43 @@ class Reader {
       return undefined;
     }
     return { ...params, shape };
+  }
+
+  /**
+   * An Inkscape arc that an ellipse holds (ADR-0025): its centre, radii, angles and arc type, as
+   * Inkscape reads them, a missing number 0. Anything else reads as the Path its d draws.
+   */
+  private arc(e: Element) {
+    if (e.getAttributeNS(NS.sodipodi, "type") !== "arc") return undefined;
+    const at = (name: string) => Number(e.getAttributeNS(NS.sodipodi, name));
+    const [cx = 0, cy = 0, rx = 0, ry = 0, start = 0, end = 0] = [
+      "cx",
+      "cy",
+      "rx",
+      "ry",
+      "start",
+      "end",
+    ].map(at);
+    if (![cx, cy, rx, ry, start, end].every(Number.isFinite) || !(rx >= 0 && ry >= 0)) {
+      this.warn(
+        "ARC_AS_PATH",
+        "",
+        "An arc with parameters Zibel cannot hold imports as the Path its d draws.",
+      );
+      return undefined;
+    }
+    return {
+      cx,
+      cy,
+      rx,
+      ry,
+      ...arcOf({
+        start,
+        end,
+        type: e.getAttributeNS(NS.sodipodi, "arc-type") || null,
+        open: e.getAttributeNS(NS.sodipodi, "open") === "true",
+      }),
+    };
   }
 
   /**
@@ -850,6 +880,19 @@ class Reader {
         return path(segments);
       }
       case "path": {
+        const arc = star ? undefined : this.arc(e);
+        if (arc) {
+          const { cx, cy, rx, ry, ...angles } = arc;
+          return {
+            type: "ellipse",
+            x: x(cx - rx),
+            y: y(cy - ry),
+            width: size(2 * rx),
+            height: size(2 * ry),
+            ...angles,
+            transform,
+          };
+        }
         if (!star) {
           try {
             return path(normalizePath(e.getAttribute("d") ?? "", "d"));

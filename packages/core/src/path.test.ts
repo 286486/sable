@@ -4,6 +4,7 @@ import { formatPath, normalizePath, parsePath, pathBounds, shapeSegments } from 
 import type { Rect, Shape } from "./schema.ts";
 
 const regular = { angle: 0, rounded: 0, randomized: 0 };
+const WHOLE = { startAngle: 0, endAngle: 360, arcType: "slice" } as const;
 
 const errorOf = (fn: () => unknown) => {
   try {
@@ -83,7 +84,7 @@ it("derives d for each Live Shape, with bounds equal to the shape's box", () => 
       { x: 0, y: 0, width: 40, height: 20 },
     ],
     [
-      { type: "ellipse", x: 10, y: 10, width: 80, height: 40 },
+      { type: "ellipse", x: 10, y: 10, width: 80, height: 40, ...WHOLE },
       null,
       { x: 10, y: 10, width: 80, height: 40 },
     ],
@@ -120,8 +121,37 @@ it("derives d for each Live Shape, with bounds equal to the shape's box", () => 
   }
   // An ellipse starts at its top and runs in cubics.
   expect(
-    formatPath(shapeSegments({ type: "ellipse", x: 10, y: 10, width: 80, height: 40 })),
+    formatPath(shapeSegments({ type: "ellipse", x: 10, y: 10, width: 80, height: 40, ...WHOLE })),
   ).toMatch(/^M 50 10 C/);
+});
+
+it("cuts an ellipse into a slice, a chord or an open arc, clockwise from 3 o'clock (ADR-0025)", () => {
+  const box = { x: 40, y: 50, width: 120, height: 60 };
+  const pie = (startAngle: number, endAngle: number, arcType: "slice" | "chord" | "open") =>
+    shapeSegments({ type: "ellipse", ...box, startAngle, endAngle, arcType });
+  const bounds = (segments: ReturnType<typeof pie>) => {
+    const b = pathBounds(segments);
+    return (
+      b && Object.fromEntries(Object.entries(b).map(([k, v]) => [k, Math.round(v * 1e9) / 1e9]))
+    );
+  };
+  // Inkscape 1.2.2 draws this slice from 160,80 through 100,50, then v 30 z.
+  const arc =
+    "M 160 80 C 160 96.569 133.137 110 100 110 C 66.863 110 40 96.569 40 80 C 40 63.431 66.863 50 100 50";
+  expect(formatPath(pie(0, 270, "slice"))).toBe(`${arc} L 100 80 Z`);
+  expect(formatPath(pie(0, 270, "chord"))).toBe(`${arc} Z`);
+  expect(formatPath(pie(0, 270, "open"))).toBe(arc);
+  for (const type of ["slice", "chord", "open"] as const)
+    expect(bounds(pie(0, 270, type))).toEqual(box);
+  // An end before the start wraps through 0°.
+  const right = pie(270, 90, "chord");
+  const point = (args: number[] = []) => args.slice(-2).map((v) => Math.round(v * 1e9) / 1e9);
+  expect(point(right[0]?.args)).toEqual([100, 50]);
+  expect(point(right.at(-2)?.args)).toEqual([100, 110]);
+  expect(bounds(right)).toEqual({ x: 100, y: 50, width: 60, height: 60 });
+  expect(bounds(pie(0, 90, "slice"))).toEqual({ x: 100, y: 80, width: 60, height: 30 });
+  // Equal angles draw the whole ellipse, closed, whatever the arc type.
+  expect(formatPath(pie(57.296, 57.296, "open"))).toBe(formatPath(pie(0, 360, "slice")));
 });
 
 it("clamps the corner radius and draws four arcs", () => {

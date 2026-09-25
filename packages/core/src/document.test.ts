@@ -217,6 +217,24 @@ it("keeps a star's and a polygon's Inkscape parameters, 0 when omitted (ADR-0024
   expect(() => createNodes(doc, [{ ...star, points: 5, rounded: 11 } as never])).toThrow(/rounded/);
 });
 
+it("keeps an ellipse's angles and arc type, the whole slice when omitted (ADR-0025)", () => {
+  const { doc, defaultLayerId: layer } = newDoc();
+  const ellipse = { type: "ellipse" as const, parentId: layer, x: 0, y: 0, width: 20, height: 10 };
+  const { nodes } = createNodes(doc, [
+    { ...ellipse, startAngle: 300, endAngle: 60, arcType: "chord" },
+    ellipse,
+  ]);
+  expect(nodes[0]).toMatchObject({ startAngle: 300, endAngle: 60, arcType: "chord" });
+  expect(nodes[1]).toMatchObject({ startAngle: 0, endAngle: 360, arcType: "slice" });
+  for (const [key, value] of [
+    ["startAngle", 360],
+    ["endAngle", 0],
+    ["arcType", "pie"],
+  ] as const) {
+    expect(() => createNodes(doc, [{ ...ellipse, [key]: value } as never])).toThrow(key);
+  }
+});
+
 it("returns INVALID_PATH at the item's d", () => {
   const { doc, defaultLayerId } = newDoc();
   expect(

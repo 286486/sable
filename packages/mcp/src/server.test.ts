@@ -36,6 +36,17 @@ describe("write tools pass the write and its options apart", () => {
       { type: "group", parentId: "p", children: [{ type: "line", x1: 0, y1: 0, x2: 1, y2: 1 }] },
       { type: "rect", parentId: "p", x: 0, y: 0, width: 10, height: 10 },
       { type: "ellipse", parentId: "p", x: 0, y: 0, width: 10, height: 10 },
+      {
+        type: "ellipse",
+        parentId: "p",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        startAngle: 300,
+        endAngle: 60,
+        arcType: "chord",
+      },
       { type: "polygon", parentId: "p", cx: 0, cy: 0, radius: 5, sides: 6 },
       {
         type: "star",
@@ -72,7 +83,8 @@ describe("write tools pass the write and its options apart", () => {
       { type: "layer", parentId: null },
       { type: "group", children: [{ type: "line" }] },
       { type: "rect", radius: 0 },
-      { type: "ellipse" },
+      { type: "ellipse", startAngle: 0, endAngle: 360, arcType: "slice" },
+      { type: "ellipse", startAngle: 300, endAngle: 60, arcType: "chord" },
       { type: "polygon", angle: 0, rounded: 0, randomized: 0 },
       { type: "star", angle: 0, twist: 10, rounded: 0.3, randomized: 0.1 },
       { type: "path", fillRule: "nonzero" },
@@ -80,7 +92,7 @@ describe("write tools pass the write and its options apart", () => {
       { type: "text", kind: "area", width: 50, height: 20, content: "a\nb", fontSize: 12 },
       { type: "image", src: "data:image/png;base64,AAAA", preserveAspectRatio: "none" },
     ]);
-    expect(sent?.[9]).not.toHaveProperty("appearance");
+    expect(sent?.[10]).not.toHaveProperty("appearance");
     await call("zibel_node_create", { docId: "d", nodes: [nodes[2]] });
     expect(service.createNodes.mock.calls[1]?.[2]).toEqual({ partial: false });
   });
@@ -569,7 +581,15 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("zibel_node_update")).toContain("leading");
   expect(described("zibel_node_create")).toContain("image {");
   expect(described("zibel_node_update")).toContain("preserveAspectRatio");
-  for (const param of ["angle", "twist", "rounded", "randomized"]) {
+  for (const param of [
+    "angle",
+    "twist",
+    "rounded",
+    "randomized",
+    "startAngle",
+    "endAngle",
+    "arcType",
+  ]) {
     expect(described("zibel_node_create")).toContain(param);
     expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${param}"`);
   }

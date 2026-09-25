@@ -103,7 +103,7 @@ it("reads a Path without fillRule as nonzero and keeps evenodd", () => {
   expect(rule(JSON.stringify(file))).toMatchObject({ fillRule: "evenodd" });
 });
 
-it("reads a star and a polygon written before ADR-0024 with its parameters at 0", () => {
+it("reads a star, a polygon and an ellipse written before ADR-0024 and ADR-0025 with defaults", () => {
   const file = JSON.parse(serializeDocument(scene()));
   const path = file.nodes.find((n: { type: string }) => n.type === "path");
   const { d: _d, fillRule: _rule, ...base } = path;
@@ -127,12 +127,25 @@ it("reads a star and a polygon written before ADR-0024 with its parameters at 0"
       radius: 9,
       sides: 6,
     },
+    {
+      ...base,
+      id: "01M38T29SRSTAR0000000000A2",
+      index: "azW",
+      parentId: path.parentId,
+      type: "ellipse",
+      x: 0,
+      y: 0,
+      width: 9,
+      height: 6,
+    },
   );
-  const [star, polygon] = parseDocument(JSON.stringify(file)).nodes.filter(
-    (n) => n.type === "star" || n.type === "polygon",
+  const [star, polygon, ellipse] = parseDocument(JSON.stringify(file)).nodes.filter(
+    (n) => n.type === "star" || n.type === "polygon" || n.type === "ellipse",
   );
   expect(star).toMatchObject({ angle: 0, twist: 0, rounded: 0, randomized: 0 });
   expect(polygon).toMatchObject({ angle: 0, rounded: 0, randomized: 0 });
+  // Before ADR-0025 an ellipse had no angles: it opens whole.
+  expect(ellipse).toMatchObject({ startAngle: 0, endAngle: 360, arcType: "slice" });
 });
 
 describe("migrations", () => {

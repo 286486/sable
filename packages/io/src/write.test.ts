@@ -105,6 +105,37 @@ it("writes a star's Inkscape parameters as set, and its centre and radii at full
   expect(formatPath(shapeSegments(star))).toContain("C");
 });
 
+it("writes a cut ellipse, or a whole one with other parameters, as an Inkscape arc (ADR-0025)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const box = { type: "ellipse" as const, parentId, x: 40, y: 50, width: 120, height: 60 };
+  const [slice, chord, open, whole] = createNodes(doc, [
+    { ...box, endAngle: 270 },
+    { ...box, endAngle: 270, arcType: "chord" },
+    { ...box, startAngle: 90, endAngle: 45, arcType: "open" },
+    // Whole, but not the defaults, so it keeps its arc type.
+    { ...box, startAngle: 30, endAngle: 30, arcType: "chord" },
+  ]).nodes;
+  const svg = toSvg(doc);
+  const at =
+    'sodipodi:type="arc" sodipodi:cx="100" sodipodi:cy="80" sodipodi:rx="60" sodipodi:ry="30"';
+  for (const n of [slice, chord, open, whole]) {
+    expect(svg).toContain(`d="${formatPath(shapeSegments(n as ShapeNode))}"`);
+  }
+  expect(svg).toContain(
+    `<path ${at} sodipodi:start="0" sodipodi:end="${(3 * Math.PI) / 2}" sodipodi:arc-type="slice" d="M 160 80 C `,
+  );
+  expect(svg).toContain(
+    `<path ${at} sodipodi:start="0" sodipodi:end="${(3 * Math.PI) / 2}" sodipodi:arc-type="chord" sodipodi:open="true" d="M 160 80 C `,
+  );
+  expect(svg).toContain(
+    `<path ${at} sodipodi:start="${Math.PI / 2}" sodipodi:end="${Math.PI / 4}" sodipodi:arc-type="arc" sodipodi:open="true" d="M 100 110 C `,
+  );
+  expect(svg).toContain(
+    `sodipodi:start="${Math.PI / 6}" sodipodi:end="${Math.PI / 6}" sodipodi:arc-type="chord"`,
+  );
+  expect(svg.match(/<ellipse /g)).toBeNull();
+});
+
 it("paints an Appearance stack bottom to top in a <g zibel:stack>, with Stroke attributes only when set", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const [line] = createNodes(doc, [

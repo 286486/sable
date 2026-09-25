@@ -248,6 +248,21 @@ describe("updateNodes", () => {
     ).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.twist" });
   });
 
+  it("changes an ellipse's angles and arc type, and refuses an arc type on a rect", () => {
+    const { doc, defaultLayerId } = newDoc();
+    const at = { parentId: defaultLayerId, x: 0, y: 0, width: 20, height: 10 };
+    const [ellipse, rect] = createNodes(doc, [
+      { type: "ellipse", ...at },
+      { type: "rect", ...at },
+    ]).nodes;
+    if (!ellipse || !rect) throw new Error("setup");
+    updateNodes(doc, [{ nodeId: ellipse.id, patch: { endAngle: 180, arcType: "open" } }]);
+    expect(shape(doc, ellipse.id)).toMatchObject({ startAngle: 0, endAngle: 180, arcType: "open" });
+    expect(
+      errorOf(() => updateNodes(doc, [{ nodeId: rect.id, patch: { arcType: "open" } }])),
+    ).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.arcType" });
+  });
+
   it("normalises a Path's new d", () => {
     const { doc, p } = setup();
     updateNodes(doc, [{ nodeId: p.id, patch: { d: "M 0 0 L 10.0004 0" } }]);

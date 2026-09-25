@@ -133,6 +133,47 @@ export function starAttrs(n: Extract<ShapeNode, { type: "polygon" | "star" }>) {
   };
 }
 
+/** An ellipse's arc type as `sodipodi:arc-type`: Inkscape calls an open arc `arc` (ADR-0025). */
+const ARC_TYPES = { slice: "slice", chord: "chord", open: "arc" } as const;
+
+/**
+ * The `sodipodi:` parameters of an Inkscape arc, from which Inkscape rebuilds a cut ellipse on
+ * load (ADR-0025): its centre and radii, its angles in radians at full precision, its arc type.
+ * A Node stored before ADR-0025 reads as whole, so it is not an arc.
+ */
+export function arcAttrs(n: Extract<ShapeNode, { type: "ellipse" }>) {
+  const { startAngle = 0, endAngle = 360, arcType = "slice" } = n;
+  const [rx, ry] = [n.width / 2, n.height / 2];
+  return {
+    arc: startAngle !== 0 || endAngle !== 360 || arcType !== "slice",
+    cx: n.x + rx,
+    cy: n.y + ry,
+    rx,
+    ry,
+    start: (startAngle * Math.PI) / 180,
+    end: (endAngle * Math.PI) / 180,
+    type: ARC_TYPES[arcType],
+    // Inkscape's own writer adds it for readers older than arc-type.
+    open: arcType !== "slice",
+  };
+}
+
+/**
+ * The angles and arc type an Inkscape arc holds, the inverse of `arcAttrs` (ADR-0025): degrees
+ * within one turn at 3 decimals, a start of 360 read as 0 and an end of 0 as 360. An unknown
+ * `arc-type` is a slice; with none, `sodipodi:open` makes an open arc, as Inkscape 1.2.2 reads it.
+ */
+export function arcOf(p: { start: number; end: number; type: string | null; open: boolean }) {
+  const turn = (rad: number) =>
+    (Math.round((((((rad * 180) / Math.PI) % 360) + 360) % 360) * 1000) / 1000) % 360;
+  const types: Record<string, "chord" | "open"> = { chord: "chord", arc: "open" };
+  return {
+    startAngle: turn(p.start),
+    endAngle: turn(p.end) || 360,
+    arcType: p.type === null ? (p.open ? "open" : "slice") : (types[p.type] ?? "slice"),
+  } as const;
+}
+
 /** Radians as degrees at 9 decimals, which absorbs the float error of the round trip (ADR-0024). */
 const degrees = (rad: number) => Math.round(((rad * 180) / Math.PI) * 1e9) / 1e9 || 0;
 

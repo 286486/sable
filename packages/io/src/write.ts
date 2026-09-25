@@ -23,6 +23,7 @@ import {
   ZibelError,
 } from "@zibel/core";
 import {
+  arcAttrs,
   areaId,
   clipId,
   paintAttrs,
@@ -194,8 +195,22 @@ function shape(n: ShapeNode): string {
       return `rect${attrs(num({ x, y, width, height, ...(r > 0 && { rx: r, ry: r }) }))}`;
     }
     case "ellipse": {
-      const [rx, ry] = [n.width / 2, n.height / 2];
-      const [cx, cy] = [n.x + rx, n.y + ry];
+      const { arc, cx, cy, rx, ry, start, end, type, open } = arcAttrs(n);
+      if (arc) {
+        // Inkscape's arc tool rebuilds the outline from these on load, so d is the same outline.
+        return `path${attrs({
+          "sodipodi:type": "arc",
+          "sodipodi:cx": formatNumber(cx),
+          "sodipodi:cy": formatNumber(cy),
+          "sodipodi:rx": formatNumber(rx),
+          "sodipodi:ry": formatNumber(ry),
+          "sodipodi:start": start,
+          "sodipodi:end": end,
+          "sodipodi:arc-type": type,
+          "sodipodi:open": open ? "true" : undefined,
+          d: formatPath(shapeSegments(n)),
+        })}`;
+      }
       return rx === ry
         ? `circle${attrs(num({ cx, cy, r: rx }))}`
         : `ellipse${attrs(num({ cx, cy, rx, ry }))}`;

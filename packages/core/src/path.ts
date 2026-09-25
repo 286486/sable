@@ -210,6 +210,24 @@ function arcToCubics(
   let delta = angle(ux, uy, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
   if (!sweep && delta > 0) delta -= 2 * Math.PI;
   else if (sweep && delta < 0) delta += 2 * Math.PI;
+  return ellipseCubics(cx, cy, rx, ry, phi, start, delta, [x2, y2]);
+}
+
+/**
+ * Cubics of at most 90° each along an ellipse rotated by `phi` radians, from parametric angle
+ * `start` through `delta` radians, the last one ending exactly at `end` when given.
+ */
+function ellipseCubics(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  phi: number,
+  start: number,
+  delta: number,
+  end?: [number, number],
+): Segment[] {
+  const [cos, sin] = [Math.cos(phi), Math.sin(phi)];
   const n = Math.max(1, Math.ceil(Math.abs(delta) / (Math.PI / 2) - 1e-9));
   const step = delta / n;
   const k = (4 / 3) * Math.tan(step / 4);
@@ -224,7 +242,7 @@ function arcToCubics(
   return Array.from({ length: n }, (_, i) => {
     const [ta, tb] = [start + i * step, start + (i + 1) * step];
     const [ax = 0, ay = 0] = at(ta);
-    const [bx = 0, by = 0] = i === n - 1 ? [x2, y2] : at(tb);
+    const [bx = 0, by = 0] = (i === n - 1 && end) || at(tb);
     const [dax = 0, day = 0] = tangent(ta);
     const [dbx = 0, dby = 0] = tangent(tb);
     return { cmd: "C", args: [ax + k * dax, ay + k * day, bx - k * dbx, by - k * dby, bx, by] };
@@ -420,6 +438,21 @@ export function shapeSegments(shape: Shape): Segment[] {
       const ry = shape.height / 2;
       const cx = shape.x + rx;
       const cy = shape.y + ry;
+      // A Node stored before ADR-0025 has no angles: it is whole.
+      const { startAngle = 0, endAngle = 360, arcType = "slice" } = shape;
+      const sweep = (((endAngle - startAngle) % 360) + 360) % 360;
+      if (sweep > 0) {
+        const start = (startAngle * Math.PI) / 180;
+        const arc = [
+          M(cx + rx * Math.cos(start), cy + ry * Math.sin(start)),
+          ...ellipseCubics(cx, cy, rx, ry, 0, start, (sweep * Math.PI) / 180),
+        ];
+        return arcType === "slice"
+          ? [...arc, L(cx, cy), Z]
+          : arcType === "chord"
+            ? [...arc, Z]
+            : arc;
+      }
       const kx = rx * KAPPA;
       const ky = ry * KAPPA;
       return [
