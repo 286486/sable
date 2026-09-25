@@ -30,7 +30,7 @@ import {
   TextShape,
   textFrame,
 } from "./schema.ts";
-import { textBox } from "./text.ts";
+import { canonicalRanges, textBox } from "./text.ts";
 
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
 export const newId = () => ulid();
@@ -129,13 +129,14 @@ export function createNodes(
     if (input.type === "layer" || input.type === "group") {
       node = { ...at, type: input.type, name };
     } else if (input.type === "text") {
-      const text = TextShape.superRefine(textFrame).parse(input);
+      const { ranges, ...text } = TextShape.superRefine(textFrame).parse(input);
       const appearance = paint(
         input.appearance ?? defaultTypeAppearance(),
         `${path}.appearance`,
         text,
       );
-      node = { ...at, ...text, name, appearance };
+      const canonical = canonicalRanges(ranges, `${path}.ranges`);
+      node = { ...at, ...text, ...(canonical && { ranges: canonical }), name, appearance };
     } else if (input.type === "image") {
       node = { ...at, ...imageOf(doc, input, path), name };
     } else {

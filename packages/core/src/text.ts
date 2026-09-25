@@ -1,4 +1,5 @@
-import type { Node, Rect, WriteReceipt } from "./schema.ts";
+import { parseColor } from "./color.ts";
+import type { CharacterRange, Node, Rect, WriteReceipt } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
 /** Illustrator's weight names and their CSS `font-weight` (ADR-0028). */
@@ -45,6 +46,53 @@ export function bundledStyle(style?: FontStyle): BundledStyle {
   // ponytail: CSS matching over the bundled weights 400, 700 and 900 only; generalise it when a face
   // of another weight ships.
   return fontStyleName(weight <= 500 ? 400 : weight <= 700 ? 700 : 900, italic) as BundledStyle;
+}
+
+type Overrides = Omit<CharacterRange, "start" | "end">;
+/** A Character Range as written, its fill not parsed yet. */
+type RangeInput = Omit<CharacterRange, "fill"> & { fill?: unknown };
+
+/**
+ * Character Ranges in canonical form (ADR-0029): colours parsed, a later range winning attribute by
+ * attribute, a shift or rotation of 0 clearing, then sorted runs that do not overlap, adjacent equal
+ * runs merged and runs without overrides dropped. None left is `undefined`.
+ */
+export function canonicalRanges(
+  ranges: RangeInput[] | undefined,
+  path: string,
+): CharacterRange[] | undefined {
+  // ponytail: per-character expansion, O(Σ range lengths); sweep the boundaries if it shows in a
+  // profile.
+  const chars: Overrides[] = [];
+  ranges?.forEach((r, i) => {
+    const fill = r.fill === undefined ? undefined : parseColor(r.fill, `${path}[${i}].fill`);
+    for (let c = r.start; c < r.end; c++) {
+      const o = { ...chars[c] };
+      if (fill !== undefined) o.fill = fill;
+      for (const k of ["baselineShift", "rotation"] as const) {
+        if (r[k] === 0) delete o[k];
+        else if (r[k] !== undefined) o[k] = r[k];
+      }
+      chars[c] = o;
+    }
+  });
+  const out: CharacterRange[] = [];
+  for (let c = 0; c < chars.length; c++) {
+    const o = chars[c] ?? {};
+    if (Object.keys(o).length === 0) continue;
+    const last = out.at(-1);
+    if (
+      last?.end === c &&
+      last.fill === o.fill &&
+      last.baselineShift === o.baselineShift &&
+      last.rotation === o.rotation
+    ) {
+      last.end++;
+    } else {
+      out.push({ start: c, end: c + 1, ...o });
+    }
+  }
+  return out.length ? out : undefined;
 }
 
 /** What lays out a text: its kind, anchor or frame, content and character attributes. */

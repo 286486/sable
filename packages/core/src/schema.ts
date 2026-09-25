@@ -277,6 +277,22 @@ const { rect, ...others } = SHAPES;
 export const Shape = z.discriminatedUnion("type", [rect, ...Object.values(others)]);
 export type Shape = z.output<typeof Shape>;
 
+/** Overrides for the characters from `start` up to `end` of a text's content (ADR-0029). */
+export const CharacterRange = z.object({
+  start: z.number().int().min(0),
+  end: z.number().int().min(1),
+  fill: Color.optional().describe("Replaces every Fill's paint for these characters."),
+  baselineShift: z.number().optional().describe("In pt, positive up."),
+  rotation: z
+    .number()
+    .min(-360)
+    .max(360)
+    .optional()
+    .describe("Degrees clockwise about each character's baseline origin."),
+});
+/** A stored Character Range, its fill parsed to `#RRGGBB` or `#RRGGBBAA`. */
+export type CharacterRange = Omit<z.output<typeof CharacterRange>, "fill"> & { fill?: string };
+
 /**
  * A text (ADR-0013, ADR-0022): Point Type from its baseline origin, or Area Type in its frame,
  * measured in the one bundled font. `textFrame` checks that the frame matches the kind.
@@ -321,12 +337,48 @@ export const TextShape = z.object({
     .positive()
     .optional()
     .describe("Distance between baselines in pt; omit for Auto, 120% of fontSize."),
+  tracking: z
+    .number()
+    .min(-1000)
+    .max(10_000)
+    .optional()
+    .describe("Space after each character in 1/1000 em, -1000 to 10000; omit for 0."),
+  ranges: z
+    .array(CharacterRange)
+    .max(10_000)
+    .optional()
+    .describe(
+      "Character Ranges over content's code points, end exclusive; a later range wins, stored canonical.",
+    ),
 });
-/** Area Type needs its frame, and Point Type has none (ADR-0022). */
-export function textFrame(
-  t: { kind?: string; width?: number; height?: number },
+/** Every Character Range lies inside the content, counted in code points (ADR-0029). */
+export function textRanges(
+  t: { content?: string; ranges?: { start: number; end: number }[] | undefined },
   ctx: z.RefinementCtx,
 ) {
+  const length = [...(t.content ?? "")].length;
+  t.ranges?.forEach(({ start, end }, i) => {
+    if (start >= end) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ranges", i, "end"],
+        message: "end must be after start.",
+      });
+    } else if (end > length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ranges", i, "end"],
+        message: `end is past the content's ${length} characters (code points, a hard return included).`,
+      });
+    }
+  });
+}
+/** Area Type needs its frame, and Point Type has none (ADR-0022); `textRanges` holds too. */
+export function textFrame(
+  t: Parameters<typeof textRanges>[0] & { kind?: string; width?: number; height?: number },
+  ctx: z.RefinementCtx,
+) {
+  textRanges(t, ctx);
   for (const key of ["width", "height"] as const) {
     if (t.kind === "area" && t[key] === undefined) {
       ctx.addIssue({ code: "custom", path: [key], message: "Area Type needs width and height." });
@@ -339,7 +391,9 @@ export function textFrame(
     }
   }
 }
-export type TextShape = z.output<typeof TextShape>;
+export type TextShape = Omit<z.output<typeof TextShape>, "ranges"> & {
+  ranges?: CharacterRange[] | undefined;
+};
 
 /** An Image (ADR-0023): a file stored once per Document, drawn in a frame. */
 export const ImageShape = z.object({

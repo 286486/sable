@@ -856,6 +856,71 @@ describe("text", () => {
     expect(() => createNodes(doc, [input])).toThrow(message);
     expect(doc.nodes.size).toBe(1);
   });
+
+  describe("tracking and Character Ranges (ADR-0029)", () => {
+    const create = (extra: object, content = "Hello") => {
+      const { doc, defaultLayerId } = newDoc();
+      return createNodes(doc, [{ ...text(defaultLayerId, content), ...extra } as never]).nodes[0];
+    };
+
+    it("stores ranges canonical: later wins per attribute, 0 clears, sorted and split", () => {
+      const node = create({
+        ranges: [
+          { start: 0, end: 3, fill: "#FF0000" },
+          { start: 2, end: 5, fill: "#0000FF", rotation: 10 },
+          { start: 4, end: 5, rotation: 0 },
+        ],
+      });
+      expect(node).toHaveProperty("ranges", [
+        { start: 0, end: 2, fill: "#FF0000" },
+        { start: 2, end: 4, fill: "#0000FF", rotation: 10 },
+        { start: 4, end: 5, fill: "#0000FF" },
+      ]);
+    });
+
+    it("merges adjacent ranges with the same overrides, and drops ones with none", () => {
+      expect(
+        create({
+          ranges: [
+            { start: 0, end: 1, fill: "#F00000" },
+            { start: 1, end: 2, fill: "#F00000" },
+          ],
+        }),
+      ).toHaveProperty("ranges", [{ start: 0, end: 2, fill: "#F00000" }]);
+      expect(create({ ranges: [{ start: 0, end: 2, baselineShift: 0 }] })).not.toHaveProperty(
+        "ranges",
+      );
+    });
+
+    it("counts code points, not UTF-16 units", () => {
+      expect(create({ ranges: [{ start: 2, end: 3, rotation: 5 }] }, "a😀b")).toHaveProperty(
+        "ranges",
+        [{ start: 2, end: 3, rotation: 5 }],
+      );
+      expect(() => create({ ranges: [{ start: 3, end: 4, rotation: 5 }] }, "a😀b")).toThrow();
+    });
+
+    it.each([
+      { ranges: [{ start: 0, end: 6, rotation: 5 }] },
+      { ranges: [{ start: 2, end: 2, rotation: 5 }] },
+      { ranges: [{ start: 0, end: 1, rotation: 361 }] },
+      { tracking: 10_001 },
+    ])("refuses %j", (extra) => {
+      expect(() => create(extra)).toThrow();
+    });
+
+    it("answers a bad range colour with INVALID_COLOR and a hint", () => {
+      expect(codeOf(() => create({ ranges: [{ start: 0, end: 1, fill: "red" }] }))).toMatchObject({
+        code: "INVALID_COLOR",
+        path: "nodes[0].ranges[0].fill",
+        hint: expect.stringContaining("#FF0000"),
+      });
+    });
+
+    it("stores tracking as given", () => {
+      expect(create({ tracking: -50 })).toMatchObject({ tracking: -50 });
+    });
+  });
 });
 
 it("touches two rects that share only an edge, not two apart", () => {
