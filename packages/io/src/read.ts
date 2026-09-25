@@ -564,6 +564,7 @@ class Reader {
   private rangeFill(s: Style, own: Style): string | undefined {
     const [fill, ownFill] = [s.fill ?? "black", own.fill ?? "black"];
     if (fill === ownFill && s["fill-opacity"] === own["fill-opacity"]) return undefined;
+    if (fill.trim() === "none" && ownFill.trim() === "none") return undefined;
     const color = this.color(fill, s, s["fill-opacity"]);
     if (!color || ownFill.trim() === "none") {
       this.warn(
@@ -630,7 +631,7 @@ class Reader {
     const em =
       spacing === "normal"
         ? 0
-        : spacing.endsWith("em")
+        : /[\d.]em$/.test(spacing)
           ? Number.parseFloat(spacing)
           : (length(spacing) ?? 0) / (length(own["font-size"]) ?? 12);
     const tracking = n3(Math.min(10_000, Math.max(-1000, em * 1000)));

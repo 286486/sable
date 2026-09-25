@@ -719,6 +719,7 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
 
   it.each([
     ["0.1em", 100],
+    ["1rem", undefined],
     ["normal", undefined],
   ])("reads letter-spacing %s as tracking %s", (spacing, tracking) => {
     expect(text(`<text letter-spacing="${spacing}">ab</text>`).tracking).toBe(tracking);
@@ -745,6 +746,12 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
   ])("warns for what a range cannot hold, and makes none: %s", (body) => {
     const file = read(body);
     expect(file.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
+    expect(leaves(file).find((n) => n.type === "text")).not.toHaveProperty("ranges");
+  });
+
+  it("reads a none fill under a none fill as no range and no warning", () => {
+    const file = read('<text fill="none" stroke="#000">a<tspan fill-opacity="1">b</tspan></text>');
+    expect(file.warnings).toEqual([]);
     expect(leaves(file).find((n) => n.type === "text")).not.toHaveProperty("ranges");
   });
 

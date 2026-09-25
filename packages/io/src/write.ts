@@ -410,7 +410,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[]): string {
   const { lines, overflow } = layoutText(n);
   const area = n.kind === "area";
   const role = area ? {} : { "sodipodi:role": "line" };
-  // A nested tspan for each span with overrides, bare text for the rest (ADR-0029). A range fill
+  // A nested tspan for each run of characters with overrides, bare text for the rest (ADR-0029). A range fill
   // goes only where a Fill paints, opaque where the element's fill-opacity would inherit.
   const painted = a.fill !== "none";
   const spans = (start: number, t: string) => {

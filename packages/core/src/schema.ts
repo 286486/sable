@@ -357,6 +357,15 @@ export function textRanges(
   ctx: z.RefinementCtx,
 ) {
   const length = [...(t.content ?? "")].length;
+  // Canonicalising expands every range per character; import's never cover more than the content.
+  const covered = (t.ranges ?? []).reduce((sum, r) => sum + Math.max(0, r.end - r.start), 0);
+  if (covered > 100_000) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["ranges"],
+      message: `The ranges cover ${covered} characters in all, over the limit of 100000; merge overlapping ranges.`,
+    });
+  }
   t.ranges?.forEach(({ start, end }, i) => {
     if (start >= end) {
       ctx.addIssue({

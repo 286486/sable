@@ -917,6 +917,40 @@ describe("text", () => {
       });
     });
 
+    it("refuses ranges that cover more than 100 000 characters in all", () => {
+      const ranges = Array.from({ length: 11 }, () => ({ start: 0, end: 10_000, rotation: 5 }));
+      expect(() => create({ ranges }, "x".repeat(10_000))).toThrow(/100000|100 000/);
+    });
+
+    it("spans a default gradient over the bounds its ranges give", () => {
+      const { doc, defaultLayerId } = newDoc();
+      const [node] = createNodes(doc, [
+        {
+          ...text(defaultLayerId, "H"),
+          ranges: [{ start: 0, end: 1, baselineShift: 20 }],
+          appearance: {
+            fills: [
+              {
+                type: "gradient",
+                gradient: {
+                  type: "linear",
+                  stops: [
+                    { offset: 0, color: "#000000" },
+                    { offset: 1, color: "#FFFFFF" },
+                  ],
+                },
+              },
+            ],
+          },
+        } as never,
+      ]).nodes;
+      const b = bounds(doc, node as Node);
+      const [fill] = (node as Extract<Node, { type: "text" }>).appearance.fills;
+      if (!b || fill?.type !== "gradient" || fill.gradient.type !== "linear")
+        throw new Error("setup");
+      expect(fill.gradient.start.y).toBeCloseTo(b.y + b.height / 2);
+    });
+
     it("stores tracking as given", () => {
       expect(create({ tracking: -50 })).toMatchObject({ tracking: -50 });
     });
