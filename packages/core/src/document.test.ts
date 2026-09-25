@@ -767,9 +767,17 @@ describe("text", () => {
       y: 50,
       content: "Hi",
       fontFamily: "Source Sans 3",
+      fontStyle: "Regular",
       fontSize: 12,
       appearance: { fills: [{ color: "#000000" }], strokes: [] },
     });
+  });
+
+  it("refuses a style name outside ADR-0028's, listing them", () => {
+    const { doc, defaultLayerId } = newDoc();
+    expect(() =>
+      createNodes(doc, [{ ...text(defaultLayerId), fontStyle: "Heavy" } as never]),
+    ).toThrow(/Black Italic/);
   });
 
   it("is bounded by its advances and the font's ascender and descender, and has no d", () => {

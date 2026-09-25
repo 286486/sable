@@ -123,6 +123,39 @@ it("places a PNG as an Image: node_get has its id, render draws it, export and o
   expect(back.nodes[0]).toMatchObject({ src: nodes[0].src });
 });
 
+it("keeps a style Zibel lacks and warns FONT_MISSING naming the face it renders in", async () => {
+  const doc = await newDoc();
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "text",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 50,
+        content: "Hi",
+        fontStyle: "Semibold",
+      },
+    ],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  expect(created.structuredContent.warnings).toEqual([
+    expect.objectContaining({
+      code: "FONT_MISSING",
+      nodeId: id,
+      message: expect.stringContaining("renders in Source Sans 3 Bold"),
+    }),
+  ]);
+  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+    .structuredContent.nodes;
+  expect(full).toMatchObject({ fontStyle: "Semibold" });
+  const updated = await call("zibel_node_update", {
+    docId: doc.docId,
+    updates: [{ nodeId: id, patch: { fontStyle: "Black Italic" } }],
+  });
+  expect(updated.structuredContent.warnings).toEqual([]);
+});
+
 it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3", async () => {
   const doc = await newDoc();
   const created = await call("zibel_node_create", {

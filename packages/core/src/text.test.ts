@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
-import { fontWarnings, layoutText, overflowWarnings, textBox } from "./text.ts";
+import { type FontStyle, fontWarnings, layoutText, overflowWarnings, textBox } from "./text.ts";
 
 // Read straight from SourceSans3-Regular.ttf, not from the generated table: unitsPerEm 1000,
 // hhea ascender 1000 and descender -326; advances H 652, i 246, space 200, .notdef 653.
@@ -41,11 +41,55 @@ it("carries each bundled face's advances", () => {
   expect(faces.Bold.notdef).toBe(690);
 });
 
+it("measures each style in the bundled face CSS matches it to (ADR-0028)", () => {
+  const width = (fontStyle?: FontStyle) =>
+    textBox({ x: 0, y: 0, content: "Hi", fontSize: 12, fontStyle }).width;
+  expect(width("Bold")).toBeCloseTo(at12(674 + 276));
+  expect(width("Semibold")).toBeCloseTo(width("Bold"));
+  expect(width("Medium")).toBeCloseTo(at12(652 + 246));
+  expect(width(undefined)).toBeCloseTo(at12(652 + 246));
+  expect(width("ExtraBold Italic")).toBeCloseTo(at12(664 + 276));
+});
+
+it("wraps Area Type by the advances of its style", () => {
+  const lines = (fontStyle: FontStyle) =>
+    layoutText({
+      kind: "area",
+      x: 0,
+      y: 0,
+      width: 24.5,
+      height: 100,
+      content: "Hi Hi",
+      fontSize: 12,
+      fontStyle,
+    }).lines.length;
+  expect([lines("Regular"), lines("Bold")]).toEqual([1, 2]);
+});
+
+it("warns for a style Zibel does not bundle, naming the face it renders in", () => {
+  const text = (id: string, fontFamily: string, fontStyle: string) =>
+    ({ id, type: "text", fontFamily, fontStyle }) as Parameters<typeof fontWarnings>[0][number];
+  expect(
+    fontWarnings([
+      text("a", "Source Sans 3", "Semibold"),
+      text("b", "Helvetica", "Bold"),
+      text("c", "Source Sans 3", "Black Italic"),
+    ]).map((w) => w.message),
+  ).toEqual([
+    "Source Sans 3 Semibold is not bundled, so it renders in Source Sans 3 Bold; the name is kept.",
+    "Helvetica Bold is not bundled, so it renders in Source Sans 3 Bold; the name is kept.",
+  ]);
+});
+
 it("warns once for each text in a font Zibel does not bundle", () => {
   const text = (id: string, fontFamily: string) =>
     ({ id, type: "text", fontFamily }) as Parameters<typeof fontWarnings>[0][number];
   expect(
-    fontWarnings([text("a", "Source Sans 3"), text("b", "Helvetica"), { id: "c", type: "rect" }]),
+    fontWarnings([
+      text("a", "Source Sans 3"),
+      text("b", "Helvetica"),
+      { id: "c", type: "rect" } as never,
+    ]),
   ).toEqual([
     {
       code: "FONT_MISSING",
