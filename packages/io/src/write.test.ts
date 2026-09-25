@@ -351,6 +351,69 @@ it("writes one <defs> before an Area Type's stack, for every paint to flow in", 
   expect(svg.match(new RegExp(`shape-inside:url\\(#area-z-${id}\\)`, "g"))).toHaveLength(2);
 });
 
+describe("tracking and Character Ranges (ADR-0029)", () => {
+  const svgOf = (extra: object, content = "Hello") => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    createNodes(doc, [{ type: "text", parentId, x: 0, y: 20, content, ...extra } as never]);
+    return toSvg(doc);
+  };
+
+  it("writes tracking as letter-spacing, and a nested tspan per span with overrides", () => {
+    const svg = svgOf({
+      fontSize: 20,
+      tracking: 100,
+      ranges: [
+        { start: 0, end: 1, fill: "#FF000080" },
+        { start: 2, end: 4, baselineShift: 3, rotation: -15 },
+      ],
+    });
+    expect(svg).toContain('font-size="20" letter-spacing="2" id=');
+    expect(svg).toContain(
+      '<tspan sodipodi:role="line" x="0" y="20"><tspan fill="#FF0000" fill-opacity="0.502">H</tspan>e<tspan baseline-shift="3" rotate="-15">ll</tspan>o</tspan>',
+    );
+  });
+
+  it("writes no range fill into an element that paints no Fill", () => {
+    const svg = svgOf({
+      appearance: { fills: [], strokes: [{ color: "#000000", width: 1 }] },
+      ranges: [{ start: 0, end: 1, fill: "#FF0000", rotation: 5 }],
+    });
+    expect(svg).toContain('<tspan rotate="5">H</tspan>');
+    expect(svg).not.toContain('fill="#FF0000"');
+  });
+
+  it("writes an opaque range fill as opaque inside a translucent Fill", () => {
+    const svg = svgOf({
+      appearance: { fills: [{ color: "#00000080" }], strokes: [] },
+      ranges: [{ start: 0, end: 1, fill: "#FF0000" }],
+    });
+    expect(svg).toContain('<tspan fill="#FF0000" fill-opacity="1">H</tspan>');
+  });
+
+  it("writes a range fill in every Fill's element and no Stroke's", () => {
+    const svg = svgOf({
+      appearance: {
+        fills: [{ color: "#000000" }, { color: "#00FF00" }],
+        strokes: [{ color: "#0000FF", width: 1 }],
+      },
+      ranges: [{ start: 0, end: 1, fill: "#FF0000" }],
+    });
+    expect(svg.match(/<tspan fill="#FF0000">H<\/tspan>/g)).toHaveLength(2);
+    expect(svg.match(/<text/g)).toHaveLength(3);
+  });
+
+  it("splits Area Type's hidden overflow at range boundaries too", () => {
+    const { svg } = areaText("ab\ncd", {
+      fontSize: 12,
+      height: 14,
+      ranges: [{ start: 3, end: 5, fill: "#FF0000" }],
+    });
+    expect(svg).toContain(
+      '<tspan style="visibility:hidden"><tspan fill="#FF0000">cd</tspan></tspan>',
+    );
+  });
+});
+
 it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape page", () => {
   const { doc } = createDocument({
     id: "d",
