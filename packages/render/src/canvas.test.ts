@@ -218,6 +218,20 @@ it("draws a font Zibel does not bundle in Source Sans 3, as render does", () => 
   expect(log).toContain('font=12px "Source Sans 3"');
 });
 
+it("draws a style in the bundled face it is measured in (ADR-0028)", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    { type: "text", parentId, x: 10, y: 50, content: "Hi", fontStyle: "Semibold Italic" },
+    { type: "text", parentId, x: 10, y: 80, content: "Hi", fontStyle: "Black" },
+  ]);
+  const { ctx, log } = recorder();
+  drawDocument(ctx, doc);
+  expect(log.filter((l) => l.startsWith("font="))).toEqual([
+    'font=italic 700 12px "Source Sans 3"',
+    'font=900 12px "Source Sans 3"',
+  ]);
+});
+
 it("fills a Path with its fill rule", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const d = "M 0 0 L 30 0 L 30 30 Z M 10 5 L 20 5 L 20 15 Z";

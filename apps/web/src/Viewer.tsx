@@ -1,7 +1,12 @@
 import { bounds, type Document, type Rect, serializeDocument, union } from "@zibel/core";
 import { toSvg } from "@zibel/io/write";
 import { drawDocument } from "@zibel/render/canvas";
-import fontUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
+import blackUrl from "@zibel/render/fonts/SourceSans3-Black.ttf?url";
+import blackItalicUrl from "@zibel/render/fonts/SourceSans3-BlackIt.ttf?url";
+import boldUrl from "@zibel/render/fonts/SourceSans3-Bold.ttf?url";
+import boldItalicUrl from "@zibel/render/fonts/SourceSans3-BoldIt.ttf?url";
+import italicUrl from "@zibel/render/fonts/SourceSans3-It.ttf?url";
+import regularUrl from "@zibel/render/fonts/SourceSans3-Regular.ttf?url";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { imageCache } from "./images.ts";
 import { Layers } from "./Layers.tsx";
@@ -33,10 +38,23 @@ const rectOf = (a: Point, b: Point): Rect => ({
 /** Pinch sends small deltas and passes through; a mouse-wheel notch (about 100) is capped to x1.65. */
 const wheelZoom = (deltaY: number) => Math.exp(-Math.max(-50, Math.min(50, deltaY)) * 0.01);
 
-// The font the Worker renders with (ADR-0013), loaded once per page.
-const font = new FontFace("Source Sans 3", `url(${fontUrl})`);
-document.fonts.add(font);
-const fontLoaded = font.load();
+// The faces the Worker renders with (ADR-0013, ADR-0028), loaded once per page.
+const fontLoaded = Promise.all(
+  (
+    [
+      [regularUrl, "400", "normal"],
+      [italicUrl, "400", "italic"],
+      [boldUrl, "700", "normal"],
+      [boldItalicUrl, "700", "italic"],
+      [blackUrl, "900", "normal"],
+      [blackItalicUrl, "900", "italic"],
+    ] as const
+  ).map(([url, weight, style]) => {
+    const face = new FontFace("Source Sans 3", `url(${url})`, { weight, style });
+    document.fonts.add(face);
+    return face.load();
+  }),
+);
 
 /** Saves text the browser made from its Document: the same text `export` returns at that rev. */
 function download(text: string, type: string, filename: string) {
