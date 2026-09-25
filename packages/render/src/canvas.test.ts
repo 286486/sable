@@ -1,6 +1,6 @@
 import { createDocument, createNodes, makeMask, type ShapeNode, shapeSegments } from "@zibel/core";
 import { expect, it } from "vitest";
-import { type Canvas2D, drawDocument } from "./canvas.ts";
+import { type Canvas2D, drawDocument, imagePlacement } from "./canvas.ts";
 
 /** A context that logs every call and property write, with save/restore of its state. */
 function recorder() {
@@ -268,4 +268,41 @@ it("clips a Clipping Mask's children by its Clipping Path, in document coordinat
     "fillStyle=#FF0000",
     "fill",
   ]);
+});
+
+it.each([
+  ["none", { x: 10, y: 10, width: 60, height: 40 }],
+  ["xMidYMid meet", { x: 10, y: 20, width: 60, height: 20 }],
+  ["xMaxYMin meet", { x: 10, y: 10, width: 60, height: 20 }],
+  ["xMinYMax slice", { x: 10, y: 10, width: 120, height: 40 }],
+  ["xMidYMid slice", { x: -20, y: 10, width: 120, height: 40 }],
+])("places a 30 × 10 file in a 60 × 40 frame at (10, 10) under %s", (par, rect) => {
+  expect(
+    imagePlacement({ x: 10, y: 10, width: 60, height: 40 }, { width: 30, height: 10 }, par),
+  ).toEqual(rect);
+});
+
+it("draws an Image once its file is decoded, clipped to its frame under slice", () => {
+  const { doc, defaultLayerId } = newDoc();
+  const src = "a".repeat(64);
+  doc.images.set(src, { mime: "image/png", width: 30, height: 10 });
+  const image = {
+    type: "image",
+    parentId: defaultLayerId,
+    src,
+    x: 10,
+    y: 10,
+    width: 60,
+    height: 40,
+  } as const;
+  createNodes(doc, [image, { ...image, preserveAspectRatio: "xMidYMid slice" }]);
+  const drawn = (images?: Parameters<typeof drawDocument>[2]) => {
+    const { ctx, log } = recorder();
+    drawDocument(ctx, doc, images);
+    return log.filter((l) => /^(drawImage|rect|clip)/.test(l));
+  };
+  expect(drawn()).toEqual([]);
+  expect(drawn((id) => (id === src ? { image: "IMG", width: 30, height: 10 } : undefined))).toEqual(
+    ["drawImage IMG 10 10 60 40", "rect 10 10 60 40", "clip", "drawImage IMG -20 10 120 40"],
+  );
 });
