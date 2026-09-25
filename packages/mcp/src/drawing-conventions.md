@@ -77,6 +77,7 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - Area Type (`kind: "area"` with `width` and `height`) wraps `content` at spaces inside the frame `x, y, width, height`. Text that does not fit, including a word wider than the frame, is not drawn, and the receipt warns `TEXT_OVERFLOW`: enlarge the frame or shorten the content.
 - `leading` is the distance between baselines in pt; omit it for Auto, 120% of `fontSize`. `node_update` with `leading: null` returns to Auto.
 - `fontFamily` takes any font name and keeps it, so export writes it back. Only Source Sans 3 is bundled: another font renders and measures in it, and the receipt warns `FONT_MISSING`.
+- `fontStyle` is the style name, default `Regular`: Regular, Italic, Bold, Bold Italic, Black and Black Italic are bundled. Use them for weight and slant instead of faking bold with a Stroke. Thin, ExtraLight, Light, Medium, Semibold and ExtraBold (and their Italics) are kept and exported, but render in the nearest bundled face, and the receipt warns `FONT_MISSING`.
 
 ## Images
 

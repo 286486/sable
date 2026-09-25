@@ -149,4 +149,16 @@ test("an Agent's text draws in Source Sans 3", async ({ page, request }) => {
       page.evaluate(async () => (await document.fonts.load('12px "Source Sans 3"')).length),
     )
     .toBe(1);
+  // #19: every bundled face loads, by its weight and style (ADR-0028).
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        await document.fonts.ready;
+        return [...document.fonts]
+          .filter((f) => f.family.replace(/"/g, "") === "Source Sans 3")
+          .map((f) => `${f.weight} ${f.style} ${f.status}`)
+          .sort();
+      }),
+    )
+    .toEqual(["400", "700", "900"].flatMap((w) => [`${w} italic loaded`, `${w} normal loaded`]));
 });

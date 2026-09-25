@@ -598,6 +598,8 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("zibel_node_create")).toContain("text {");
   expect(described("zibel_node_create")).toContain("TEXT_OVERFLOW");
   expect(described("zibel_node_update")).toContain("leading");
+  expect(described("zibel_node_create")).toContain("Bold Italic");
+  expect(described("zibel_node_update")).toContain("fontStyle");
   expect(described("zibel_node_create")).toContain("image {");
   expect(described("zibel_node_update")).toContain("preserveAspectRatio");
   for (const param of [

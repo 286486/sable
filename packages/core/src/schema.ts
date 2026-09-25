@@ -2,6 +2,7 @@ import { z } from "zod";
 import { COLOR_PATTERN } from "./color.ts";
 import { type ImageInfo, preserveAspectRatio } from "./image.ts";
 import { compose, scaleOf } from "./matrix.ts";
+import { FONT_STYLES } from "./text.ts";
 
 /**
  * `#RRGGBB` or `#RRGGBBAA`, case-insensitive (REQUIREMENTS §6.5). The published schema carries the
@@ -307,6 +308,12 @@ export const TextShape = z.object({
     .default("Source Sans 3")
     .describe(
       "Any font name, kept as written; only Source Sans 3 is bundled, and others render in it.",
+    ),
+  fontStyle: z
+    .enum(FONT_STYLES)
+    .default("Regular")
+    .describe(
+      "The style name. Regular, Italic, Bold, Bold Italic, Black and Black Italic are bundled; the others render in the nearest of them.",
     ),
   fontSize: z.number().positive().default(12).describe("In pt."),
   leading: z

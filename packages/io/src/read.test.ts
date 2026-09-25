@@ -627,6 +627,47 @@ it("reads <text> as one Point Type, its Inkscape lines joined by returns, keepin
   ]);
 });
 
+it("reads font-weight and font-style as the style name, inherited as CSS inherits them (ADR-0028)", () => {
+  const texts = [
+    "",
+    'font-weight="bold"',
+    'style="font-weight:600;font-style:oblique"',
+    'font-style="italic"',
+    'font-weight="650"',
+    'font-weight="bolder"',
+    'font-weight="lighter"',
+    'style="font-weight:BOLD;font-style:Italic"',
+  ];
+  const file = parseFile(
+    svg(
+      'width="300" height="300"',
+      texts.map((a, i) => `<text x="0" y="${10 + i * 10}" ${a}>a</text>`).join("") +
+        '<g font-weight="900"><text x="0" y="90">a</text></g>' +
+        '<text x="100" y="100" text-anchor="middle" font-weight="bold" font-size="10">Hi</text>',
+    ),
+  );
+  const read = leaves(file);
+  expect(read.map((n) => "fontStyle" in n && n.fontStyle)).toEqual([
+    "Regular",
+    "Bold",
+    "Semibold Italic",
+    "Italic",
+    "Bold",
+    "Bold",
+    "Thin",
+    "Bold Italic",
+    "Black",
+    "Bold",
+  ]);
+  // Half of "Hi"'s Bold advances at 10 pt: (674 + 276) × 10 / 1000 / 2.
+  expect(read.at(-1)).toMatchObject({ x: 95.25 });
+  // Semibold Italic and Thin are not bundled.
+  expect(file.warnings.map((w) => w.message)).toEqual([
+    "Source Sans 3 Semibold Italic is not bundled, so it renders in Source Sans 3 Bold Italic; the name is kept.",
+    "Source Sans 3 Thin is not bundled, so it renders in Source Sans 3; the name is kept.",
+  ]);
+});
+
 // Saved by Inkscape 1.2.2 (ADR-0022): line tspans, and flowed text with its positioned fallback
 // lines, overflow included; the frames Inkscape keeps in <defs>.
 const INKSCAPE_TEXT =

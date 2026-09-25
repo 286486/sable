@@ -524,6 +524,13 @@ describe("updateNodes on a text", () => {
     expect(width(doc, t.id)).toBeCloseTo(47.904);
   });
 
+  it("writes fontStyle, measured in its face", () => {
+    const { doc, t } = setup();
+    updateNodes(doc, [{ nodeId: t.id, patch: { fontStyle: "Bold Italic" } }]);
+    expect(doc.nodes.get(t.id)).toMatchObject({ fontStyle: "Bold Italic" });
+    expect(width(doc, t.id)).toBeCloseTo(((652 + 265) * 12) / 1000);
+  });
+
   it("keeps any font name", () => {
     const { doc, t } = setup();
     updateNodes(doc, [{ nodeId: t.id, patch: { fontFamily: "Arial" } }]);
@@ -578,7 +585,9 @@ describe("updateNodes on a text", () => {
       hint: expect.stringMatching(hint),
     });
     if (key === "width")
-      expect(error.hint).toMatch(/meta, x, y, content, fontFamily, fontSize, leading, appearance/);
+      expect(error.hint).toMatch(
+        /meta, x, y, content, fontFamily, fontStyle, fontSize, leading, appearance/,
+      );
   });
 });
 

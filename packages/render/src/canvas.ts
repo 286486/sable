@@ -1,11 +1,13 @@
 import {
   applyTo,
   BUNDLED_FONT,
+  bundledStyle,
   childrenOf,
   clippingPath,
   type Document,
   ellipseMatrix,
   type Fill,
+  fontFace,
   invert,
   type LeafNode,
   layoutText,
@@ -172,8 +174,16 @@ function draw(
     const lines = n.type === "text" ? layoutText(n).lines : null;
     // Tested on n, not lines, so the else branch narrows n to a Live Shape or Path.
     if (n.type === "text") {
-      // Every font renders in the bundled one, which its bounds are measured in (ADR-0017).
-      ctx.font = `${n.fontSize}px "${BUNDLED_FONT}"`;
+      // Every font renders in the bundled face its bounds are measured in (ADR-0017, ADR-0028).
+      const { weight, italic } = fontFace(bundledStyle(n.fontStyle));
+      ctx.font = [
+        italic && "italic",
+        weight !== 400 && weight,
+        `${n.fontSize}px`,
+        `"${BUNDLED_FONT}"`,
+      ]
+        .filter(Boolean)
+        .join(" ");
       // Unkerned, like the SVG, so the drawn width is the advance sum (ADR-0013).
       ctx.fontKerning = "none";
     } else {

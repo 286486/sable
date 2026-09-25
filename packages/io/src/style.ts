@@ -5,6 +5,8 @@ export type Style = Record<string, string>;
 
 /** Properties a child takes from its parent unless it sets its own (SVG 1.1 §6.14). */
 const INHERITED = [
+  "font-weight",
+  "font-style",
   "fill",
   "fill-opacity",
   "fill-rule",

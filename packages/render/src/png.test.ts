@@ -51,6 +51,60 @@ it("draws text in the bundled font, inside the bounds node_get reports", async (
   expect(drawn.filter((p) => !inside(p))).toEqual([]);
 });
 
+it("draws each bundled face inside its own bounds (ADR-0028)", async () => {
+  const styles = [
+    "Regular",
+    "Italic",
+    "Bold",
+    "Bold Italic",
+    "Black",
+    "Black Italic",
+    // Exported as their own weights, which resvg must match to the face core measures them in.
+    "Light",
+    "Semibold",
+    "ExtraBold Italic",
+  ] as const;
+  const drawn = await Promise.all(
+    styles.map(async (fontStyle) => {
+      const { doc, defaultLayerId } = createDocument({
+        id: "d",
+        name: "Doc",
+        artboards: [{ width: 300, height: 100, background: "#FFFFFF" }],
+      });
+      const [text] = createNodes(doc, [
+        {
+          type: "text",
+          parentId: defaultLayerId,
+          x: 20,
+          y: 70,
+          content: "HHHH",
+          fontSize: 48,
+          fontStyle,
+        },
+      ]).nodes;
+      const b = text && bounds(doc, text);
+      if (!b) throw new Error("setup");
+      const pixels = await ink(toSvg(doc));
+      const outside = pixels.filter(
+        ([x, y]) => x < b.x - 1 || x >= b.x + b.width + 1 || y < b.y - 1 || y >= b.y + b.height + 1,
+      );
+      return { outside, right: Math.max(...pixels.map(([x]) => x)), key: pixels.join(";") };
+    }),
+  );
+  expect(drawn.map((d) => d.outside)).toEqual(styles.map(() => []));
+  const [regular, italic, bold, , black, blackItalic, light, semibold, extraBoldItalic] = drawn;
+  // Only Regular is drawn when a face is missing, so each wider face shows it loaded.
+  expect(bold?.right).toBeGreaterThan(regular?.right ?? Infinity);
+  expect(black?.right).toBeGreaterThan(bold?.right ?? Infinity);
+  expect(italic?.key).not.toBe(regular?.key);
+  expect(new Set(drawn.slice(0, 6).map((d) => d.key)).size).toBe(6);
+  expect([light?.key, semibold?.key, extraBoldItalic?.key]).toEqual([
+    regular?.key,
+    bold?.key,
+    blackItalic?.key,
+  ]);
+});
+
 /** The runs of consecutive rows that hold ink: one per drawn line of text. */
 const bands = (drawn: [number, number][]) =>
   [...new Set(drawn.map(([, y]) => y))]
@@ -208,9 +262,10 @@ it("draws the fixture Document with known pixels", async () => {
   // a rounded, randomized, twisted star, a rounded, randomized polygon and a randomized star whose
   // round-number vertices sit on Inkscape's seed grid; by #35, a fifth holding a slice, a chord
   // and an open arc; by #22, a sixth holding linear and radial gradients on Fills, a Stroke, a
-  // text, a turned rect and a stack.
+  // text, a turned rect and a stack; by #19, a seventh holding the five non-Regular faces as Point
+  // Type and a Bold Italic Area Type.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "0fa895930bdcbb1abffe3efb1f166eb144508b042fc6c2c60aa5503c9ecc6871",
+    "8b4740b0a7d7710cd635adf43f63dc5186d36572ac305534f3e6db164cd49526",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
