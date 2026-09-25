@@ -229,14 +229,14 @@ Zibel 要填的空位是：**Agent 能生成、人能精修、二者共享同一
 
 **F-DOC-04 样式模型**（P0）
 - 每个可绘制节点有 `appearance`：`fills[]`、`strokes[]`、`effects[]`，**数组即外观栈**（顺序 = 绘制顺序）。MVP 的 UI 默认只显示 1 fill + 1 stroke，但模型从一开始支持多重。
-- `Fill`：`type` solid / gradient / pattern，`color`、`gradientId` 或内联渐变、`opacity`、`blendMode`。
-- `Stroke`：`color / gradient`、`width`、`cap`（butt / round / square）、`join`（miter / round / bevel）、`miterLimit`（1–500）、`dash[]`、`dashOffset`、`align`（center / inside / outside）、`arrowStart / arrowEnd`（样式、缩放、对齐）、`widthProfile`（可变宽度点列，P1）、`brushId`（P1）。
-- `Gradient`：`type` linear / radial / freeform（P2），`stops[]`（offset、color、midpoint）、`transform`。
+- `Fill`：`type` solid / gradient / pattern，`color` 或内联的 `gradient`（不引用 Asset，ADR-0026）、`opacity`、`blendMode`。
+- `Stroke`：`type` solid / gradient，`color` 或内联的 `gradient`（描边内渐变）、`width`、`cap`（butt / round / square）、`join`（miter / round / bevel）、`miterLimit`（1–500）、`dash[]`、`dashOffset`、`align`（center / inside / outside）、`arrowStart / arrowEnd`（样式、缩放、对齐）、`widthProfile`（可变宽度点列，P1）、`brushId`（P1）。
+- `Gradient`：`type` linear / radial / freeform（P2），`stops[]`（`offset` 0–1、`color` 含 alpha；`midpoint` 随 Gradient 面板加入）；线性为 `start` / `end`，径向为 `center`、`radius`、`aspectRatio`、`angle`、`focus`，都在 Node 自身坐标中，随 Node 的 `transform` 移动（ADR-0026）。
 - `Effect`（P1）：`type` drop_shadow / inner_glow / outer_glow / blur / offset_path / round_corners / zigzag / transform / outline_stroke，参数 JSON。效果为非破坏性，可 `expand_appearance`。
 
 **F-DOC-05 资源库（Assets）**（P0 除标注外）
-- `swatches[]`（颜色、颜色组）、`gradients[]`、`patterns[]`（P1）、`symbols[]`、`graphicStyles[]`（P1，外观预设）、`characterStyles[] / paragraphStyles[]`（P1）、`brushes[]`（P1）、`chartThemes[]`。
-- 资源可被节点引用；更新资源定义，所有引用处同步（Illustrator 的 Redefine Symbol / 全局色板语义）。
+- `swatches[]`（颜色、颜色组、渐变色板；渐变色板施加时复制进 Fill / Stroke，Fill 不引用它，ADR-0026）、`patterns[]`（P1）、`symbols[]`、`graphicStyles[]`（P1，外观预设）、`characterStyles[] / paragraphStyles[]`（P1）、`brushes[]`（P1）、`chartThemes[]`。
+- 资源可被节点引用；更新资源定义，所有引用处同步（Illustrator 的 Redefine Symbol / 全局色板语义）。渐变色板例外：施加即复制，Illustrator 的替换色板改为重写来自它的 Fill（ADR-0026）。
 
 **F-DOC-06 Schema 版本化与迁移**（P0）：文档带 `version`，加载时按 tldraw 模式跑 `up` 迁移；不支持降级。
 
@@ -975,6 +975,7 @@ zibel/
 | 40 | Clipping Mask（2026-09-24） | 不设 `clip_group` 节点类型：Clipping Mask 是含一个 `clipping: true` 的 Live Shape 或 Path 的 `group`；`mask_make` / `mask_release` 是写它的唯一入口；SVG 中即 `<g clip-path>` 加内联 `<clipPath>`；文字作剪切路径、图层剪切蒙版、带外观的剪切路径暂缓 | ADR-0021、#31 |
 | 41 | 多行文字与区域文字（2026-09-25） | Point Type 的 `content` 可含硬回车 `\n`；Area Type 是 `kind: "area"` 加矩形框 `width`/`height`；新增 `leading`（缺省即 Auto，字号的 120%）；区域文字的首行基线、换行与溢出按 Inkscape 1.2 实测排版；SVG 中点文字为 `sodipodi:role="line"` 行，区域文字为 `shape-inside` 引用 `<defs>` 中的矩形 | ADR-0022、#33 |
 | 42 | 置入图像（2026-09-25） | 新增 `image` 节点：框、`preserveAspectRatio`（缺省 `none`）与 `src`（文件的 SHA-256）；字节按 id 分块存 DO SQLite，M1 随 R2 迁移；PNG / JPEG / GIF，WebP 暂拒；裁切即 Clipping Mask；SVG 中为 `<image xlink:href="data:…">`（Inkscape 1.2 只绘制 `xlink:href`）；`.zibel.json` 顶层 `images` 按 id 内嵌 base64 | ADR-0023、#32 |
+| 43 | 渐变（2026-09-25） | 线性与径向渐变内联在 Fill / Stroke 中，不设 `gradientId` 与 `assets.gradients[]`（几何本就逐个 Fill；渐变色板施加即复制）；位置在 Node 自身坐标中、随 `transform` 移动，改参数不移动；只有 pad；中点随 Gradient 面板加入；SVG 中为元素前 `<defs>` 里自包含的 `userSpaceOnUse` 渐变，导入折叠 `gradientTransform`、`objectBoundingBox` 与 `href` 链，reflect / repeat 展开为色标 | ADR-0026、#22 |
 
 **剩余开放问题**
 
@@ -1060,7 +1061,6 @@ zibel/
   "rootOrder": ["L1", "L2"],
   "assets": {
     "swatches": [{ "id": "sw1", "name": "Brand Blue", "color": "#1F5FBF", "global": true }],
-    "gradients": [{ "id": "g1", "type": "linear", "stops": [{ "offset": 0, "color": "#1F5FBF" }, { "offset": 1, "color": "#9FD0FF" }] }],
     "symbols": [], "graphicStyles": [], "chartThemes": []
   },
   "nodes": {
@@ -1086,7 +1086,7 @@ zibel/
       "id": "p1", "type": "path", "name": "Q3 highlight", "parentId": "L2", "index": "a1",
       "d": "M 100 100 L 200 100 C 250 100 250 200 200 200 Z", "closed": true, "fillRule": "nonzero",
       "appearance": {
-        "fills": [{ "type": "gradient", "gradientId": "g1", "transform": [1, 0, 0, 1, 0, 0] }],
+        "fills": [{ "type": "gradient", "gradient": { "type": "linear", "stops": [{ "offset": 0, "color": "#1F5FBF" }, { "offset": 1, "color": "#9FD0FF" }], "start": { "x": 100, "y": 150 }, "end": { "x": 237.5, "y": 150 } } }],
         "strokes": [{ "color": "#1F5FBF", "width": 2, "cap": "round", "join": "round", "miterLimit": 10, "dash": [], "align": "center" }],
         "effects": [{ "type": "drop_shadow", "offset": [0, 4], "blur": 8, "color": "#00000040" }]
       },
