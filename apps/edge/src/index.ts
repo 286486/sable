@@ -1,8 +1,8 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { IMAGE_ID, ZibelError } from "@zibel/core";
+import { checkImage, IMAGE_ID, ZibelError } from "@zibel/core";
 import { createMcpServer } from "@zibel/mcp";
 import { actorFor, permissionDenied } from "./auth.ts";
-import { documentService, listDocuments } from "./service.ts";
+import { documentService, listDocuments, unwrap } from "./service.ts";
 
 export { DocumentObject } from "./document-object.ts";
 
@@ -24,6 +24,8 @@ export default {
     if (imageDoc && imageSrc && request.method === "GET") return image(env, imageDoc, imageSrc);
     const place = url.pathname.match(/^\/api\/docs\/([^/]+)\/place$/)?.[1];
     if (place && request.method === "POST") return placeFile(place, request, env);
+    const placeImage = url.pathname.match(/^\/api\/docs\/([^/]+)\/place-image$/)?.[1];
+    if (placeImage && request.method === "POST") return placeBitmap(placeImage, request, env);
     if (url.pathname === "/api/docs") return Response.json({ documents: await listDocuments(env) });
     if (url.pathname !== "/mcp") return new Response("not found", { status: 404 });
     const actor = actorFor(request, env.DEV_TOKENS);
@@ -75,6 +77,32 @@ async function placeFile(docId: string, request: Request, env: Env): Promise<Res
       name: q.get("name") ?? undefined,
     }),
   );
+}
+
+/**
+ * The browser's paste or drop of a bitmap (ADR-0023): the file's bytes as the body; `parentId` and
+ * the centre `x`, `y` in the query. An Image at its pixel size, by the user, like Place.
+ */
+async function placeBitmap(docId: string, request: Request, env: Env): Promise<Response> {
+  const q = new URL(request.url).searchParams;
+  const x = Number(q.get("x") ?? Number.NaN);
+  const y = Number(q.get("y") ?? Number.NaN);
+  return answer(async () => {
+    // ponytail: read whole, under the platform's request cap (100 MB); stream with a cap if that bites.
+    const file = checkImage(new Uint8Array(await request.arrayBuffer()), "file");
+    const frame = Number.isFinite(x) && Number.isFinite(y);
+    return unwrap(
+      await env.DOCUMENT.get(env.DOCUMENT.idFromName(docId)).placeImage(
+        // The name only titles a Template Layer, which paste and drop never make.
+        { ...file, name: "Image" },
+        "user",
+        {
+          parentId: q.get("parentId") ?? "",
+          ...(frame && { frame: { x: x - file.width / 2, y: y - file.height / 2 } }),
+        },
+      ),
+    );
+  });
 }
 
 /**

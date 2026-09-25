@@ -80,7 +80,7 @@ export function documentService(env: Env, actor: string): DocumentService {
   };
 }
 
-function unwrap<T extends object>(result: T): Exclude<T, { error: ErrorData }> {
+export function unwrap<T extends object>(result: T): Exclude<T, { error: ErrorData }> {
   if ("error" in result) throw new ZibelError(result.error as ErrorData);
   return result as Exclude<T, { error: ErrorData }>;
 }
