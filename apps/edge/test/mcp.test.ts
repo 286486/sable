@@ -1,6 +1,6 @@
 import { evictAllDurableObjects } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import type { ErrorCode } from "@zibel/core";
+import { type ErrorCode, formatPath, type ShapeNode, shapeSegments } from "@zibel/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import exported from "../../../fixtures/documents/inkscape.svg?raw";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
@@ -155,6 +155,22 @@ it("keeps a font Zibel lacks, warns FONT_MISSING and renders it in Source Sans 3
   expect(svg.content[0].text).toContain('font-family="Helvetica"');
   const rendered = await call("zibel_render", { docId: doc.docId });
   expect(rendered.content[0]).toMatchObject({ type: "image", mimeType: "image/png" });
+});
+
+it("creates a rounded, randomized, twisted star and gets its parameters and derived d", async () => {
+  const doc = await newDoc();
+  const params = { angle: 15, twist: 10, rounded: 0.3, randomized: 0.1 };
+  const star = { cx: 50.5, cy: 40, outerRadius: 30, innerRadius: 12, points: 5, ...params };
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [{ type: "star", parentId: doc.defaultLayerId, ...star }],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  const [full] = (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+    .structuredContent.nodes;
+  expect(full).toMatchObject({ type: "star", ...star });
+  expect(full.d).toContain("C");
+  expect(full.d).toBe(formatPath(shapeSegments(full as ShapeNode)));
 });
 
 it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", async () => {

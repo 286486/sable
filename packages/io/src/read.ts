@@ -385,7 +385,7 @@ class Reader {
     }
     if (zibelAttr(e, "background")) return;
     /** What Stroke widths scale by: the leaf's scale when it bakes into the parameters. */
-    const scaleOf = (m: Matrix) => (bakes(m) ? m[0] : 1);
+    const scaleOf = (el: Element, m: Matrix) => (this.baked(el, m) ? m[0] : 1);
     let shape: Record<string, unknown> | null;
     let appearance: Appearance | undefined;
     if (tag === "image") {
@@ -396,7 +396,7 @@ class Reader {
       const paints = elements(e).map((c) => {
         const s = computeStyle(c, style, this.rules);
         const m = multiply(matrix, parseTransform(c.getAttribute("transform")));
-        return { shape: this.shape(c, m, s), look: this.appearance(s, scaleOf(this.placed(c, m))) };
+        return { shape: this.shape(c, m, s), look: this.appearance(s, scaleOf(c, m)) };
       });
       shape = paints.find((p) => p.shape)?.shape ?? null;
       appearance = {
@@ -406,10 +406,10 @@ class Reader {
     } else if (tag === "text") {
       const text = this.text(e, style, matrix);
       shape = text?.shape ?? null;
-      appearance = this.appearance(text?.style ?? style, scaleOf(matrix));
+      appearance = this.appearance(text?.style ?? style, scaleOf(e, matrix));
     } else {
       shape = this.shape(e, matrix, style);
-      appearance = this.appearance(style, scaleOf(this.placed(e, matrix)));
+      appearance = this.appearance(style, scaleOf(e, matrix));
     }
     if (!shape) return;
     this.unsupported(e, style);
@@ -466,8 +466,7 @@ class Reader {
     // Inside a <clipPath> SVG reads clip-rule, never fill-rule.
     const shape = this.shape(e, m, { ...style, "fill-rule": style["clip-rule"] ?? "nonzero" });
     if (!shape) return;
-    const placed = this.placed(e, m);
-    const appearance = this.appearance(style, bakes(placed) ? placed[0] : 1);
+    const appearance = this.appearance(style, this.baked(e, m) ? m[0] : 1);
     // SVG draws nothing through a hidden clip path, and a Clipping Path is never hidden.
     const base = { ...this.base(e, parentId, undefined, style), visible: true };
     this.add({ ...base, ...shape, appearance, clipping: true } as Node);
@@ -677,8 +676,8 @@ class Reader {
   }
 
   /**
-   * An Inkscape star or polygon that a Live Shape holds (ADR-0017): its parameters, and the turn
-   * of its first vertex away from straight up. Anything else reads as the Path its d draws.
+   * An Inkscape star or polygon that a Live Shape holds (ADR-0017, ADR-0024): its centre and its
+   * parameters. Anything else reads as the Path its d draws.
    */
   private star(e: Element) {
     const type = e.getAttributeNS(NS.sodipodi, "type");
@@ -691,52 +690,50 @@ class Reader {
     }
     if (type !== "star") return undefined;
     const at = (name: string) => Number(e.getAttributeNS(NS.sodipodi, name));
+    const ink = (name: string) => Number(e.getAttributeNS(NS.inkscape, name) || 0);
     const params = { cx: at("cx"), cy: at("cy") };
-    const { shape, turn, twisted } = starOf({
+    const shape = starOf({
       sides: at("sides"),
       r1: at("r1"),
       r2: at("r2"),
       arg1: at("arg1"),
       arg2: at("arg2"),
       flat: e.getAttributeNS(NS.inkscape, "flatsided") === "true",
+      rounded: ink("rounded"),
+      randomized: ink("randomized"),
     });
     const sides = shape.type === "polygon" ? shape.sides : shape.points;
-    const shaped =
-      Number(e.getAttributeNS(NS.inkscape, "rounded") || 0) !== 0 ||
-      Number(e.getAttributeNS(NS.inkscape, "randomized") || 0) !== 0 ||
-      twisted;
     const valid =
       Number.isInteger(sides) &&
       sides >= 3 &&
       sides <= 1000 &&
-      Number.isFinite(turn) &&
-      Number.isFinite(params.cx) &&
-      Number.isFinite(params.cy) &&
+      // The file's own angles: angle and twist are rounded, which turns NaN into 0.
+      [params.cx, params.cy, at("arg1"), shape.type === "star" ? at("arg2") : 0].every(
+        Number.isFinite,
+      ) &&
       at("r1") >= 0 &&
-      at("r2") >= 0;
-    if (shaped || !valid) {
+      at("r2") >= 0 &&
+      Math.abs(shape.rounded) <= 10 &&
+      Math.abs(shape.randomized) <= 10 &&
+      // A polygon keeps no r2, so it cannot jitter by an r2 larger than its radius.
+      !(shape.type === "polygon" && shape.randomized && at("r2") > at("r1"));
+    if (!valid) {
       this.warn(
         "STAR_AS_PATH",
         "",
-        "Rounded, randomized or twisted stars import as Paths until stars gain those parameters.",
+        "A star with parameters Zibel cannot hold imports as the Path its d draws.",
       );
       return undefined;
     }
-    return {
-      ...params,
-      shape,
-      turn:
-        Math.abs(turn) < 1e-6
-          ? ([...IDENTITY] as Matrix)
-          : parseTransform(`rotate(${(turn * 180) / Math.PI} ${params.cx} ${params.cy})`),
-    };
+    return { ...params, shape };
   }
 
-  /** The matrix a leaf is drawn with: its ancestors' and its own, and a star's turn. */
-  private placed(e: Element, outer: Matrix): Matrix {
-    const star = e.localName === "path" ? this.star(e) : undefined;
-    // A star turned in Inkscape keeps its turn as a matrix about its centre, as Zibel writes it.
-    return star ? multiply(outer, star.turn) : outer;
+  /**
+   * Whether a leaf's matrix bakes into its parameters (ADR-0017). A randomized star's never does:
+   * its jitter is seeded from its parameters, so moving or scaling them re-rolls it (ADR-0024).
+   */
+  private baked(e: Element, m: Matrix) {
+    return bakes(m) && !(e.localName === "path" && this.star(e)?.shape.randomized);
   }
 
   /**
@@ -788,12 +785,11 @@ class Reader {
   }
 
   /** A shape element's parameters in document coordinates, with the transform it keeps. */
-  private shape(e: Element, outer: Matrix, style: Style): Record<string, unknown> | null {
-    if (e.localName === "text") return this.text(e, style, outer)?.shape ?? null;
+  private shape(e: Element, m: Matrix, style: Style): Record<string, unknown> | null {
+    if (e.localName === "text") return this.text(e, style, m)?.shape ?? null;
     const star = e.localName === "path" ? this.star(e) : undefined;
-    const m = this.placed(e, outer);
     const num = (name: string) => length(e.getAttribute(name)) ?? 0;
-    const bake = bakes(m);
+    const bake = this.baked(e, m);
     const [k, , , , tx, ty] = bake ? m : IDENTITY;
     const x = (v: number) => n3(k * v + tx);
     const y = (v: number) => n3(k * v + ty);
@@ -864,15 +860,23 @@ class Reader {
           }
         }
         const { cx, cy, shape } = star;
-        const centre = { cx: x(cx), cy: y(cy) };
+        // A randomized star seeds its jitter from these, so they stay as written (ADR-0024).
+        if (shape.randomized) return { ...shape, cx, cy, transform };
+        const common = {
+          cx: x(cx),
+          cy: y(cy),
+          angle: n3(shape.angle),
+          rounded: n3(shape.rounded),
+          transform,
+        };
         return shape.type === "polygon"
-          ? { ...shape, ...centre, radius: size(shape.radius), transform }
+          ? { ...shape, ...common, radius: size(shape.radius) }
           : {
               ...shape,
-              ...centre,
+              ...common,
               outerRadius: size(shape.outerRadius),
               innerRadius: size(shape.innerRadius),
-              transform,
+              twist: n3(shape.twist),
             };
       }
       default:

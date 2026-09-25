@@ -1,4 +1,12 @@
-import { type ImageNode, readImage, serializeDocument, ZibelError } from "@zibel/core";
+import {
+  type ImageNode,
+  normalizePath,
+  readImage,
+  type ShapeNode,
+  serializeDocument,
+  shapeSegments,
+  ZibelError,
+} from "@zibel/core";
 import { describe, expect, it } from "vitest";
 import { RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { MAX_DEPTH, parseFile, parseSvg, SVG_LIMIT } from "./index.ts";
@@ -329,7 +337,7 @@ const star = (attrs: Record<string, string | number>) =>
     .map(([k, v]) => `${k}="${v}"`)
     .join(" ")}/>`;
 
-it("reads Inkscape stars and polygons back as Live Shapes, a turned one with its matrix", () => {
+it("reads Inkscape stars and polygons back as Live Shapes, a turned one with its angle", () => {
   const file = parseFile(
     svg(
       'width="400" height="300"',
@@ -358,29 +366,122 @@ it("reads Inkscape stars and polygons back as Live Shapes, a turned one with its
     type: "star",
     cx: 260,
     cy: 150,
-    transform: [0, 1, -1, 0, 410, -110],
+    angle: 90,
+    twist: 0,
+    transform: [1, 0, 0, 1, 0, 0],
   });
   expect(file.warnings).toEqual([]);
 });
 
-it("imports what a Live Shape cannot hold yet as a Path, with a warning", () => {
+it("reads rounded, twisted and randomized stars as Live Shapes; an arc is still a Path", () => {
   const file = parseFile(
     svg(
       'width="400" height="300"',
       star({ "inkscape:rounded": 0.2 }) +
         star({ "sodipodi:arg2": -Math.PI / 2 + Math.PI / 5 + 0.1 }) +
+        // arg2 past -π: the twist is still 0.1 rad.
+        star({ "sodipodi:arg1": 3, "sodipodi:arg2": 3 + Math.PI / 5 + 0.1 - 2 * Math.PI }) +
         '<path sodipodi:type="arc" sodipodi:cx="5" sodipodi:cy="5" sodipodi:rx="5" sodipodi:ry="5" sodipodi:start="0" sodipodi:end="3" sodipodi:arc-type="slice" d="M 10 5 A 5 5 0 0 1 0 5 L 5 5 Z"/>',
     ),
   );
-  expect(leaves(file).map((n) => n.type)).toEqual(["path", "path", "path"]);
-  expect(leaves(file)[0]).toMatchObject({ d: "M 260 115 L 270 140 L 250 140 Z" });
-  expect(file.warnings.map((w) => w.code)).toEqual(["STAR_AS_PATH", "ARC_AS_PATH"]);
+  const [rounded, twisted, wrapped, arc] = leaves(file);
+  expect(rounded).toMatchObject({ type: "star", rounded: 0.2, twist: 0, randomized: 0 });
+  expect(twisted).toMatchObject({ type: "star", twist: 5.73, angle: 0 });
+  expect(wrapped).toMatchObject({ type: "star", twist: 5.73, angle: 261.887 });
+  expect(arc?.type).toBe("path");
+  expect(file.warnings.map((w) => w.code)).toEqual(["ARC_AS_PATH"]);
 });
 
-it("reads a star with missing parameters as its Path", () => {
-  const file = parseFile(svg("", star({ "sodipodi:r2": "x" })));
-  expect(leaves(file)[0]?.type).toBe("path");
+it("keeps a randomized star's parameters as written, its matrix unbaked (ADR-0024)", () => {
+  const moved = (attrs: Record<string, string | number>) =>
+    `<g transform="translate(10.0004 0) scale(2)">${star({ style: "stroke:#000000;stroke-width:2", ...attrs })}</g>`;
+  const file = parseFile(
+    svg(
+      'width="400" height="300"',
+      moved({ "sodipodi:cx": 260.00012345, "inkscape:randomized": 0.1 }) + moved({}),
+    ),
+  );
+  const [randomized, regular] = leaves(file);
+  expect(randomized).toMatchObject({
+    type: "star",
+    cx: 260.00012345,
+    outerRadius: 35,
+    randomized: 0.1,
+    transform: [2, 0, 0, 2, 10.0004, 0],
+    appearance: { strokes: [{ width: 2 }] },
+  });
+  expect(regular).toMatchObject({
+    cx: 530,
+    outerRadius: 70,
+    transform: [1, 0, 0, 1, 0, 0],
+    appearance: { strokes: [{ width: 4 }] },
+  });
+  expect(file.warnings).toEqual([]);
 });
+
+it("opens a star and a polygon drawn in Inkscape as Live Shapes that draw Inkscape's outline", () => {
+  // Inkscape 1.2.2's parameters, and the d it rebuilt from them with object-to-path.
+  const drawn = [
+    star({
+      "sodipodi:cx": 150.5,
+      "sodipodi:cy": 120.25,
+      "sodipodi:r1": 60,
+      "sodipodi:r2": 25,
+      "sodipodi:arg1": -1.2707963267948965,
+      "sodipodi:arg2": -0.49247779607693787,
+      "inkscape:rounded": 0.2,
+      "inkscape:randomized": 0.12,
+      d: "m 171.75288,56.216218 c 8.36249,2.350546 -1.32572,43.01217 4.49726,49.682232 5.03504,5.7675 37.09602,12.13366 36.43889,19.97239 -0.75996,9.06543 -44.46151,4.82775 -48.5396,13.57205 -3.52626,7.56106 18.36068,33.3818 10.75909,35.30782 -8.79117,2.22743 -31.87031,-33.49848 -40.69881,-37.09909 -7.63387,-3.11339 -26.25923,24.85447 -29.16985,17.55565 -3.36609,-8.44101 22.94673,-31.07554 22.94146,-39.73283 -0.005,-7.48583 -34.197419,-27.746034 -29.734883,-34.605011 5.160883,-7.932345 35.670763,16.987865 44.855533,14.370883 7.94194,-2.262865 21.42,-41.056575 28.65091,-39.024094 z",
+    }),
+    star({
+      "sodipodi:sides": 6,
+      "sodipodi:cx": 60.75,
+      "sodipodi:cy": -30.5,
+      "sodipodi:r1": 40,
+      "sodipodi:r2": 34.64101615137755,
+      "sodipodi:arg1": -1.7707963267948965,
+      "sodipodi:arg2": -1.2471975511965976,
+      "inkscape:flatsided": "true",
+      "inkscape:rounded": 0.3,
+      "inkscape:randomized": 0.08,
+      d: "m 52.516065,-70.098542 c 11.843478,-3.473183 28.524625,1.500286 35.831111,10.640054 7.306485,9.139768 15.696854,31.995935 12.961004,43.85141 C 98.572326,-3.7516034 82.060741,8.9392118 69.766576,10.922742 57.472411,12.906272 36.082059,4.2433748 28.723487,-5.0163535 21.364915,-14.276082 15.730904,-29.246483 20.862484,-40.167763 c 5.13158,-10.92128 19.810102,-26.457596 31.653581,-29.930779 z",
+    }),
+  ];
+  const file = parseFile(svg('width="400" height="300"', drawn.join("")));
+  expect(file.warnings).toEqual([]);
+  const nodes = leaves(file) as ShapeNode[];
+  expect(nodes.map((n) => n.type)).toEqual(["star", "polygon"]);
+  nodes.forEach((node, i) => {
+    const inkscape = normalizePath(/ d="([^"]*)"/.exec(drawn[i] ?? "")?.[1] ?? "", "d");
+    const ours = shapeSegments(node);
+    expect(ours.map((s) => s.cmd)).toEqual(inkscape.map((s) => s.cmd));
+    // ADR-0024's model is within 0.14 units of Inkscape.
+    ours.forEach((s, j) => {
+      s.args.forEach((v, k) => {
+        expect(Math.abs(v - (inkscape[j]?.args[k] ?? Number.NaN))).toBeLessThan(0.2);
+      });
+    });
+  });
+});
+
+it.each([
+  [{ "inkscape:rounded": 11 }],
+  // Inkscape jitters a polygon by max(r1, r2); Zibel's polygon has no r2.
+  [{ "inkscape:flatsided": "true", "sodipodi:r2": 50, "inkscape:randomized": 0.1 }],
+])("reads a star whose parameters Zibel cannot hold as its Path: %j", (attrs) => {
+  const file = parseFile(svg("", star(attrs)));
+  expect(leaves(file)[0]?.type).toBe("path");
+  expect(file.warnings.map((w) => w.code)).toEqual(["STAR_AS_PATH"]);
+});
+
+it.each(["sodipodi:r2", "sodipodi:arg1", "sodipodi:arg2"])(
+  "reads a star whose %s is not a number as its Path",
+  (name) => {
+    const file = parseFile(svg("", star({ [name]: "x" })));
+    expect(leaves(file)[0]?.type).toBe("path");
+    expect(file.warnings.map((w) => w.code)).toEqual(["STAR_AS_PATH"]);
+  },
+);
 
 it("reads <text> as one Point Type, its Inkscape lines joined by returns, keeping the font name", () => {
   const file = parseFile(

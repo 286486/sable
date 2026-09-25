@@ -32,6 +32,16 @@
       },
       "id": "01M38T29SQARTB0ARD3000000Z",
       "name": "Images"
+    },
+    {
+      "frame": {
+        "height": 120,
+        "width": 120,
+        "x": 580,
+        "y": 0
+      },
+      "id": "01M38T29SRSTARSARTB0ARD000",
+      "name": "Stars"
     }
   ],
   "nodes": [
@@ -878,6 +888,94 @@
       "tags": [],
       "transform": [1, 0, 0, 1, 0, 0],
       "type": "group",
+      "visible": true
+    },
+    {
+      "angle": -10,
+      "appearance": {
+        "fills": [{ "color": "#3399FF", "type": "solid" }],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "cx": 640.75,
+      "cy": 100.25,
+      "id": "01M38T29SRPENTAG0N00000000",
+      "index": "aM",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "radius": 14,
+      "randomized": 0.08,
+      "rounded": 0.25,
+      "sides": 5,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "polygon",
+      "visible": true
+    },
+    {
+      "angle": 0,
+      "appearance": {
+        "fills": [{ "color": "#33AA66", "type": "solid" }],
+        "strokes": []
+      },
+      "blendMode": "normal",
+      "cx": 597,
+      "cy": 17,
+      "id": "01M38T29SRR0VNDNVMBERSTAR0",
+      "index": "aO",
+      "innerRadius": 6,
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "outerRadius": 12,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "points": 6,
+      "randomized": 0.2,
+      "rounded": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "twist": 0,
+      "type": "star",
+      "visible": true
+    },
+    {
+      "angle": 12.5,
+      "appearance": {
+        "fills": [{ "color": "#FF6699", "type": "solid" }],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#660033",
+            "dash": [],
+            "join": "round",
+            "miterLimit": 10,
+            "width": 1.5
+          }
+        ]
+      },
+      "blendMode": "normal",
+      "cx": 640.25,
+      "cy": 45.5,
+      "id": "01M38T29SRSTAR0R0VNDED0000",
+      "index": "aN",
+      "innerRadius": 16,
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "outerRadius": 36,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "points": 6,
+      "randomized": 0.1,
+      "rounded": 0.18,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "twist": 8,
+      "type": "star",
       "visible": true
     }
   ],

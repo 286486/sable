@@ -204,20 +204,21 @@ function shape(n: ShapeNode): string {
       return `line${attrs(num({ x1: n.x1, y1: n.y1, x2: n.x2, y2: n.y2 }))}`;
     case "polygon":
     case "star": {
-      // Inkscape's star tool rebuilds the outline from these on load, so d is the same vertices.
-      const { sides, r1, r2, arg1, arg2, flat } = starAttrs(n);
+      // Inkscape's star tool rebuilds the outline from these on load, so d is the same outline.
+      // They are at full precision: a randomized star seeds its jitter from them (ADR-0024).
+      const { sides, r1, r2, arg1, arg2, flat, rounded, randomized } = starAttrs(n);
       return `path${attrs({
         "sodipodi:type": "star",
         "sodipodi:sides": sides,
-        "sodipodi:cx": formatNumber(n.cx),
-        "sodipodi:cy": formatNumber(n.cy),
-        "sodipodi:r1": formatNumber(r1),
-        "sodipodi:r2": formatNumber(r2),
+        "sodipodi:cx": n.cx,
+        "sodipodi:cy": n.cy,
+        "sodipodi:r1": r1,
+        "sodipodi:r2": r2,
         "sodipodi:arg1": arg1,
         "sodipodi:arg2": arg2,
         "inkscape:flatsided": String(flat),
-        "inkscape:rounded": 0,
-        "inkscape:randomized": 0,
+        "inkscape:rounded": rounded,
+        "inkscape:randomized": randomized,
         d: formatPath(shapeSegments(n)),
       })}`;
     }

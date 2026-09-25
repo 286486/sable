@@ -187,6 +187,9 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     '<image x="470" y="10" width="24" height="16" preserveAspectRatio="none" xlink:href="data:image/png;base64,iVBOR',
     `<image x="470" y="40" width="48" height="48" preserveAspectRatio="xMidYMid slice" xlink:href="data:image/png;base64,`,
     `<g ${z("SQCR0PPEDGR0VP0000")} inkscape:label="Cropped" clip-path="url(#clip-z-01M38T29SQCR0PPEDGR0VP0000)">`,
+    // ADR-0024: a star's angle, twist, rounding and jitter, its parameters at full precision.
+    'sodipodi:cx="640.25" sodipodi:cy="45.5" sodipodi:r1="36" sodipodi:r2="16"',
+    'inkscape:flatsided="false" inkscape:rounded="0.18" inkscape:randomized="0.1"',
   ]) {
     expect(svg).toContain(part);
   }
@@ -195,8 +198,8 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
   );
   // resvg in the Worker draws the same file, namespaces and all, over every Artboard.
   expect(await render({ docId })).toEqual({
-    docRect: { x: 0, y: 0, width: 560, height: 200 },
-    pixelSize: { width: 560, height: 200 },
+    docRect: { x: 0, y: 0, width: 700, height: 200 },
+    pixelSize: { width: 700, height: 200 },
     scale: 1,
   });
 });

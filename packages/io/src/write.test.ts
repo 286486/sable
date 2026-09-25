@@ -57,7 +57,7 @@ it("writes rect, ellipse and line as their own elements, and other shapes as the
   for (const n of paths) expect(svg).toContain(`d="${formatPath(shapeSegments(n))}"`);
   expect(svg).toContain('<rect x="0" y="0" width="10" height="10" rx="2" ry="2" id=');
   expect(svg).toContain(
-    '<path sodipodi:type="star" sodipodi:sides="5" sodipodi:cx="50" sodipodi:cy="50" sodipodi:r1="10" sodipodi:r2="8.09" ' +
+    '<path sodipodi:type="star" sodipodi:sides="5" sodipodi:cx="50" sodipodi:cy="50" sodipodi:r1="10" sodipodi:r2="8.090169943749475" ' +
       'sodipodi:arg1="-1.5707963267948966" sodipodi:arg2="-0.9424777960769379" inkscape:flatsided="true" ' +
       'inkscape:rounded="0" inkscape:randomized="0" d="M 50 40 L 59.511 46.91 L 55.878 58.09',
   );
@@ -74,6 +74,35 @@ it("writes rect, ellipse and line as their own elements, and other shapes as the
   // Layer 1 > Group > [rect, Group > line]; the second top-level Layer is empty.
   expect(svg).toMatch(/<g [^>]*inkscape:groupmode="layer"><g [^>]*><rect[^>]*\/><g [^>]*><line/);
   expect(svg).toMatch(/<g [^>]*inkscape:groupmode="layer"><\/g><\/svg>$/);
+});
+
+it("writes a star's Inkscape parameters as set, and its centre and radii at full precision", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  const [star] = createNodes(doc, [
+    {
+      type: "star",
+      parentId,
+      cx: 80.1234567,
+      cy: 50,
+      outerRadius: 10.0001,
+      innerRadius: 4,
+      points: 5,
+      angle: 30,
+      twist: 10,
+      rounded: 0.3,
+      randomized: 0.1,
+    },
+  ]).nodes;
+  if (star?.type !== "star") throw new Error("setup");
+  const arg1 = -Math.PI / 2 + (30 * Math.PI) / 180;
+  const arg2 = arg1 + Math.PI / 5 + (10 * Math.PI) / 180;
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    `sodipodi:cx="80.1234567" sodipodi:cy="50" sodipodi:r1="10.0001" sodipodi:r2="4" sodipodi:arg1="${arg1}" sodipodi:arg2="${arg2}" ` +
+      'inkscape:flatsided="false" inkscape:rounded="0.3" inkscape:randomized="0.1" d="M ',
+  );
+  expect(svg).toContain(`d="${formatPath(shapeSegments(star))}"`);
+  expect(formatPath(shapeSegments(star))).toContain("C");
 });
 
 it("paints an Appearance stack bottom to top in a <g zibel:stack>, with Stroke attributes only when set", () => {

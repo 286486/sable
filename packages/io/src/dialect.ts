@@ -110,21 +110,35 @@ export const MITER_LIMIT = 10;
 const ARG1 = -Math.PI / 2;
 
 /**
- * The `sodipodi:` parameters of a polygon or star, from which Inkscape's star tool rebuilds it on
- * load: the inner vertices half a step clockwise of the outer ones (arg2), a polygon's r2 its
- * inradius.
+ * The `sodipodi:` and `inkscape:` parameters of a polygon or star, from which Inkscape's star tool
+ * rebuilds it on load (ADR-0024): arg1 turned by `angle`, the inner vertices half a step plus
+ * `twist` clockwise of the outer ones (arg2), a polygon's r2 its inradius. A Node stored before
+ * ADR-0024 reads the new fields as 0.
  */
 export function starAttrs(n: Extract<ShapeNode, { type: "polygon" | "star" }>) {
-  const [sides, r1, r2] =
+  const [sides, r1, r2, twist] =
     n.type === "polygon"
-      ? [n.sides, n.radius, n.radius * Math.cos(Math.PI / n.sides)]
-      : [n.points, n.outerRadius, n.innerRadius];
-  return { sides, r1, r2, arg1: ARG1, arg2: ARG1 + Math.PI / sides, flat: n.type === "polygon" };
+      ? [n.sides, n.radius, n.radius * Math.cos(Math.PI / n.sides), 0]
+      : [n.points, n.outerRadius, n.innerRadius, n.twist || 0];
+  const arg1 = ARG1 + ((n.angle || 0) * Math.PI) / 180;
+  return {
+    sides,
+    r1,
+    r2,
+    arg1,
+    arg2: arg1 + Math.PI / sides + (twist * Math.PI) / 180,
+    flat: n.type === "polygon",
+    rounded: n.rounded || 0,
+    randomized: n.randomized || 0,
+  };
 }
 
+/** Radians as degrees at 9 decimals, which absorbs the float error of the round trip (ADR-0024). */
+const degrees = (rad: number) => Math.round(((rad * 180) / Math.PI) * 1e9) / 1e9 || 0;
+
 /**
- * The Live Shape a star's parameters hold, the inverse of `starAttrs`: `turn` is how far its first
- * vertex is turned from straight up, and `twisted` whether its inner vertices are off the half step.
+ * The Live Shape a star's parameters hold, the inverse of `starAttrs`: `angle` from arg1, and a
+ * star's `twist` from how far arg2 is off the half step, within ±180°.
  */
 export function starOf(p: {
   sides: number;
@@ -133,13 +147,18 @@ export function starOf(p: {
   arg1: number;
   arg2: number;
   flat: boolean;
+  rounded: number;
+  randomized: number;
 }) {
-  const shape = p.flat
-    ? { type: "polygon" as const, radius: p.r1, sides: p.sides }
-    : { type: "star" as const, outerRadius: p.r1, innerRadius: p.r2, points: p.sides };
+  const common = { angle: degrees(p.arg1 - ARG1), rounded: p.rounded, randomized: p.randomized };
+  if (p.flat) return { type: "polygon" as const, radius: p.r1, sides: p.sides, ...common };
+  const off = p.arg2 - p.arg1 - Math.PI / p.sides;
   return {
-    shape,
-    turn: p.arg1 - ARG1,
-    twisted: !p.flat && Math.abs(p.arg2 - p.arg1 - Math.PI / p.sides) > 1e-6,
+    type: "star" as const,
+    outerRadius: p.r1,
+    innerRadius: p.r2,
+    points: p.sides,
+    ...common,
+    twist: degrees(off - 2 * Math.PI * Math.round(off / (2 * Math.PI))),
   };
 }
