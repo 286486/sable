@@ -31,7 +31,7 @@ This supersedes, for now, F-MCP-06b's "bitmaps always in R2". R2 is not bound un
 - `image_place` (§6.4.3), which fetches a URL, stays for its own issue, with its SSRF rules (§7.5).
 - The Worker serves `GET /api/docs/<docId>/images/<src>` with the stored MIME type and an immutable cache header, since an id always names the same bytes. The canvas fetches each `src` once, decodes it with `createImageBitmap`, which yields a GIF's first frame, draws nothing until it arrives, and applies `preserveAspectRatio` itself. The Layers panel's Auto-name is `<Image>`, as Illustrator names an embedded image.
 - The browser's Download SVG and Download `.zibel.json` embed the bytes it fetched for the canvas, so they still equal `export` at the same rev (ADR-0016).
-- Placing a bitmap in the browser by paste or drop (F-IO-04) is its own issue.
+- **Paste and drop** (F-IO-04, #62) place a bitmap as Illustrator's paste does: an Image at the file's pixel size, centred in the viewport, in the parent ADR-0017's Place picks. The browser POSTs the file's bytes to `/api/docs/<docId>/place-image?parentId=…&x=…&y=…`, where `x`, `y` is the centre in document coordinates. The Worker runs the create checks, turns the centre into a frame from the pixel size, and writes the Image as the User Actor in one Transaction, over HTTP like Place, not the WebSocket (ADR-0017). A missing or unreadable centre falls back to the Artboard's, as `image_place` does. A paste holding SVG text still Places the SVG; otherwise its first `image/*` file is placed, and a drop does the same with its first `.svg` or `image/*` file. The browser does not filter formats: a WebP or a file over 5 MB reaches the Worker and its `INVALID_IMAGE` or `LIMIT_EXCEEDED` message and hint become the notice.
 
 ## Files
 
