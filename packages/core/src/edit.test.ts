@@ -107,6 +107,24 @@ describe("transformNodes", () => {
     expect(shape(doc, b.id).appearance.strokes[0]).toMatchObject({ width: 1, dash: [2, 1] });
   });
 
+  it("moves a gradient with transform and never rewrites it", () => {
+    const { doc, rect } = newDoc();
+    const stops = [
+      { offset: 0, color: "#000000" },
+      { offset: 1, color: "#FFFFFF" },
+    ];
+    const strokes = [{ type: "gradient" as const, gradient: { type: "linear" as const, stops } }];
+    const [r] = createNodes(doc, [rect(0, 0, { appearance: { strokes } })]).nodes;
+    if (!r) throw new Error("setup");
+    const before = shape(doc, r.id).appearance.strokes[0];
+    transformNodes(doc, { nodeIds: [r.id], rotate: 90, scale: 2, scaleStrokes: false });
+    const after = shape(doc, r.id).appearance.strokes[0];
+    expect(after).toMatchObject({ width: 0.5 });
+    expect(after?.type === "gradient" && after.gradient).toEqual(
+      before?.type === "gradient" && before.gradient,
+    );
+  });
+
   it("scales each axis on its own and skews", () => {
     const { doc, rect } = newDoc();
     const [a] = createNodes(doc, [rect(0, 0)]).nodes;
@@ -239,6 +257,24 @@ describe("updateNodes", () => {
         dash: [],
       },
     ]);
+  });
+
+  it("fills a gradient's geometry from the bounds as they are after the patch", () => {
+    const { doc, r } = setup();
+    const stops = [
+      { offset: 0, color: "#000000" },
+      { offset: 1, color: "#FFFFFF" },
+    ];
+    const fills = [{ type: "gradient", gradient: { type: "linear", stops } }];
+    updateNodes(doc, [{ nodeId: r.id, patch: { width: 200, appearance: { fills } } }]);
+    const { x, y, height } = shape(doc, r.id) as ShapeNode & {
+      x: number;
+      y: number;
+      height: number;
+    };
+    expect(shape(doc, r.id).appearance.fills[0]).toMatchObject({
+      gradient: { start: { x, y: y + height / 2 }, end: { x: x + 200, y: y + height / 2 } },
+    });
   });
 
   it("changes a star's Inkscape parameters, and refuses twist on a polygon", () => {

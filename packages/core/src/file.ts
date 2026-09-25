@@ -189,7 +189,7 @@ export function parseDocument(
     const at = `nodes[${i}]`;
     const painted = {
       ...n,
-      appearance: paint(n.appearance as AppearanceInput, `${at}.appearance`),
+      appearance: paint(n.appearance as AppearanceInput, `${at}.appearance`, n),
     };
     if (painted.type === "path") painted.d = formatPath(parsePath(painted.d, `${at}.d`));
     return painted as Node;

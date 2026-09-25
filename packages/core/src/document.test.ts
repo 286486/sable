@@ -205,6 +205,86 @@ describe("gradients", () => {
     const parsed = AppearanceInput.safeParse({ fills: [{ type: "gradient", gradient }] });
     expect(parsed.error?.issues[0]?.path.join(".")).toBe(`fills.0.gradient.${path}`);
   });
+
+  describe("geometry left out comes from the leaf's own bounds", () => {
+    const fillOf = (input: Record<string, unknown>, gradient: Record<string, unknown>) => {
+      const { doc, defaultLayerId } = newDoc();
+      const [node] = createNodes(doc, [
+        {
+          type: "rect",
+          x: 10,
+          y: 20,
+          width: 100,
+          height: 50,
+          ...input,
+          parentId: defaultLayerId,
+          appearance: { fills: [{ type: "gradient", gradient: { stops, ...gradient } }] },
+        } as never,
+      ]).nodes;
+      if (!node || !("appearance" in node)) throw new Error("setup");
+      const [fill] = node.appearance.fills;
+      if (fill?.type !== "gradient") throw new Error("setup");
+      return fill.gradient;
+    };
+
+    it.each([
+      [undefined, { x: 10, y: 45 }, { x: 110, y: 45 }],
+      [90, { x: 60, y: 20 }, { x: 60, y: 70 }],
+      [180, { x: 110, y: 45 }, { x: 10, y: 45 }],
+      // Along the diagonal the box projects to (100 + 50) / sqrt(2).
+      [45, { x: 22.5, y: 7.5 }, { x: 97.5, y: 82.5 }],
+    ])("spans the bounds at angle %j, and does not store the angle", (angle, start, end) => {
+      const g = fillOf({}, { type: "linear", angle });
+      expect(g).toEqual({ type: "linear", stops: [first, last], start, end });
+    });
+
+    it("gives a radial gradient Illustrator's centre and radius", () => {
+      expect(fillOf({}, { type: "radial" })).toEqual({
+        type: "radial",
+        stops: [first, last],
+        center: { x: 60, y: 45 },
+        radius: 39.528,
+        aspectRatio: 1,
+        angle: 0,
+        focus: { x: 60, y: 45 },
+      });
+    });
+
+    it("makes a vector 1 pt long where the bounds have no extent", () => {
+      const g = fillOf({ height: 0 }, { type: "linear", angle: 90 });
+      expect(g).toMatchObject({ start: { x: 60, y: 19.5 }, end: { x: 60, y: 20.5 } });
+      expect(fillOf({ width: 0, height: 0 }, { type: "radial" })).toMatchObject({ radius: 1 });
+    });
+
+    it("moves a focus outside the ellipse onto it", () => {
+      const g = fillOf(
+        {},
+        { type: "radial", radius: 10, aspectRatio: 2, angle: 90, focus: { x: 160, y: 45 } },
+      );
+      // Across angle 90 is horizontal, where the radius is 10 × 2.
+      expect(g).toMatchObject({ focus: { x: 80, y: 45 } });
+    });
+
+    it("takes a text's bounds from its box", () => {
+      const { doc, defaultLayerId } = newDoc();
+      const [node] = createNodes(doc, [
+        {
+          type: "text",
+          kind: "area",
+          parentId: defaultLayerId,
+          x: 0,
+          y: 0,
+          width: 40,
+          height: 20,
+          content: "Hi",
+          appearance: { fills: [{ type: "gradient", gradient: { type: "linear", stops } }] },
+        },
+      ]).nodes;
+      expect(node).toMatchObject({
+        appearance: { fills: [{ gradient: { start: { x: 0, y: 10 }, end: { x: 40, y: 10 } } }] },
+      });
+    });
+  });
 });
 
 it("gives a shape without an Appearance Illustrator's default: white Fill, 1 pt black Stroke", () => {

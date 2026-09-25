@@ -222,7 +222,7 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
   if (next.type === "image") {
     next.preserveAspectRatio = preserveAspectRatio(next.preserveAspectRatio) ?? "none";
   } else if (next.type !== "layer" && next.type !== "group") {
-    next.appearance = paint(next.appearance as AppearanceInput, `${at}.appearance`);
+    next.appearance = paint(next.appearance as AppearanceInput, `${at}.appearance`, next);
   }
   if (next.type === "path" && "d" in patch) next.d = formatPath(parsePath(next.d, `${at}.d`));
   return next;
