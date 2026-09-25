@@ -246,9 +246,10 @@ it("draws the fixture Document with known pixels", async () => {
   // a rounded, randomized, twisted star, a rounded, randomized polygon and a randomized star whose
   // round-number vertices sit on Inkscape's seed grid; by #35, a fifth holding a slice, a chord
   // and an open arc; by #22, a sixth holding linear and radial gradients on Fills, a Stroke, a
-  // text, a turned rect and a stack.
+  // text, a turned rect and a stack; by #19, a seventh holding the five non-Regular faces as Point
+  // Type and a Bold Italic Area Type.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "0fa895930bdcbb1abffe3efb1f166eb144508b042fc6c2c60aa5503c9ecc6871",
+    "8b4740b0a7d7710cd635adf43f63dc5186d36572ac305534f3e6db164cd49526",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
