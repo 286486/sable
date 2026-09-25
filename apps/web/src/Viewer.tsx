@@ -63,7 +63,7 @@ async function saveWith(
  * Replace and Place (ADR-0017) POST the file to the Worker, which writes it as the user; the canvas
  * follows the `tx` broadcast like any other write. Failures and warnings show as the notice.
  */
-async function postFile(url: string, body: string, what: string) {
+async function postFile(url: string, body: BodyInit, what: string) {
   const notice = (text: string) => useStore.setState({ notice: text });
   try {
     const res = await fetch(url, { method: "POST", body });
@@ -78,6 +78,8 @@ async function postFile(url: string, body: string, what: string) {
     notice(`Could not ${what}: ${String(e)}`);
   }
 }
+
+const isSvg = (file: File) => file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
 
 const artboardsRect = (doc: Document) =>
   union(doc.artboards.map((a) => a.frame)) ?? { x: 0, y: 0, width: 100, height: 100 };
@@ -240,19 +242,24 @@ export function Viewer({ docId }: { docId: string }) {
     };
   }, [size]);
 
-  /** Place (ADR-0017): an SVG at the centre of the canvas, in the Selection's Layer or the top one. */
-  const place = (svg: string, name?: string) => {
+  /**
+   * Place at the centre of the canvas, in the Selection's Layer or the top one: an SVG as a Group
+   * (ADR-0017), any other file as an Image, which the Worker checks (ADR-0023).
+   */
+  const place = async (file: File | string) => {
     const { doc, viewport: v, selection } = useStore.getState();
     const parentId = doc && placeParent(doc, selection);
     if (!v || !parentId) return;
     const { x, y } = toDoc(v, size.width / 2, size.height / 2);
-    const query = new URLSearchParams({
-      parentId,
-      x: String(x),
-      y: String(y),
-      ...(name && { name }),
-    });
-    postFile(`/api/docs/${docId}/place?${query}`, svg, `place ${name ?? "the pasted SVG"}`);
+    const query = new URLSearchParams({ parentId, x: String(x), y: String(y) });
+    if (typeof file === "string") {
+      postFile(`/api/docs/${docId}/place?${query}`, file, "place the pasted SVG");
+    } else if (isSvg(file)) {
+      query.set("name", file.name);
+      postFile(`/api/docs/${docId}/place?${query}`, await file.text(), `place ${file.name}`);
+    } else {
+      postFile(`/api/docs/${docId}/place-image?${query}`, file, `place ${file.name}`);
+    }
   };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: place reads the current size
@@ -260,9 +267,12 @@ export function Viewer({ docId }: { docId: string }) {
     const onPaste = (e: ClipboardEvent) => {
       const data = e.clipboardData;
       const text = data?.getData("image/svg+xml") || data?.getData("text/plain") || "";
-      if (!text.trimStart().startsWith("<")) return;
+      const pasted = text.trimStart().startsWith("<")
+        ? text
+        : [...(data?.files ?? [])].find((f) => f.type.startsWith("image/"));
+      if (!pasted) return;
       e.preventDefault();
-      place(text);
+      place(pasted);
     };
     addEventListener("paste", onPaste);
     return () => removeEventListener("paste", onPaste);
@@ -270,10 +280,8 @@ export function Viewer({ docId }: { docId: string }) {
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    const file = [...e.dataTransfer.files].find(
-      (f) => f.type === "image/svg+xml" || /\.svg$/i.test(f.name),
-    );
-    file?.text().then((text) => place(text, file.name));
+    const file = [...e.dataTransfer.files].find((f) => isSvg(f) || f.type.startsWith("image/"));
+    if (file) place(file);
   };
 
   /** The pointer in document coordinates. */
