@@ -110,16 +110,27 @@ export const MITER_LIMIT = 10;
 const ARG1 = -Math.PI / 2;
 
 /**
- * The `sodipodi:` parameters of a polygon or star, from which Inkscape's star tool rebuilds it on
- * load: the inner vertices half a step clockwise of the outer ones (arg2), a polygon's r2 its
- * inradius.
+ * The `sodipodi:` and `inkscape:` parameters of a polygon or star, from which Inkscape's star tool
+ * rebuilds it on load (ADR-0024): arg1 turned by `angle`, the inner vertices half a step plus
+ * `twist` clockwise of the outer ones (arg2), a polygon's r2 its inradius. A Node stored before
+ * ADR-0024 reads the new fields as 0.
  */
 export function starAttrs(n: Extract<ShapeNode, { type: "polygon" | "star" }>) {
-  const [sides, r1, r2] =
+  const [sides, r1, r2, twist] =
     n.type === "polygon"
-      ? [n.sides, n.radius, n.radius * Math.cos(Math.PI / n.sides)]
-      : [n.points, n.outerRadius, n.innerRadius];
-  return { sides, r1, r2, arg1: ARG1, arg2: ARG1 + Math.PI / sides, flat: n.type === "polygon" };
+      ? [n.sides, n.radius, n.radius * Math.cos(Math.PI / n.sides), 0]
+      : [n.points, n.outerRadius, n.innerRadius, n.twist || 0];
+  const arg1 = ARG1 + ((n.angle || 0) * Math.PI) / 180;
+  return {
+    sides,
+    r1,
+    r2,
+    arg1,
+    arg2: arg1 + Math.PI / sides + (twist * Math.PI) / 180,
+    flat: n.type === "polygon",
+    rounded: n.rounded || 0,
+    randomized: n.randomized || 0,
+  };
 }
 
 /**
