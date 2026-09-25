@@ -190,6 +190,8 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     // ADR-0024: a star's angle, twist, rounding and jitter, its parameters at full precision.
     'sodipodi:cx="640.25" sodipodi:cy="45.5" sodipodi:r1="36" sodipodi:r2="16"',
     'inkscape:flatsided="false" inkscape:rounded="0.18" inkscape:randomized="0.1"',
+    // ADR-0025: a cut ellipse as an Inkscape arc, its angles in radians at full precision.
+    `sodipodi:type="arc" sodipodi:cx="740" sodipodi:cy="30" sodipodi:rx="30" sodipodi:ry="20" sodipodi:start="0" sodipodi:end="${(3 * Math.PI) / 2}" sodipodi:arc-type="slice"`,
   ]) {
     expect(svg).toContain(part);
   }
@@ -198,8 +200,8 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
   );
   // resvg in the Worker draws the same file, namespaces and all, over every Artboard.
   expect(await render({ docId })).toEqual({
-    docRect: { x: 0, y: 0, width: 700, height: 200 },
-    pixelSize: { width: 700, height: 200 },
+    docRect: { x: 0, y: 0, width: 820, height: 200 },
+    pixelSize: { width: 820, height: 200 },
     scale: 1,
   });
 });

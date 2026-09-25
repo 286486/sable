@@ -42,6 +42,16 @@
       },
       "id": "01M38T29SRSTARSARTB0ARD000",
       "name": "Stars"
+    },
+    {
+      "frame": {
+        "height": 120,
+        "width": 120,
+        "x": 700,
+        "y": 0
+      },
+      "id": "01M38T29SSARCSARTB0ARD0000",
+      "name": "Arcs"
     }
   ],
   "nodes": [
@@ -977,6 +987,109 @@
       "twist": 8,
       "type": "star",
       "visible": true
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#CC3366",
+            "type": "solid"
+          }
+        ],
+        "strokes": []
+      },
+      "arcType": "slice",
+      "blendMode": "normal",
+      "endAngle": 270,
+      "height": 40,
+      "id": "01M38T29SSARCP1E000000000A",
+      "index": "aP",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "startAngle": 0,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 60,
+      "x": 710,
+      "y": 10
+    },
+    {
+      "appearance": {
+        "fills": [
+          {
+            "color": "#3366CC",
+            "type": "solid"
+          }
+        ],
+        "strokes": [
+          {
+            "cap": "butt",
+            "color": "#112244",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 2
+          }
+        ]
+      },
+      "arcType": "chord",
+      "blendMode": "normal",
+      "endAngle": 60,
+      "height": 50,
+      "id": "01M38T29SSARCCH0RD0000000B",
+      "index": "aQ",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "startAngle": 300,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 50,
+      "x": 710,
+      "y": 60
+    },
+    {
+      "appearance": {
+        "fills": [],
+        "strokes": [
+          {
+            "cap": "round",
+            "color": "#226633",
+            "dash": [],
+            "join": "miter",
+            "miterLimit": 10,
+            "width": 3
+          }
+        ]
+      },
+      "arcType": "open",
+      "blendMode": "normal",
+      "endAngle": 315,
+      "height": 50,
+      "id": "01M38T29SSARC0PEN00000000C",
+      "index": "aR",
+      "locked": false,
+      "meta": {},
+      "name": "",
+      "opacity": 1,
+      "parentId": "01M38T29S9B0JGME3PRR084TCX",
+      "startAngle": 90,
+      "tags": [],
+      "transform": [1, 0, 0, 1, 0, 0],
+      "type": "ellipse",
+      "visible": true,
+      "width": 40,
+      "x": 770,
+      "y": 60
     }
   ],
   "images": {

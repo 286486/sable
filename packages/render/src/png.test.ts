@@ -206,9 +206,10 @@ it("draws the fixture Document with known pixels", async () => {
   // a multi-line Point Type and an Area Type (writing text as line tspans moved no pixel); by #32,
   // a third Artboard holding three Images, one cropped by a Clipping Mask; by #34, a fourth holding
   // a rounded, randomized, twisted star, a rounded, randomized polygon and a randomized star whose
-  // round-number vertices sit on Inkscape's seed grid.
+  // round-number vertices sit on Inkscape's seed grid; by #35, a fifth holding a slice, a chord
+  // and an open arc.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "e9d487cce974d1a2bb22c1f47988f9f2750e258c43966d792bf97a37807b65db",
+    "38cd2ed042e8944eba50d124289ea629f831c6f7033dd0a1ba22fdea0bfd2054",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
