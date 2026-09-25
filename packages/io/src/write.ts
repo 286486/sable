@@ -6,6 +6,7 @@ import {
   type Document,
   ellipseMatrix,
   type Fill,
+  fontFace,
   formatNumber,
   formatPath,
   type Gradient,
@@ -415,10 +416,14 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[]): string {
   if (overflow) tspans.push(`<tspan style="visibility:hidden">${esc(overflow)}</tspan>`);
   // Auto leading is CSS's unitless 1.2, which also follows the font size.
   const leading = n.leading === undefined ? "1.2" : `${formatNumber(n.leading)}px`;
+  // The stored style, which Inkscape and resvg each match to a face as Zibel does (ADR-0028).
+  const { weight, italic } = fontFace(n.fontStyle);
   return `<text${attrs({
     ...(!area && num({ x: n.x, y: n.y })),
     "font-family": n.fontFamily,
     "font-size": n.fontSize,
+    "font-weight": weight === 400 ? undefined : weight,
+    "font-style": italic ? "italic" : undefined,
     ...a,
     style: style(
       ...extra,

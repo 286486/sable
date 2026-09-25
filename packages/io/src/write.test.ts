@@ -285,6 +285,19 @@ it("writes Point Type as one <text> in its font family, a line tspan per line", 
   );
 });
 
+it("writes a text's style as font-weight and font-style, the stored style and not the face drawn", () => {
+  const { doc, defaultLayerId: parentId } = newDoc();
+  createNodes(doc, [
+    { type: "text", parentId, x: 0, y: 20, content: "a", fontStyle: "Semibold Italic" },
+    { type: "text", parentId, x: 0, y: 40, content: "b", fontStyle: "Bold" },
+  ]);
+  const svg = toSvg(doc);
+  expect(svg).toContain(
+    'font-family="Source Sans 3" font-size="12" font-weight="600" font-style="italic" id=',
+  );
+  expect(svg).toContain('font-family="Source Sans 3" font-size="12" font-weight="700" id=');
+});
+
 const areaText = (content: string, extra: object = {}) => {
   const { doc, defaultLayerId: parentId } = newDoc();
   const [node] = createNodes(doc, [
