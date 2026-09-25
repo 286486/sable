@@ -1,6 +1,8 @@
 import { exports } from "cloudflare:workers";
+import { imageId, readImage } from "@zibel/core";
 import type { ServerMessage } from "@zibel/sync";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import { call, errorOf } from "./rpc.ts";
 
 const open: WebSocket[] = [];
@@ -415,4 +417,77 @@ it("places an SVG POSTed to /api/docs/:docId/place at the given centre, as the u
   const refused = await post("x=0&y=0", svg);
   expect(refused.status).toBe(400);
   expect(await refused.json()).toMatchObject({ code: "NODE_NOT_FOUND" });
+});
+
+describe("images through the Worker", () => {
+  /** A Document with one Image of the red PNG, made over MCP. */
+  async function withImage() {
+    const { docId, defaultLayerId } = await newDoc();
+    const image = { type: "image", parentId: defaultLayerId, src: RED_2x2_PNG, x: 100, y: 0 };
+    const [id] = (await call("zibel_node_create", { docId, nodes: [image] })).structuredContent
+      .createdIds as string[];
+    const src = await imageId(readImage(RED_2x2_PNG, "src").bytes);
+    return { docId, defaultLayerId, id, src };
+  }
+  const get = (path: string) => exports.default.fetch(`http://zibel${path}`);
+
+  it("serves an Image's file by its id, cached for good, and 404 for any other", async () => {
+    const { docId, src } = await withImage();
+    const res = await get(`/api/docs/${docId}/images/${src}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("cache-control")).toContain("immutable");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(readImage(RED_2x2_PNG, "src").bytes);
+    for (const other of ["b".repeat(64), "nope"]) {
+      const missing = await get(`/api/docs/${docId}/images/${other}`);
+      expect(missing.status).toBe(404);
+      await missing.body?.cancel();
+    }
+  });
+
+  it("replaces an Image moved in the editor, keeping its file, and opens its export with it", async () => {
+    const { docId, id, src } = await withImage();
+    const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text as string;
+    const moved = svg.replace(/(<image [^>]*)x="100"/, '$1x="40"');
+    const res = await exports.default.fetch(`http://zibel/api/docs/${docId}/replace`, {
+      method: "POST",
+      body: moved,
+    });
+    expect(await res.json()).toMatchObject({ updatedIds: [id] });
+    const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
+      .structuredContent;
+    expect(nodes[0]).toMatchObject({ x: 40, src });
+
+    const json = (await call("zibel_export", { docId, format: "zibel_json" })).content[0].text;
+    const opened = (await call("zibel_doc_open", { content: json })).structuredContent;
+    const served = await get(`/api/docs/${opened.docId}/images/${src}`);
+    expect(served.status).toBe(200);
+    await served.body?.cancel();
+
+    const wrong = json.replaceAll(src, "c".repeat(64));
+    expect(errorOf(await call("zibel_doc_open", { content: wrong }))).toMatchObject({
+      code: "INVALID_DOCUMENT",
+      path: `images.${"c".repeat(64)}`,
+    });
+  });
+
+  it("places an SVG holding an embedded PNG, and serves its file", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image width="4" height="4" xlink:href="${RED_2x2_PNG}"/></svg>`;
+    const res = await exports.default.fetch(
+      `http://zibel/api/docs/${docId}/place?parentId=${defaultLayerId}`,
+      { method: "POST", body: svg },
+    );
+    const receipt = (await res.json()) as { createdIds: string[] };
+    const { nodes } = (
+      await call("zibel_node_get", { docId, nodeIds: receipt.createdIds, detail: "full" })
+    ).structuredContent;
+    const src = await imageId(readImage(RED_2x2_PNG, "src").bytes);
+    // The file's Group, the Layer its loose content made (as a Group), then the Image.
+    expect(nodes.map((n: { type: string }) => n.type)).toEqual(["group", "group", "image"]);
+    expect(nodes[2]).toMatchObject({ src });
+    const served = await get(`/api/docs/${docId}/images/${src}`);
+    expect(served.status).toBe(200);
+    await served.body?.cancel();
+  });
 });

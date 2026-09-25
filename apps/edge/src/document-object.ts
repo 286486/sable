@@ -727,10 +727,12 @@ export class DocumentObject extends DurableObject<Env> {
     actor: string,
     opts: Options & { baseRev?: number } = {},
   ): Result<WriteReceipt> {
+    this.storeImages(file.images);
     return this.write(actor, opts, "Replace", (doc) => {
       const change = replaceFile(doc, file, {
         baseRev: opts.baseRev,
         rebuild: (rev) => this.rebuild(doc, rev),
+        images: this.images,
       });
       return { ...change, failed: [] };
     });
@@ -746,6 +748,7 @@ export class DocumentObject extends DurableObject<Env> {
     opts: Options & { parentId: string; position?: { x: number; y: number }; fit?: boolean },
   ): Result<WriteReceipt & { nodes: OutlineNode[] }> {
     let nodes: OutlineNode[] = [];
+    if (file.format === "svg") this.storeImages(file.images);
     const receipt = this.write(actor, opts, "Place", (doc) => {
       if (file.format !== "svg") {
         throw new ZibelError({

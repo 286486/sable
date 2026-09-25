@@ -1,7 +1,11 @@
-import { type ErrorData, newId, ZibelError } from "@zibel/core";
+import { type ErrorData, newId, resolveImages, ZibelError } from "@zibel/core";
 import { parseFile } from "@zibel/io";
 import { svgToPng } from "@zibel/render";
 import type { DocumentService } from "@zibel/sync";
+
+/** A file for Open, Replace or Place, its images named by their hash (ADR-0023). */
+const read = (content: string, opts: { name?: string } = {}) =>
+  resolveImages(parseFile(content, opts));
 
 /** DocumentService over one Document Durable Object per docId, acting as `actor`. */
 export function documentService(env: Env, actor: string): DocumentService {
@@ -20,18 +24,18 @@ export function documentService(env: Env, actor: string): DocumentService {
     },
     open: async ({ content, name, intent }) => {
       // Parsed here, before any Durable Object or D1 row exists, so a bad file creates nothing.
-      const { warnings, ...file } = parseFile(content, { name });
+      const { warnings, ...file } = await read(content, { name });
       const docId = newId();
       const opened = unwrap(await doc(docId).open({ ...file, docId, actor, intent }));
       await index(docId, file.name);
       return { ...opened, warnings };
     },
     replace: async (docId, { content, baseRev, ifRev, intent }) =>
-      unwrap(await doc(docId).replace(parseFile(content), actor, { baseRev, ifRev, intent })),
+      unwrap(await doc(docId).replace(await read(content), actor, { baseRev, ifRev, intent })),
     place: async (docId, { svg, name, ...opts }) => {
       let file: ReturnType<typeof parseFile>;
       try {
-        file = parseFile(svg, { name });
+        file = await read(svg, { name });
       } catch (e) {
         // The file is Place's `svg`, not Open's `content`.
         if (e instanceof ZibelError && e.data.path === "content") {
