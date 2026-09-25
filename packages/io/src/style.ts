@@ -28,6 +28,7 @@ const INHERITED = [
   "text-anchor",
   "line-height",
   "white-space",
+  "letter-spacing",
 ];
 /** Every property import reads. */
 const PROPERTIES = [
@@ -41,6 +42,7 @@ const PROPERTIES = [
   "filter",
   "stop-color",
   "stop-opacity",
+  "baseline-shift",
 ];
 
 export function declarations(text: string | null): Style {
