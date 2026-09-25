@@ -373,7 +373,7 @@ it("reads Inkscape stars and polygons back as Live Shapes, a turned one with its
   expect(file.warnings).toEqual([]);
 });
 
-it("reads rounded, twisted and randomized stars as Live Shapes; an arc is still a Path", () => {
+it("reads rounded, twisted and randomized stars as Live Shapes, and an arc as an ellipse", () => {
   const file = parseFile(
     svg(
       'width="400" height="300"',
@@ -388,8 +388,108 @@ it("reads rounded, twisted and randomized stars as Live Shapes; an arc is still 
   expect(rounded).toMatchObject({ type: "star", rounded: 0.2, twist: 0, randomized: 0 });
   expect(twisted).toMatchObject({ type: "star", twist: 5.73, angle: 0 });
   expect(wrapped).toMatchObject({ type: "star", twist: 5.73, angle: 261.887 });
-  expect(arc?.type).toBe("path");
-  expect(file.warnings.map((w) => w.code)).toEqual(["ARC_AS_PATH"]);
+  expect(arc).toMatchObject({
+    type: "ellipse",
+    x: 0,
+    y: 0,
+    width: 10,
+    height: 10,
+    startAngle: 0,
+    endAngle: 171.887,
+    arcType: "slice",
+  });
+  expect(file.warnings).toEqual([]);
+});
+
+/** An arc as Inkscape 1.2.2 writes it; its d is ignored, since Inkscape draws the parameters too. */
+const arc = (attrs: Record<string, string | number>) =>
+  `<path ${Object.entries({
+    "sodipodi:type": "arc",
+    "sodipodi:cx": 100,
+    "sodipodi:cy": 80,
+    "sodipodi:rx": 60,
+    "sodipodi:ry": 30,
+    "sodipodi:start": 0,
+    "sodipodi:end": 4.71238898038469,
+    ...attrs,
+  })
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(" ")} d="M 0 0 Z"/>`;
+
+it("opens an Inkscape arc of each type as an ellipse with the same angles and type (ADR-0025)", () => {
+  const cases: [Record<string, string | number>, object][] = [
+    [{ "sodipodi:arc-type": "slice" }, { startAngle: 0, endAngle: 270, arcType: "slice" }],
+    [
+      { "sodipodi:arc-type": "chord", "sodipodi:open": "true" },
+      { endAngle: 270, arcType: "chord" },
+    ],
+    [
+      { "sodipodi:arc-type": "arc", "sodipodi:open": "true" },
+      { endAngle: 270, arcType: "open" },
+    ],
+    // Before arc-type, sodipodi:open alone made an open arc; an unknown type is a slice.
+    [{}, { arcType: "slice" }],
+    [{ "sodipodi:open": "true" }, { arcType: "open" }],
+    [{ "sodipodi:arc-type": "foo", "sodipodi:open": "true" }, { arcType: "slice" }],
+    // Angles in any turn come back within one, an end before the start wrapping through 0°.
+    [
+      { "sodipodi:start": -1, "sodipodi:end": 8 },
+      { startAngle: 302.704, endAngle: 98.366 },
+    ],
+    [
+      { "sodipodi:start": 5.5, "sodipodi:end": 0.5 },
+      { startAngle: 315.127, endAngle: 28.648 },
+    ],
+    [
+      { "sodipodi:start": 1, "sodipodi:end": 1, "sodipodi:arc-type": "chord" },
+      { startAngle: 57.296, endAngle: 57.296, arcType: "chord" },
+    ],
+    [
+      { "sodipodi:end": 2 * Math.PI, "sodipodi:arc-type": "arc" },
+      { startAngle: 0, endAngle: 360, arcType: "open" },
+    ],
+    // Inkscape's own writer, after a move, keeps about 8 digits.
+    [{ "sodipodi:end": 4.712389 }, { endAngle: 270 }],
+  ];
+  for (const [attrs, want] of cases) {
+    const file = parseFile(svg('width="400" height="300"', arc(attrs)));
+    expect(leaves(file)[0]).toMatchObject({
+      type: "ellipse",
+      x: 40,
+      y: 50,
+      width: 120,
+      height: 60,
+      transform: [1, 0, 0, 1, 0, 0],
+      ...want,
+    });
+    expect(file.warnings).toEqual([]);
+  }
+  const moved = (transform: string) =>
+    leaves(
+      parseFile(svg('width="400" height="300"', `<g transform="${transform}">${arc({})}</g>`)),
+    )[0];
+  expect(moved("translate(10 0) scale(2)")).toMatchObject({
+    type: "ellipse",
+    x: 90,
+    width: 240,
+    endAngle: 270,
+    transform: [1, 0, 0, 1, 0, 0],
+  });
+  expect(moved("rotate(30)")).toMatchObject({ type: "ellipse", x: 40, width: 120, endAngle: 270 });
+  expect(moved("rotate(30)")?.transform[1]).toBeCloseTo(0.5, 6);
+});
+
+it("reads an arc Zibel cannot hold as the Path its d draws", () => {
+  for (const attrs of [{ "sodipodi:rx": -5 }, { "sodipodi:cx": "abc" }] as Record<
+    string,
+    string | number
+  >[]) {
+    const file = parseFile(
+      svg('width="400" height="300"', arc(attrs).replace('d="M 0 0 Z"', 'd="M 0 0 L 10 0 Z"')),
+    );
+    expect(leaves(file)[0]).toMatchObject({ type: "path", d: "M 0 0 L 10 0 Z" });
+    expect(file.warnings.map((w) => w.code)).toEqual(["ARC_AS_PATH"]);
+  }
 });
 
 it("keeps a randomized star's parameters as written, its matrix unbaked (ADR-0024)", () => {

@@ -158,6 +158,22 @@ export function arcAttrs(n: Extract<ShapeNode, { type: "ellipse" }>) {
   };
 }
 
+/**
+ * The angles and arc type an Inkscape arc holds, the inverse of `arcAttrs` (ADR-0025): degrees
+ * within one turn at 3 decimals, a start of 360 read as 0 and an end of 0 as 360. An unknown
+ * `arc-type` is a slice; with none, `sodipodi:open` makes an open arc, as Inkscape 1.2.2 reads it.
+ */
+export function arcOf(p: { start: number; end: number; type: string | null; open: boolean }) {
+  const turn = (rad: number) =>
+    (Math.round((((((rad * 180) / Math.PI) % 360) + 360) % 360) * 1000) / 1000) % 360;
+  const types: Record<string, "chord" | "open"> = { chord: "chord", arc: "open" };
+  return {
+    startAngle: turn(p.start),
+    endAngle: turn(p.end) || 360,
+    arcType: p.type === null ? (p.open ? "open" : "slice") : (types[p.type] ?? "slice"),
+  } as const;
+}
+
 /** Radians as degrees at 9 decimals, which absorbs the float error of the round trip (ADR-0024). */
 const degrees = (rad: number) => Math.round(((rad * 180) / Math.PI) * 1e9) / 1e9 || 0;
 
