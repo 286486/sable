@@ -600,6 +600,9 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("zibel_node_update")).toContain("leading");
   expect(described("zibel_node_create")).toContain("Bold Italic");
   expect(described("zibel_node_update")).toContain("fontStyle");
+  for (const word of ["tracking", "ranges"]) expect(described("zibel_node_create")).toContain(word);
+  expect(described("zibel_node_update")).toContain("ranges");
+  expect(described("zibel_node_update")).toContain("clears");
   expect(described("zibel_node_create")).toContain("image {");
   expect(described("zibel_node_update")).toContain("preserveAspectRatio");
   for (const param of [
