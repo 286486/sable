@@ -54,6 +54,8 @@ Import:
 
 `render` writes the same SVG, and resvg draws its data URLs.
 
+`preserveAspectRatio` is stored in one spelling, `none` or `<align> <meet|slice>`: `node_create`, `node_update` and import all bring a value to it, dropping `defer` and adding ` meet` to a bare alignment. Replace's normalising round trip (ADR-0017 step 2) maps each data URL it has just written back to its id, so it reads the Document's images but never hashes them again.
+
 ## Considered Options
 
 - **The data URL inside the Node.** One image near 1.5 MB would pass the 2 MB row cap, the Delta Log would copy it on every move, and `node_get` would pour base64 into an Agent's context.

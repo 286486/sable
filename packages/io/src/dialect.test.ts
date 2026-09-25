@@ -2,11 +2,16 @@ import {
   createDocument,
   createNodes,
   type Document,
+  imageId,
+  imageSource,
   parseDocument,
   type RenderScope,
+  readImage,
+  resolveImages,
   serializeDocument,
 } from "@zibel/core";
 import { expect, it } from "vitest";
+import { RED_2x2_PNG } from "../../../fixtures/images.ts";
 import {
   alpha,
   idOf,
@@ -43,10 +48,11 @@ it.each(Object.entries(fixtures).map(([path, text]) => [path.split("/").pop(), p
   "writes %s and reads it back as the same Document",
   async (_name, path, text) => {
     const doc = open(text);
-    const svg = toSvg(doc);
+    const images = imageSource(parseDocument(text).images);
+    const svg = toSvg(doc, undefined, { images });
     // The export, byte for byte: a change to the dialect shows here first (vitest -u to accept).
     await expect(svg).toMatchFileSnapshot(path.replace(/\.zibel\.json$/, ".svg"));
-    const read = parseSvg(svg);
+    const read = await resolveImages(parseSvg(svg));
     expect(read.warnings).toEqual([]);
     expect(read.origin).toEqual({ docId: "DOC", rev: 1 });
     const back = {
@@ -55,9 +61,36 @@ it.each(Object.entries(fixtures).map(([path, text]) => [path.split("/").pop(), p
       artboards: read.artboards,
       nodes: new Map(read.nodes.map((n) => [n.id, n])),
     };
-    expect(serializeDocument(back)).toBe(serializeDocument(doc));
+    expect(serializeDocument(back, imageSource(read.images))).toBe(serializeDocument(doc, images));
   },
 );
+
+it("reads an exported Image back with the same src, frame and preserveAspectRatio", async () => {
+  const { doc, defaultLayerId } = createDocument({
+    id: "DOC",
+    name: "Doc",
+    artboards: [{ width: 100, height: 100 }],
+  });
+  const file = readImage(RED_2x2_PNG, "src");
+  const src = await imageId(file.bytes);
+  doc.images.set(src, file);
+  createNodes(doc, [
+    { type: "image", parentId: defaultLayerId, src, x: 1.5, y: 2, width: 30, height: 20 },
+    {
+      type: "image",
+      parentId: defaultLayerId,
+      src,
+      x: 0,
+      y: 0,
+      preserveAspectRatio: "xMaxYMin slice",
+    },
+  ]);
+  const images = imageSource(new Map([[src, file]]));
+  const read = await resolveImages(parseSvg(toSvg(doc, undefined, { images })));
+  expect(read.warnings).toEqual([]);
+  const back = { ...doc, nodes: new Map(read.nodes.map((n) => [n.id, n])) };
+  expect(serializeDocument(back, imageSource(read.images))).toBe(serializeDocument(doc, images));
+});
 
 it("reads back every Render Scope, id and alpha byte it writes", () => {
   const scopes: RenderScope[] = [

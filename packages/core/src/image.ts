@@ -97,6 +97,14 @@ export async function imageId(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 
 export const dataUrl = (file: ImageFile) => `data:${file.mime};base64,${file.bytes.toBase64()}`;
 
+/** The files as an `ImageSource`. */
+export const imageSource =
+  (files: Map<string, ImageFile>): ImageSource =>
+  (id) => {
+    const file = files.get(id);
+    return file && dataUrl(file);
+  };
+
 /**
  * SVG's `preserveAspectRatio` in the one spelling the Document stores: `none` or
  * `<align> <meet|slice>`; `defer` is dropped. Undefined when it is not one.
