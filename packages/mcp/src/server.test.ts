@@ -37,7 +37,18 @@ describe("write tools pass the write and its options apart", () => {
       { type: "rect", parentId: "p", x: 0, y: 0, width: 10, height: 10 },
       { type: "ellipse", parentId: "p", x: 0, y: 0, width: 10, height: 10 },
       { type: "polygon", parentId: "p", cx: 0, cy: 0, radius: 5, sides: 6 },
-      { type: "star", parentId: "p", cx: 0, cy: 0, outerRadius: 5, innerRadius: 2, points: 5 },
+      {
+        type: "star",
+        parentId: "p",
+        cx: 0,
+        cy: 0,
+        outerRadius: 5,
+        innerRadius: 2,
+        points: 5,
+        twist: 10,
+        rounded: 0.3,
+        randomized: 0.1,
+      },
       { type: "path", parentId: "p", d: "M 0 0 L 1 1" },
       { type: "text", parentId: "p", x: 0, y: 0, content: "Hi" },
       {
@@ -62,8 +73,8 @@ describe("write tools pass the write and its options apart", () => {
       { type: "group", children: [{ type: "line" }] },
       { type: "rect", radius: 0 },
       { type: "ellipse" },
-      { type: "polygon" },
-      { type: "star" },
+      { type: "polygon", angle: 0, rounded: 0, randomized: 0 },
+      { type: "star", angle: 0, twist: 10, rounded: 0.3, randomized: 0.1 },
       { type: "path", fillRule: "nonzero" },
       { type: "text", kind: "point", fontFamily: "Source Sans 3", fontSize: 12 },
       { type: "text", kind: "area", width: 50, height: 20, content: "a\nb", fontSize: 12 },
@@ -558,6 +569,10 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
   expect(described("zibel_node_update")).toContain("leading");
   expect(described("zibel_node_create")).toContain("image {");
   expect(described("zibel_node_update")).toContain("preserveAspectRatio");
+  for (const param of ["angle", "twist", "rounded", "randomized"]) {
+    expect(described("zibel_node_create")).toContain(param);
+    expect(JSON.stringify(byName.zibel_node_update?.inputSchema)).toContain(`"${param}"`);
+  }
   expect(described("zibel_doc_open")).toContain("LINKED_IMAGE_DROPPED");
   for (const t of tools) {
     expect(t.annotations, t.name).toEqual({
