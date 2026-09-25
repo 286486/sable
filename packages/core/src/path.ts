@@ -310,19 +310,89 @@ function bezier(p: number[], t: number): number {
 /** 4 (√2 − 1) / 3: cubic control distance that approximates a quarter circle. */
 const KAPPA = 0.5522847498307936;
 
+/** Inkscape's stream for one vertex: a seed from its position, then an LCG (ADR-0024). */
+function draws(x: number, y: number): number[] {
+  const h = (v: number) => {
+    const f = Math.floor(1024 * v);
+    return (Math.floor(f / 16) % 1024) + (f % 64);
+  };
+  let s = ((h(x) << 16) + h(y)) >>> 0;
+  return Array.from({ length: 4 }, () => {
+    s = (Math.imul(69069, s) + 1) >>> 0;
+    return (2 * s) / 2 ** 32 - 1;
+  });
+}
+
+/**
+ * A star or polygon as Inkscape draws it (ADR-0024): outer and inner vertices, the first at
+ * `angle` clockwise from straight up, each jittered by `randomized`, joined by lines or, when
+ * `rounded`, by cubics. A Node stored before ADR-0024 lacks the new fields and reads them as 0.
+ */
+function starSegments(shape: Extract<Shape, { type: "polygon" | "star" }>): Segment[] {
+  const { cx, cy, angle = 0, rounded = 0, randomized = 0 } = shape;
+  const star = shape.type === "star";
+  const n = star ? shape.points : shape.sides;
+  const r1 = star ? shape.outerRadius : shape.radius;
+  const r2 = star ? shape.innerRadius : r1;
+  const arg1 = -Math.PI / 2 + (angle * Math.PI) / 180;
+  const arg2 = arg1 + Math.PI / n + (((star && shape.twist) || 0) * Math.PI) / 180;
+  const ring = (x: number, y: number, a: number, b: number) =>
+    Array.from({ length: n }, (_, i) =>
+      (star
+        ? [
+            [a, arg1],
+            [b, arg2],
+          ]
+        : [[a, arg1]]
+      ).map(([r = 0, arg = 0]) => {
+        const t = arg + (2 * Math.PI * i) / n;
+        return [x + r * Math.cos(t), y + r * Math.sin(t)] as const;
+      }),
+    ).flat();
+  const f = Math.fround;
+  const U = ring(cx, cy, r1, r2);
+  const D = ring(f(cx), f(cy), f(r1), f(r2)).map(([x, y]) => draws(x, y));
+  const jitter = randomized * Math.max(r1, r2);
+  const V = U.map(([x, y], i) => {
+    const [d1 = 0, d2 = 0] = D[i] ?? [];
+    return [x + jitter * d1, y + jitter * d2] as const;
+  });
+  const move: Segment = { cmd: "M", args: [...(V[0] ?? [])] };
+  const Z: Segment = { cmd: "Z", args: [] };
+  if (rounded === 0)
+    return [move, ...V.slice(1).map(([x, y]): Segment => ({ cmd: "L", args: [x, y] })), Z];
+  const k = U.length;
+  // ponytail: on a twisted, rounded star Inkscape's handles turn a further angle proportional to
+  // r1 (2.6e-4 rad at r1 = 80), under a pixel; model it if a round-trip pixel check fails on it.
+  const handle = (i: number, length: number, sign: number) => {
+    const [px = 0, py = 0] = U[(i + k - 1) % k] ?? [];
+    const [qx = 0, qy = 0] = U[(i + 1) % k] ?? [];
+    const [, , d3 = 0, d4 = 0] = D[i] ?? [];
+    const [vx = 0, vy = 0] = V[i] ?? [];
+    const t = Math.atan2(qy - py, qx - px) + ((randomized * Math.PI) / 2) * d3;
+    const l = rounded * length * (1 + (randomized * d4) / 2);
+    return [vx + sign * l * Math.cos(t), vy + sign * l * Math.sin(t)];
+  };
+  return [
+    move,
+    ...U.map(([ux, uy], i): Segment => {
+      const j = (i + 1) % k;
+      const [wx = 0, wy = 0] = U[j] ?? [];
+      const length = Math.hypot(wx - ux, wy - uy);
+      return {
+        cmd: "C",
+        args: [...handle(i, length, 1), ...handle(j, length, -1), ...(V[j] ?? [])],
+      };
+    }),
+    Z,
+  ];
+}
+
 /** Outline of a Live Shape, or the parsed `d` of a Path. */
 export function shapeSegments(shape: Shape): Segment[] {
   const M = (x: number, y: number): Segment => ({ cmd: "M", args: [x, y] });
   const L = (x: number, y: number): Segment => ({ cmd: "L", args: [x, y] });
   const Z: Segment = { cmd: "Z", args: [] };
-  /** Vertices on a circle, the first straight up, clockwise (y down). */
-  const ring = (cx: number, cy: number, radii: number[]): Segment[] => [
-    ...radii.map((r, i) => {
-      const a = -Math.PI / 2 + (i * 2 * Math.PI) / radii.length;
-      return (i === 0 ? M : L)(cx + r * Math.cos(a), cy + r * Math.sin(a));
-    }),
-    Z,
-  ];
   switch (shape.type) {
     case "rect": {
       const { x, y, width: w, height: h } = shape;
@@ -362,15 +432,8 @@ export function shapeSegments(shape: Shape): Segment[] {
     case "line":
       return [M(shape.x1, shape.y1), L(shape.x2, shape.y2)];
     case "polygon":
-      return ring(shape.cx, shape.cy, Array(shape.sides).fill(shape.radius));
     case "star":
-      return ring(
-        shape.cx,
-        shape.cy,
-        Array.from({ length: shape.points * 2 }, (_, i) =>
-          i % 2 ? shape.innerRadius : shape.outerRadius,
-        ),
-      );
+      return starSegments(shape);
     case "path":
       return parsePath(shape.d, "d");
   }
