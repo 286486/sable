@@ -65,7 +65,7 @@ _Avoid_: Boolean、Boolean group、Pathfinder object
 ## 文字
 
 **Text（文字）**：
-显示字符的 Node，`type` 为 `text`，按 `kind` 分为 Point Type、Area Type、Type on a Path。字符属性（字体族、字号）存在 Node 上。
+显示字符的 Node，`type` 为 `text`，按 `kind` 分为 Point Type、Area Type、Type on a Path。字符属性（字体族、字体样式、字号）存在 Node 上。
 _Avoid_: Label、Text box、Text element
 
 **Point Type（点文字）**：
@@ -75,6 +75,10 @@ _Avoid_: Point text、Label、Single-line text
 **Area Type（区域文字）**：
 在一个矩形框内自动换行的 Text，`kind: "area"`，`x, y, width, height` 就是那个框。放不下的文字是溢出（Overflow），不绘制，写入时回执警告 `TEXT_OVERFLOW`（ADR-0022）。
 _Avoid_: Text box、Paragraph text、Flowed text
+
+**Font Style（字体样式）**：
+Text 的字符属性 `fontStyle`，Illustrator 字符面板里字体族旁的样式名：字重名（Thin、ExtraLight、Light、Regular、Medium、Semibold、Bold、ExtraBold、Black）加可选的 ` Italic`，单独的 `Italic` 即 Regular Italic，缺省 `Regular`。内置 Source Sans 3 的 Regular、Italic、Bold、Bold Italic、Black、Black Italic；其他样式按 CSS 字体匹配规则以最近的内置字面绘制，回执警告 `FONT_MISSING`（ADR-0028）。
+_Avoid_: Font weight、Bold flag、Typeface
 
 **Leading（行距）**：
 Text 相邻两行基线之间的距离，单位 pt。未设置即 Auto，为字号的 120%，随字号变化。
