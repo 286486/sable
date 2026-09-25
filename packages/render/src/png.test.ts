@@ -133,6 +133,34 @@ it("leaves an evenodd hole unpainted, and fills it under nonzero", async () => {
   expect(await inked()).toContain("35,35");
 });
 
+it("paints a slice, a chord and an open arc of an ellipse (ADR-0025)", async () => {
+  const { doc, defaultLayerId: parentId } = createDocument({
+    id: "d",
+    name: "Doc",
+    artboards: [{ width: 200, height: 140, background: "#FFFFFF" }],
+  });
+  const pie = { type: "ellipse" as const, parentId, width: 80, height: 60, endAngle: 270 };
+  const filled = { fills: [{ color: "#000000" }] };
+  const stroked = { fills: [], strokes: [{ color: "#000000", width: 4 }] };
+  createNodes(doc, [
+    { ...pie, x: 0, y: 0, appearance: filled },
+    { ...pie, x: 100, y: 0, arcType: "chord", appearance: filled },
+    { ...pie, x: 0, y: 70, arcType: "chord", appearance: stroked },
+    { ...pie, x: 100, y: 70, arcType: "open", appearance: stroked },
+  ]);
+  const drawn = new Set((await ink(toSvg(doc))).map((p) => p.join()));
+  // 270° to 360° is the top right quarter: the slice leaves it out, the chord only past its line.
+  expect(drawn.has("50,22")).toBe(false);
+  expect(drawn.has("30,37")).toBe(true);
+  expect(drawn.has("150,22")).toBe(true);
+  expect(drawn.has("165,10")).toBe(false);
+  // The chord's line is stroked, the open arc's is not; both stroke the arc.
+  expect(drawn.has("60,85")).toBe(true);
+  expect(drawn.has("160,85")).toBe(false);
+  expect(drawn.has("1,100")).toBe(true);
+  expect(drawn.has("101,100")).toBe(true);
+});
+
 it("rounds the pixel size to the nearest pixel and stretches the drawing to it", async () => {
   // Why fit() widens the rect to whole pixels: at 10.2 pt × 2 resvg draws 20 px, not 20.4.
   const size = async (width: number) =>

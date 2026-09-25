@@ -133,6 +133,31 @@ export function starAttrs(n: Extract<ShapeNode, { type: "polygon" | "star" }>) {
   };
 }
 
+/** An ellipse's arc type as `sodipodi:arc-type`: Inkscape calls an open arc `arc` (ADR-0025). */
+const ARC_TYPES = { slice: "slice", chord: "chord", open: "arc" } as const;
+
+/**
+ * The `sodipodi:` parameters of an Inkscape arc, from which Inkscape rebuilds a cut ellipse on
+ * load (ADR-0025): its centre and radii, its angles in radians at full precision, its arc type.
+ * A Node stored before ADR-0025 reads as whole, so it is not an arc.
+ */
+export function arcAttrs(n: Extract<ShapeNode, { type: "ellipse" }>) {
+  const { startAngle = 0, endAngle = 360, arcType = "slice" } = n;
+  const [rx, ry] = [n.width / 2, n.height / 2];
+  return {
+    arc: startAngle !== 0 || endAngle !== 360 || arcType !== "slice",
+    cx: n.x + rx,
+    cy: n.y + ry,
+    rx,
+    ry,
+    start: (startAngle * Math.PI) / 180,
+    end: (endAngle * Math.PI) / 180,
+    type: ARC_TYPES[arcType],
+    // Inkscape's own writer adds it for readers older than arc-type.
+    open: arcType !== "slice",
+  };
+}
+
 /** Radians as degrees at 9 decimals, which absorbs the float error of the round trip (ADR-0024). */
 const degrees = (rad: number) => Math.round(((rad * 180) / Math.PI) * 1e9) / 1e9 || 0;
 
