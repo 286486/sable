@@ -30,7 +30,7 @@ Every new node type or Appearance feature ships with its SVG export mapping, its
 | Leaf with ≤ 1 Fill and ≤ 1 Stroke | one element with both `fill` and `stroke`; no Fill is `fill="none"`, so an empty Appearance is still an element |
 | Appearance stack | a `<g zibel:stack="true">` of paints, read back as one Node; the paints carry no id |
 | Colour with alpha | `fill="#RRGGBB" fill-opacity`, `stroke="#RRGGBB" stroke-opacity`, likewise Artboard and render backgrounds, opacity at 3 decimals, which recovers every alpha byte: Inkscape 1.2 draws `#RRGGBBAA` as black. Import reads both forms |
-| `rect`, `ellipse`, `line` | `<rect rx ry>` (the clamped radius, left out at 0), `<circle>` when width equals height, else `<ellipse>`, `<line>` |
+| `rect`, `ellipse`, `line` | `<rect rx ry>` (the clamped radius, left out at 0), `<circle>` when width equals height, else `<ellipse>`, `<line>`. An ellipse with other than the default angles and arc type is `<path sodipodi:type="arc">` with `sodipodi:cx/cy/rx/ry/start/end/arc-type` and a `d` that matches them (ADR-0025) |
 | `polygon`, `star` | `<path sodipodi:type="star">` with `sodipodi:sides/cx/cy/r1/r2/arg1/arg2`, `inkscape:flatsided/rounded/randomized` and a `d` that matches them, because Inkscape rebuilds the shape from the parameters on load. `arg1 = −π/2` (first vertex up, radians, clockwise) plus `angle`, and `arg2 = arg1 + π/sides` plus `twist`, at full precision; a polygon is `flatsided="true"` with `r2` its inradius; `rounded` and `randomized` as set (amended by ADR-0024) |
 | `text` | `<text>` with the Node's `fontFamily`; lines, Area Type and `leading` per ADR-0022 |
 
@@ -47,7 +47,7 @@ Inkscape keeps unknown-namespace attributes, `data-*` and existing ids on save, 
 - **Transforms.** Inkscape keeps `transform` on a moved `<g>`. A Layer or Group never carries a matrix (ADR-0007), so ancestor transforms compose into each leaf. Inkscape's default "optimized" transforms also bake a move into `x`/`d`; import takes those values as they are.
 - **Styles:** presentation attributes, `style`, `<style>` classes and inheritance resolve to Appearance; any CSS colour converts to `#RRGGBB[AA]`, folding `fill-opacity` and `stroke-opacity` into alpha. Units convert to pt from the root `width`/`height` and `viewBox` (Inkscape defaults to mm).
 - **Structure:** `inkscape:groupmode="layer"` → Layer, other `<g>` → Group; `<inkscape:page>`, else the root `viewBox`, → Artboards; `sodipodi:insensitive` with any value → locked.
-- **Stars:** `arg1`, `arg2`, `rounded` and `randomized` map to `angle`, `twist`, `rounded` and `randomized`, and a randomized star is neither baked nor rounded (ADR-0024, which replaced folding `arg1 ≠ −π/2` into `transform`). `sodipodi:type="arc"` maps to the ellipse's angles and arc type likewise.
+- **Stars:** `arg1`, `arg2`, `rounded` and `randomized` map to `angle`, `twist`, `rounded` and `randomized`, and a randomized star is neither baked nor rounded (ADR-0024, which replaced folding `arg1 ≠ −π/2` into `transform`). `sodipodi:type="arc"` maps to the ellipse's `startAngle`, `endAngle` and `arcType` (ADR-0025).
 - **Ids:** `z-<ULID>` maps back to that Node. Any other id (Inkscape gives new and duplicated objects ids like `path123`) is a new Node with a new ULID. A `<g zibel:stack>` the designer ungrouped comes back as separate Nodes.
 - **Text:** `<text>` with `<tspan sodipodi:role="line">` → Text. The font name is kept whatever it is (below).
 
