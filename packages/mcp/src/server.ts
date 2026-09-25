@@ -167,9 +167,9 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Open Document",
       description: [
-        "Make a new Document from a file's text: .zibel.json as zibel_export returns it with format zibel_json, or SVG (Inkscape, Zibel's own export or plain SVG 1.1, at most 5 MB), told apart by content. Pass the file's content, not a path.",
+        "Make a new Document from a file's text: .zibel.json as zibel_export returns it with format zibel_json, or SVG (Inkscape, Zibel's own export or plain SVG 1.1, at most 5 MB outside its embedded images, each image at most 5 MB), told apart by content. Pass the file's content, not a path.",
         "The new Document gets its own docId and starts at rev 1. Ids from .zibel.json, and z-<id> ids from SVG, are kept; SVG layers and pages become Layers and Artboards, units become pt (px counts as pt). nodes is its Layer list, as zibel_doc_outline returns it at depth 1.",
-        "SVG content Zibel cannot hold yet (gradients, images, filters, masks) imports as close as it can, or is dropped, and warnings lists each kind once. A file that is not valid fails with a path into it and creates nothing.",
+        "Embedded PNG, JPEG and GIF images come back as Images; a linked image is dropped with LINKED_IMAGE_DROPPED. SVG content Zibel cannot hold yet (gradients, filters, masks, WebP) imports as close as it can, or is dropped, and warnings lists each kind once. A file that is not valid fails with a path into it and creates nothing.",
       ].join(" "),
       inputSchema: {
         content: z.string().min(1).describe("The whole .zibel.json or .svg text."),
@@ -234,6 +234,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
         "star {cx, cy, outerRadius, innerRadius, points}.",
         "path {d, fillRule}: SVG path data with absolute M, L, C, Q and Z only. Several subpaths with fillRule evenodd cut holes (a Compound Path); default nonzero.",
         'text {x, y, content, fontSize, leading}: Point Type; x, y is where the baseline of the first character starts, and content breaks only at \\n. With kind "area" and width, height it is Area Type: x, y, width, height is its frame, content wraps at spaces, and what does not fit is not drawn and warns TEXT_OVERFLOW. fontSize is in pt, default 12; leading is the distance between baselines in pt, omitted for Auto (120% of fontSize). fontFamily is any font name, kept as written; only Source Sans 3 is bundled, so others render in it and the receipt warns FONT_MISSING.',
+        "image {src, x, y, width, height, preserveAspectRatio}: src is a data: URL of a PNG, JPEG or GIF file (WebP is refused: convert it to PNG), or the src id of an Image already in the Document, which reuses its file without resending it; x, y, width, height is its frame, width and height both or neither, default the file's pixel size at 1 pt per pixel; preserveAspectRatio is SVG's, default none (stretch to the frame). An image has no appearance; crop one with zibel_mask_make.",
         "Live Shapes, paths and text take appearance {fills: [{color}], strokes: [{color, width, cap, join, miterLimit, dash}]}; omit it for a white Fill and a 1 pt black Stroke, or on text a black Fill and no Stroke.",
         "Give each node a clientKey to find its new id in the receipt's keyMap.",
         "At most 2000 Nodes per call, counting inline children.",
@@ -258,10 +259,10 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     {
       title: "Place SVG",
       description: [
-        "Place an SVG into a Document, as Illustrator's File > Place: one new Group under parentId (a Layer or Group), above its other children, named from the SVG's sodipodi:docname or <title>, else Untitled (rename it with zibel_node_update). Pass the file's content, not a path; at most 5 MB.",
+        "Place an SVG into a Document, as Illustrator's File > Place: one new Group under parentId (a Layer or Group), above its other children, named from the SVG's sodipodi:docname or <title>, else Untitled (rename it with zibel_node_update). Pass the file's content, not a path; at most 5 MB outside its embedded images, each image at most 5 MB.",
         "SVG layers become Groups, pages and page backgrounds are dropped, and every Node gets a new id, so placing a file twice, or one exported from this Document, never collides. Units become pt, with px counting as pt.",
         "position is where the centre of the Group's geometricBounds lands, in document coordinates; default the centre of the parent's Artboard, the one the parent overlaps most, else the first. fit: true first scales the Group uniformly, Strokes included, to fit that Artboard.",
-        "One Transaction. createdIds starts with the Group, and nodes is its outline to depth 2. warnings lists once per kind what Zibel cannot hold yet, as zibel_doc_open does. A .zibel.json is INVALID_DOCUMENT.",
+        "One Transaction. createdIds starts with the Group, and nodes is its outline to depth 2. Embedded images become Images; warnings lists once per kind what Zibel cannot hold yet, as zibel_doc_open does. A .zibel.json is INVALID_DOCUMENT.",
       ].join(" "),
       inputSchema: {
         docId,
@@ -297,7 +298,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       title: "Update Nodes",
       description: [
         "Change Nodes with one JSON Merge Patch (RFC 7396) each: objects merge, null deletes a key, arrays and everything else replace.",
-        "Writable on every Node: name, visible, locked, opacity (0-1), blendMode (stored, not rendered yet), tags, meta. A Live Shape or path also takes its parameters (see zibel_node_create) and appearance; a path takes d; a text takes content, fontSize, leading (null for Auto), x, y and appearance, and an Area Type also width and height; a text's kind is fixed.",
+        "Writable on every Node: name, visible, locked, opacity (0-1), blendMode (stored, not rendered yet), tags, meta. A Live Shape or path also takes its parameters (see zibel_node_create) and appearance; a path takes d; a text takes content, fontSize, leading (null for Auto), x, y and appearance, and an Area Type also width and height; a text's kind is fixed. An image takes x, y, width, height and preserveAspectRatio; its src is read-only.",
         "fills and strokes replace as a whole list, so send every Fill or Stroke you want to keep.",
         "Move, rotate or scale with zibel_node_transform; transform, type, parentId and derived bounds are read-only.",
         coordinates,
@@ -409,7 +410,7 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
       description: [
         "Read Nodes by id, in document coordinates.",
         "concise (default): id, type, name, parentId, visible, locked, childCount and geometricBounds.",
-        "full adds every stored property (Live Shape parameters, text content and font, appearance, transform, opacity, blendMode, tags, meta), the outline d and closed of a Live Shape or path (a text has none), visibleBounds (including Strokes) and worldTransform.",
+        "full adds every stored property (Live Shape parameters, text content and font, an image's frame and src id, never its bytes, appearance, transform, opacity, blendMode, tags, meta), the outline d and closed of a Live Shape or path (a text or image has none), visibleBounds (including Strokes) and worldTransform.",
         "A Point Type's geometricBounds run from its first line's ascender to its last line's descender, as wide as its widest line; an Area Type's are its frame.",
         coordinates,
       ].join(" "),
