@@ -30,6 +30,7 @@ import {
   outline,
   overflowWarnings,
   overlay,
+  placeImage,
   placeNodes,
   queryNodes,
   type Rect,
@@ -736,6 +737,28 @@ export class DocumentObject extends DurableObject<Env> {
       });
       return { ...change, failed: [] };
     });
+  }
+
+  /**
+   * Place for a bitmap (ADR-0027): stores the file the Worker fetched and checked, then writes its
+   * Image, on a new Template Layer with `asTemplate`, in one Transaction.
+   */
+  async placeImage(
+    file: ImageFile & { name: string },
+    actor: string,
+    opts: Options & {
+      parentId: string;
+      frame?: { x: number; y: number; width?: number; height?: number };
+      asTemplate?: boolean;
+    },
+  ): Promise<Result<WriteReceipt>> {
+    const { name, ...image } = file;
+    const src = await imageId(image.bytes);
+    this.storeImages(new Map([[src, image]]));
+    return this.write(actor, opts, "Place", (doc) => ({
+      created: placeImage(doc, { src, name }, opts).created,
+      failed: [],
+    }));
   }
 
   /**

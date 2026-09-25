@@ -81,6 +81,8 @@ Read this once before your first write. Tool descriptions cover each call; this 
 ## Images
 
 - Place a PNG, JPEG or GIF with `zibel_node_create` `{type: "image", src, x, y}`, `src` being a `data:` URL of the file. A GIF shows its first frame. WebP is refused with `INVALID_IMAGE`: convert it to PNG first. A file is at most 5 MB.
+- For a file on the web, `zibel_image_place` with its http(s) URL fetches it on the server, so the bytes never cost you tokens. It centres the Image on the parent's Artboard unless you give `frame`.
+- To trace a reference, place it with `asTemplate: true`: a locked Template Layer beneath your Layer, the Image at 50% opacity. Draw on your own Layer above it. It still renders and exports: hide or delete the Template Layer before `zibel_export`.
 - The receipt and `zibel_node_get` give the Image's `src` as an id, the file's SHA-256, never the bytes. Pass that id as `src` to place the same file again without resending it.
 - Omit `width` and `height` for the file's pixel size, one pt per pixel, or give both. `preserveAspectRatio` is SVG's: `none` (the default) stretches the file to the frame, `xMidYMid meet` fits it inside, `xMidYMid slice` fills the frame and crops the rest.
 - To crop to any shape, draw the shape over the Image and call `zibel_mask_make`. An Image cannot be the clip, and has no `appearance`.

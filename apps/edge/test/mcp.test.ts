@@ -32,6 +32,7 @@ it("lists the tools over HTTP (their schemas and annotations: packages/mcp serve
     "zibel_doc_outline",
     "zibel_doc_replace",
     "zibel_export",
+    "zibel_image_place",
     "zibel_mask_make",
     "zibel_mask_release",
     "zibel_node_create",
@@ -644,6 +645,8 @@ it("returns a non-empty hint with every error code a tool can return", async () 
       tool("zibel_node_create", {
         nodes: [{ type: "image", parentId: defaultLayerId, src: WEBP_HEADER, x: 0, y: 0 }],
       }),
+    FETCH_FAILED: () =>
+      tool("zibel_image_place", { src: "http://127.0.0.1/a.png", parentId: defaultLayerId }),
     INVALID_MASK: async () =>
       tool("zibel_mask_make", { clipNodeId: defaultLayerId, contentIds: [await create(rect)] }),
     // Undo and redo are browser commands over the WebSocket, not tools (ADR-0011).

@@ -69,8 +69,11 @@ function sniff(b: Uint8Array): ImageInfo | undefined {
 }
 
 /** A PNG, JPEG or GIF from a data URL, typed by its bytes, never by the URL (ADR-0023). */
-export function readImage(src: string, path: string): ImageFile {
-  const bytes = decode(src, path);
+export const readImage = (src: string, path: string): ImageFile =>
+  checkImage(decode(src, path), path);
+
+/** A PNG, JPEG or GIF of at most 5 MB, typed by its bytes (ADR-0023). */
+export function checkImage(bytes: Uint8Array<ArrayBuffer>, path: string): ImageFile {
   if (bytes.length > MAX_IMAGE_BYTES) {
     throw new ZibelError({
       code: "LIMIT_EXCEEDED",

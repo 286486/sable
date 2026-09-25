@@ -10,6 +10,7 @@ export type ErrorCode =
   | "INVALID_MASK"
   | "INVALID_DOCUMENT"
   | "INVALID_IMAGE"
+  | "FETCH_FAILED"
   | "LIMIT_EXCEEDED"
   | "PERMISSION_DENIED"
   | "REV_CONFLICT"

@@ -3,6 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   ArtboardInput,
   Color,
+  imageFrame,
   MaskInput,
   NodeInput,
   NodeQuery,
@@ -293,6 +294,52 @@ export function createMcpServer(service: DocumentService, actor: string): McpSer
     },
     ({ docId, ...input }) =>
       run("zibel_svg_import", async () => json(await service.place(docId, input))),
+  );
+
+  server.registerTool(
+    "zibel_image_place",
+    {
+      title: "Place Image",
+      description: [
+        "Place a PNG, JPEG or GIF as an Image, as Illustrator's File > Place, so its bytes never pass through you.",
+        "src is a public http or https URL, which the server fetches: at most 10 s and 20 MB read, following at most 5 redirects; localhost and private, loopback or link-local addresses are refused, and any fetch that fails is FETCH_FAILED. src may instead be a data: URL. A local path is refused: the server cannot read your disk.",
+        "The format comes from the file's bytes, not its Content-Type; WebP is refused (convert it to PNG), and a file over 5 MB is LIMIT_EXCEEDED.",
+        "frame {x, y, width, height} is as zibel_node_create's image takes it, width and height both or neither (default the file's pixel size at 1 pt per pixel); omitted, the Image is centred on the parent's Artboard.",
+        "asTemplate: true makes a Template Layer for a reference to trace: a new locked Layer named Template <file name>, directly beneath the Layer holding parentId, with the Image at 50% opacity. It still renders and exports: hide or delete it before zibel_export.",
+        "One Transaction; createdIds lists the Template Layer, if any, then the Image.",
+      ].join(" "),
+      inputSchema: {
+        docId,
+        src: z.string().min(1).describe("An http(s) URL of the file, or a data: URL."),
+        parentId: z.string().describe("A Layer or Group id to place the Image in."),
+        frame: z
+          .object({
+            x: z.number(),
+            y: z.number(),
+            width: z.number().positive().optional(),
+            height: z.number().positive().optional(),
+          })
+          .superRefine(imageFrame)
+          .optional()
+          .describe("The Image's frame in the parent's coordinates."),
+        asTemplate: z
+          .boolean()
+          .default(false)
+          .describe("Put it on a new locked Template Layer, at 50% opacity."),
+        intent,
+        txId: writeFields.txId,
+        ifRev,
+      },
+      outputSchema: WriteReceipt.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    ({ docId, ...input }) =>
+      run("zibel_image_place", async () => json(await service.placeImage(docId, input))),
   );
 
   server.registerTool(
