@@ -200,6 +200,9 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
     'stroke="url(#stroke-0-z-01M38T29STGRAD1ENT0000000C)"',
     // ADR-0028: a text's style as font-weight and font-style, left out for Regular.
     `font-size="14" font-weight="900" font-style="italic" ${z("SVTYPE0000000000D0")}`,
+    // ADR-0029: tracking as letter-spacing, and a Character Range as a nested tspan.
+    `font-size="20" letter-spacing="2" ${z("SWCHARS000000000A0")}`,
+    '<tspan fill="#E9C46A" baseline-shift="2" rotate="-15">L</tspan>',
   ]) {
     expect(svg).toContain(part);
   }
@@ -208,8 +211,8 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
   );
   // resvg in the Worker draws the same file, namespaces and all, over every Artboard.
   expect(await render({ docId })).toEqual({
-    docRect: { x: 0, y: 0, width: 1080, height: 200 },
-    pixelSize: { width: 1080, height: 200 },
+    docRect: { x: 0, y: 0, width: 1220, height: 200 },
+    pixelSize: { width: 1220, height: 200 },
     scale: 1,
   });
 });

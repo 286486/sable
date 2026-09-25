@@ -586,8 +586,56 @@ describe("updateNodes on a text", () => {
     });
     if (key === "width")
       expect(error.hint).toMatch(
-        /meta, x, y, content, fontFamily, fontStyle, fontSize, leading, appearance/,
+        /meta, x, y, content, fontFamily, fontStyle, fontSize, leading, tracking, ranges, appearance/,
       );
+  });
+
+  describe("tracking and Character Ranges (ADR-0029)", () => {
+    const withRanges = () => {
+      const { doc, defaultLayerId } = newDoc();
+      const [t] = createNodes(doc, [
+        {
+          type: "text",
+          parentId: defaultLayerId,
+          x: 10,
+          y: 50,
+          content: "Hello",
+          ranges: [{ start: 0, end: 1, fill: "#FF0000" }],
+        },
+      ]).nodes;
+      if (!t) throw new Error("setup");
+      const update = (patch: Record<string, unknown>) => {
+        updateNodes(doc, [{ nodeId: t.id, patch }]);
+        return doc.nodes.get(t.id);
+      };
+      return { doc, t, update };
+    };
+
+    it("clears the ranges when content is written without them", () => {
+      expect(withRanges().update({ content: "Bye" })).not.toHaveProperty("ranges");
+    });
+
+    it("stores ranges written with content, and removes them on null", () => {
+      const { update } = withRanges();
+      const ranges = [{ start: 0, end: 1, fill: "#00FF00" }];
+      expect(update({ content: "Bye", ranges })).toHaveProperty("ranges", ranges);
+      expect(update({ ranges: null })).not.toHaveProperty("ranges");
+    });
+
+    it("refuses a range past the content's end", () => {
+      const { doc, t } = withRanges();
+      expect(
+        errorOf(() =>
+          updateNodes(doc, [{ nodeId: t.id, patch: { ranges: [{ start: 0, end: 9 }] } }]),
+        ),
+      ).toMatchObject({ code: "INVALID_PATCH", path: "updates[0].patch.ranges[0].end" });
+    });
+
+    it("writes tracking, which null removes", () => {
+      const { update } = withRanges();
+      expect(update({ tracking: 50 })).toMatchObject({ tracking: 50 });
+      expect(update({ tracking: null })).not.toHaveProperty("tracking");
+    });
   });
 });
 

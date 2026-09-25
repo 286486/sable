@@ -15,10 +15,12 @@ import {
   SHAPES,
   TextShape,
   TransformInput,
+  textRanges,
   type UpdateInput,
   Writable,
   type WriteReceipt,
 } from "./schema.ts";
+import { canonicalRanges } from "./text.ts";
 
 type Warning = WriteReceipt["warnings"][number];
 
@@ -159,7 +161,10 @@ function writableSchema(node: Node) {
     // A text's kind is fixed, and only Area Type has a frame, which it cannot drop (ADR-0022).
     const { type: _, kind: __, width, height, ...text } = TextShape.shape;
     const frame = node.kind === "area" ? { width: width.unwrap(), height: height.unwrap() } : {};
-    return Writable.extend(text).extend(frame).extend({ appearance: AppearanceInput });
+    return Writable.extend(text)
+      .extend(frame)
+      .extend({ appearance: AppearanceInput })
+      .superRefine(textRanges);
   }
   const { type: _, ...parameters } = SHAPES[node.type].shape;
   return Writable.extend(parameters).extend({ appearance: AppearanceInput });
@@ -196,6 +201,8 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
     }
   }
   const merged = mergePatch(node, patch) as Record<string, unknown>;
+  // Indices into the old content would style the wrong characters of the new one (ADR-0029).
+  if ("content" in patch && !("ranges" in patch)) delete merged.ranges;
   const parsed = schema.safeParse(merged);
   if (!parsed.success) {
     const issue = parsed.error.issues[0] as z.core.$ZodIssue;
@@ -223,6 +230,11 @@ function patched(doc: Document, raw: UpdateInput, i: number): Node {
     next.preserveAspectRatio = preserveAspectRatio(next.preserveAspectRatio) ?? "none";
   } else if (next.type !== "layer" && next.type !== "group") {
     next.appearance = paint(next.appearance as AppearanceInput, `${at}.appearance`, next);
+  }
+  if (next.type === "text") {
+    const ranges = canonicalRanges(next.ranges, `${at}.ranges`);
+    if (ranges) next.ranges = ranges;
+    else delete next.ranges;
   }
   if (next.type === "path" && "d" in patch) next.d = formatPath(parsePath(next.d, `${at}.d`));
   return next;

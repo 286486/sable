@@ -295,6 +295,43 @@ it("fills in a gradient's geometry, reads it back in full, and names start = end
   expect(refused.content[0].text).toMatch(/Input validation error[\s\S]*end/);
 });
 
+it("stores Character Ranges canonical, and a content write clears them (ADR-0029)", async () => {
+  const doc = await newDoc();
+  const created = await call("zibel_node_create", {
+    docId: doc.docId,
+    nodes: [
+      {
+        type: "text",
+        parentId: doc.defaultLayerId,
+        x: 10,
+        y: 50,
+        content: "LITTLE",
+        tracking: 100,
+        ranges: [
+          { start: 0, end: 3, fill: "#FF0000" },
+          { start: 2, end: 6, fill: "#0000FF80", baselineShift: 2, rotation: -10 },
+        ],
+      },
+    ],
+  });
+  const [id] = created.structuredContent.createdIds as string[];
+  const get = async () =>
+    (await call("zibel_node_get", { docId: doc.docId, nodeIds: [id], detail: "full" }))
+      .structuredContent.nodes[0];
+  expect(await get()).toMatchObject({
+    tracking: 100,
+    ranges: [
+      { start: 0, end: 2, fill: "#FF0000" },
+      { start: 2, end: 6, fill: "#0000FF80", baselineShift: 2, rotation: -10 },
+    ],
+  });
+  await call("zibel_node_update", {
+    docId: doc.docId,
+    updates: [{ nodeId: id, patch: { content: "BIG" } }],
+  });
+  expect(await get()).not.toHaveProperty("ranges");
+});
+
 it("warns TEXT_OVERFLOW while an Area Type's content does not fit its frame", async () => {
   const doc = await newDoc();
   const created = await call("zibel_node_create", {

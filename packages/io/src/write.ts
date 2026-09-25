@@ -410,10 +410,41 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[]): string {
   const { lines, overflow } = layoutText(n);
   const area = n.kind === "area";
   const role = area ? {} : { "sodipodi:role": "line" };
+  // A nested tspan for each run of characters with overrides, bare text for the rest (ADR-0029). A range fill
+  // goes only where a Fill paints, opaque where the element's fill-opacity would inherit.
+  const painted = a.fill !== "none";
+  const spans = (start: number, t: string) => {
+    const chars = [...t];
+    let out = "";
+    let at = 0;
+    for (const r of n.ranges ?? []) {
+      const from = Math.max(r.start - start, at);
+      const to = Math.min(r.end - start, chars.length);
+      if (from >= to) continue;
+      const span = esc(chars.slice(from, to).join(""));
+      const over: Attrs = {
+        ...(painted && r.fill && paintAttrs("fill", r.fill)),
+        ...(painted &&
+          r.fill?.length === 7 &&
+          a["fill-opacity"] !== undefined && { "fill-opacity": "1" }),
+        "baseline-shift": r.baselineShift && formatNumber(r.baselineShift),
+        rotate: r.rotation && formatNumber(r.rotation),
+      };
+      out += esc(chars.slice(at, from).join(""));
+      out += Object.values(over).some(Boolean) ? `<tspan${attrs(over)}>${span}</tspan>` : span;
+      at = to;
+    }
+    return out + esc(chars.slice(at).join(""));
+  };
   const tspans = lines.map(
-    (l) => `<tspan${attrs({ ...role, ...num({ x: l.x, y: l.y }) })}>${esc(l.text)}</tspan>`,
+    (l) =>
+      `<tspan${attrs({ ...role, ...num({ x: l.x, y: l.y }) })}>${spans(l.start, l.text)}</tspan>`,
   );
-  if (overflow) tspans.push(`<tspan style="visibility:hidden">${esc(overflow)}</tspan>`);
+  const last = lines.at(-1);
+  const hidden = last ? last.start + [...last.text].length : 0;
+  if (overflow) {
+    tspans.push(`<tspan style="visibility:hidden">${spans(hidden, overflow)}</tspan>`);
+  }
   // Auto leading is CSS's unitless 1.2, which also follows the font size.
   const leading = n.leading === undefined ? "1.2" : `${formatNumber(n.leading)}px`;
   // The stored style, which Inkscape and resvg each match to a face as Zibel does (ADR-0028).
@@ -424,6 +455,7 @@ function text(n: TextNode, a: Attrs, extra: (string | false)[]): string {
     "font-size": n.fontSize,
     "font-weight": weight === 400 ? undefined : weight,
     "font-style": italic ? "italic" : undefined,
+    "letter-spacing": n.tracking ? formatNumber((n.tracking * n.fontSize) / 1000) : undefined,
     ...a,
     style: style(
       ...extra,

@@ -16,6 +16,7 @@ import { formatPath, parsePath } from "./path.ts";
 import {
   type AppearanceInput,
   type Artboard,
+  CharacterRange,
   type Document,
   type Node,
   Rect,
@@ -26,6 +27,7 @@ import {
   textFrame,
   Writable,
 } from "./schema.ts";
+import { canonicalRanges } from "./text.ts";
 
 /** Upgrades the raw JSON of one schema version to the next, before validation (F-DOC-06). */
 export type Migration = (raw: Record<string, unknown>) => Record<string, unknown>;
@@ -99,7 +101,14 @@ const StoredNode = z.discriminatedUnion("type", [
       .string()
       .refine((v) => preserveAspectRatio(v) === v, "none, or an alignment and meet or slice."),
   }),
-  z.strictObject({ ...base, ...TextShape.shape, appearance }).superRefine(textFrame),
+  z
+    .strictObject({
+      ...base,
+      ...TextShape.shape,
+      ranges: z.array(CharacterRange.strict()).optional(),
+      appearance,
+    })
+    .superRefine(textFrame),
   ...Object.values(SHAPES).map((s) =>
     z.strictObject({ ...base, ...s.shape, appearance, clipping: z.boolean().optional() }),
   ),
@@ -187,6 +196,12 @@ export function parseDocument(
   const nodes = parsed.data.nodes.map((n, i): Node => {
     if (n.type === "layer" || n.type === "group" || n.type === "image") return n;
     const at = `nodes[${i}]`;
+    if (n.type === "text") {
+      const { ranges, ...text } = n;
+      const canonical = canonicalRanges(ranges, `${at}.ranges`);
+      const appearance = paint(text.appearance as AppearanceInput, `${at}.appearance`, text);
+      return { ...text, ...(canonical && { ranges: canonical }), appearance } as Node;
+    }
     const painted = {
       ...n,
       appearance: paint(n.appearance as AppearanceInput, `${at}.appearance`, n),

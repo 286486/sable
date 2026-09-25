@@ -1,4 +1,5 @@
-import type { Node, Rect, WriteReceipt } from "./schema.ts";
+import { parseColor } from "./color.ts";
+import type { CharacterRange, Node, Rect, WriteReceipt } from "./schema.ts";
 import { SOURCE_SANS_3 } from "./source-sans-3.ts";
 
 /** Illustrator's weight names and their CSS `font-weight` (ADR-0028). */
@@ -47,6 +48,53 @@ export function bundledStyle(style?: FontStyle): BundledStyle {
   return fontStyleName(weight <= 500 ? 400 : weight <= 700 ? 700 : 900, italic) as BundledStyle;
 }
 
+type Overrides = Omit<CharacterRange, "start" | "end">;
+/** A Character Range as written, its fill not parsed yet. */
+type RangeInput = Omit<CharacterRange, "fill"> & { fill?: unknown };
+
+/**
+ * Character Ranges in canonical form (ADR-0029): colours parsed, a later range winning attribute by
+ * attribute, a shift or rotation of 0 clearing, then sorted runs that do not overlap, adjacent equal
+ * runs merged and runs without overrides dropped. None left is `undefined`.
+ */
+export function canonicalRanges(
+  ranges: RangeInput[] | undefined,
+  path: string,
+): CharacterRange[] | undefined {
+  // ponytail: per-character expansion, O(Σ range lengths); sweep the boundaries if it shows in a
+  // profile.
+  const chars: Overrides[] = [];
+  ranges?.forEach((r, i) => {
+    const fill = r.fill === undefined ? undefined : parseColor(r.fill, `${path}[${i}].fill`);
+    for (let c = r.start; c < r.end; c++) {
+      const o = { ...chars[c] };
+      if (fill !== undefined) o.fill = fill;
+      for (const k of ["baselineShift", "rotation"] as const) {
+        if (r[k] === 0) delete o[k];
+        else if (r[k] !== undefined) o[k] = r[k];
+      }
+      chars[c] = o;
+    }
+  });
+  const out: CharacterRange[] = [];
+  for (let c = 0; c < chars.length; c++) {
+    const o = chars[c] ?? {};
+    if (Object.keys(o).length === 0) continue;
+    const last = out.at(-1);
+    if (
+      last?.end === c &&
+      last.fill === o.fill &&
+      last.baselineShift === o.baselineShift &&
+      last.rotation === o.rotation
+    ) {
+      last.end++;
+    } else {
+      out.push({ start: c, end: c + 1, ...o });
+    }
+  }
+  return out.length ? out : undefined;
+}
+
 /** What lays out a text: its kind, anchor or frame, content and character attributes. */
 interface TextLayout {
   kind?: "point" | "area";
@@ -59,24 +107,39 @@ interface TextLayout {
   fontSize: number;
   fontStyle?: FontStyle | undefined;
   leading?: number | undefined;
+  tracking?: number | undefined;
+  ranges?: CharacterRange[] | undefined;
 }
 
-/** One laid-out line: its characters and where its baseline starts. */
+/** One laid-out line: its characters, where its baseline starts, and its first character's index. */
 export interface TextLine {
   text: string;
   x: number;
   y: number;
+  /** The code-point index in `content` of the line's first character. */
+  start: number;
 }
 
 type Face = { advances: Record<number, number>; notdef: number };
 
-/** A string's advance sum in font units. */
-function advance(text: string, { advances, notdef }: Face) {
+const advanceOf = (ch: string, { advances, notdef }: Face) =>
+  advances[ch.codePointAt(0) as number] ?? notdef;
+
+/**
+ * A line's width in pt: its advance sum plus the tracking between its characters, but not after
+ * the last (ADR-0029). An empty line is 0 wide.
+ */
+function lineWidth(text: string, face: Face, fontSize: number, tracking = 0) {
   // ponytail: advance sum, no shaping or kerning; HarfBuzz (F-TEXT-09, M1) replaces this with
   // shaped glyph positions.
-  let width = 0;
-  for (const ch of text) width += advances[ch.codePointAt(0) as number] ?? notdef;
-  return width;
+  let units = 0;
+  let count = 0;
+  for (const ch of text) {
+    units += advanceOf(ch, face);
+    count++;
+  }
+  const { unitsPerEm } = SOURCE_SANS_3;
+  return (units * fontSize) / unitsPerEm + (Math.max(0, count - 1) * tracking * fontSize) / 1000;
 }
 
 /**
@@ -86,51 +149,99 @@ function advance(text: string, { advances, notdef }: Face) {
  * `content`.
  */
 export function layoutText(text: TextLayout): { lines: TextLine[]; overflow: string } {
-  const { x, y, content, fontSize } = text;
+  const { x, y, content, fontSize, tracking } = text;
   const leading = text.leading ?? 1.2 * fontSize;
   const face: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
+  let start = 0;
+  const line = (t: string, lineY: number) => {
+    const l = { text: t, x, y: lineY, start };
+    start += [...t].length;
+    return l;
+  };
   if (text.kind !== "area") {
-    const lines = content.split("\n").map((t, i) => ({ text: t, x, y: y + i * leading }));
+    const lines = content.split("\n").map((t, i) => {
+      const l = line(t, y + i * leading);
+      start++;
+      return l;
+    });
     return { lines, overflow: "" };
   }
-  const { unitsPerEm, ascender, descender } = SOURCE_SANS_3;
+  const { ascender, descender } = SOURCE_SANS_3;
   const { width = 0, height = 0 } = text;
   // Trailing spaces and the return hang past the frame's edge.
-  const fits = (line: string) => (advance(line.trimEnd(), face) * fontSize) / unitsPerEm <= width;
+  const fits = (l: string) => lineWidth(l.trimEnd(), face, fontSize, tracking) <= width;
   // ponytail: Inkscape's thresholds, measured rather than specified: a line shows while 90% of its
   // leading lies in the frame, and a word wider than the frame overflows with all that follows.
   const max = Math.max(0, Math.floor(height / leading - 0.9 + 1e-9) + 1);
   const wrapped: string[] = [];
   let used = 0;
-  const push = (line: string) => {
+  const push = (l: string) => {
     if (wrapped.length === max) return false;
-    wrapped.push(line);
-    used += line.length;
+    wrapped.push(l);
+    used += l.length;
     return true;
   };
   wrap: for (const paragraph of content.split(/(?<=\n)/)) {
-    let line = "";
+    let l = "";
     for (const word of paragraph.match(/\S+\s*|\s+/g) ?? []) {
-      if (line && !fits(line + word)) {
-        if (!push(line)) break wrap;
-        line = "";
+      if (l && !fits(l + word)) {
+        if (!push(l)) break wrap;
+        l = "";
       }
       if (!fits(word)) break wrap;
-      line += word;
+      l += word;
     }
-    if (!push(line)) break;
+    if (!push(l)) break;
   }
   // CSS half-leading around an em box of the ascender and descender scaled to one em, as Inkscape.
   const first = (leading - fontSize) / 2 + (fontSize * ascender) / (ascender - descender);
   return {
-    lines: wrapped.map((t, i) => ({ text: t, x, y: y + first + i * leading })),
+    lines: wrapped.map((t, i) => line(t, y + first + i * leading)),
     overflow: content.slice(used),
   };
 }
 
+/** A laid-out character: its origin on the unshifted baseline, advance width and overrides. */
+export interface Glyph extends Omit<CharacterRange, "start" | "end"> {
+  char: string;
+  x: number;
+  y: number;
+  width: number;
+}
+
 /**
- * A text's box: Area Type's frame; Point Type's from the baseline origin `x, y`, as wide as its
- * widest line and from the first line's ascender to the last line's descender (ADR-0013, ADR-0022).
+ * Every character of a text's shown lines, a line's hard return included, each one tracking past the
+ * one before, with the overrides of the Character Range that holds it (ADR-0029).
+ */
+export function glyphs(text: TextLayout): Glyph[] {
+  const face: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
+  const s = text.fontSize / SOURCE_SANS_3.unitsPerEm;
+  const tracking = ((text.tracking ?? 0) * text.fontSize) / 1000;
+  const ranges = text.ranges ?? [];
+  let j = 0;
+  return layoutText(text).lines.flatMap((line) => {
+    let x = line.x;
+    return [...line.text].map((char, k) => {
+      const c = line.start + k;
+      while ((ranges[j]?.end ?? Infinity) <= c) j++;
+      const width = advanceOf(char, face) * s;
+      const glyph: Glyph = { char, x, y: line.y, width };
+      const r = ranges[j];
+      if (r && r.start <= c) {
+        const { start: _, end: __, ...overrides } = r;
+        Object.assign(glyph, overrides);
+      }
+      x += width + tracking;
+      return glyph;
+    });
+  });
+}
+
+/**
+ * A text's box: Area Type's frame. Point Type's is the union of its lines, each from `x` for its
+ * width, at least 0, and from the ascender to the descender (ADR-0013, ADR-0022), and of every
+ * character's cell: its advance width from its origin, ascender to descender, raised by its baseline
+ * shift and turned clockwise about the origin by its rotation (ADR-0029).
  */
 export function textBox(text: TextLayout): Rect {
   if (text.kind === "area") {
@@ -138,15 +249,30 @@ export function textBox(text: TextLayout): Rect {
   }
   const { unitsPerEm, ascender, descender } = SOURCE_SANS_3;
   const s = text.fontSize / unitsPerEm;
-  const { lines } = layoutText(text);
   const face: Face = SOURCE_SANS_3.faces[bundledStyle(text.fontStyle)];
-  const last = lines.at(-1) as TextLine;
-  return {
-    x: text.x,
-    y: text.y - ascender * s,
-    width: Math.max(...lines.map((l) => advance(l.text, face))) * s,
-    height: last.y - text.y + (ascender - descender) * s,
+  let [left, top, right, bottom] = [Infinity, Infinity, -Infinity, -Infinity];
+  const add = (x: number, y: number) => {
+    [left, top] = [Math.min(left, x), Math.min(top, y)];
+    [right, bottom] = [Math.max(right, x), Math.max(bottom, y)];
   };
+  for (const l of layoutText(text).lines) {
+    add(l.x, l.y - ascender * s);
+    add(
+      l.x + Math.max(0, lineWidth(l.text, face, text.fontSize, text.tracking)),
+      l.y - descender * s,
+    );
+  }
+  for (const g of glyphs(text)) {
+    const a = ((g.rotation ?? 0) * Math.PI) / 180;
+    const [cos, sin] = [Math.cos(a), Math.sin(a)];
+    const shift = g.baselineShift ?? 0;
+    for (const dx of [0, g.width]) {
+      for (const dy of [-ascender * s - shift, -descender * s - shift]) {
+        add(g.x + cos * dx - sin * dy, g.y + sin * dx + cos * dy);
+      }
+    }
+  }
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 /** The one family Zibel bundles (ADR-0013); every other `fontFamily` renders in it. */

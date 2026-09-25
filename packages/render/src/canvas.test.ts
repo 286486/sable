@@ -159,6 +159,48 @@ it("draws Point Type with fillText per Fill and strokeText per Stroke, unkerned"
   ]);
 });
 
+it("draws a tracked text per character, a turned one about its origin in its range's fill (ADR-0029)", () => {
+  const draw = (strokes: object[]) => {
+    const { doc, defaultLayerId: parentId } = newDoc();
+    createNodes(doc, [
+      {
+        type: "text",
+        parentId,
+        x: 10,
+        y: 50,
+        content: "Hi",
+        tracking: 100,
+        ranges: [{ start: 1, end: 2, fill: "#FF0000", rotation: 90 }],
+        appearance: { fills: [{ color: "#000000" }], strokes } as never,
+      },
+    ]);
+    const { ctx, log } = recorder();
+    drawDocument(ctx, doc);
+    return log
+      .slice(log.findIndex((l) => l.startsWith("font=")))
+      .filter((l) => !/^(save|restore)/.test(l));
+  };
+  const numbers = (l = "") => l.split(" ").slice(1).map(Number);
+  const filled = draw([]);
+  expect(filled.filter((l) => !l.startsWith("transform"))).toEqual([
+    'font=12px "Source Sans 3"',
+    "fontKerning=none",
+    "fillStyle=#000000",
+    "fillText H 10 50",
+    "fillStyle=#FF0000",
+    "fillText i 19.024 50",
+  ]);
+  const turn = filled.findIndex((l) => l.startsWith("transform"));
+  expect(turn).toBe(filled.indexOf("fillText i 19.024 50") - 1);
+  expect(numbers(filled[turn])).toEqual(
+    [0, 1, -1, 0, 69.024, 30.976].map((v) => expect.closeTo(v, 9)),
+  );
+  const stroked = draw([{ color: "#0000FF", width: 1 }]);
+  const texts = stroked.filter((l) => /^strokeText/.test(l));
+  expect(texts).toEqual(["strokeText H 10 50", "strokeText i 19.024 50"]);
+  expect(stroked.slice(stroked.indexOf("strokeStyle=#0000FF"))).not.toContain("fillStyle=#FF0000");
+});
+
 it("draws each line of Point Type, one leading apart", () => {
   const { doc, defaultLayerId: parentId } = newDoc();
   createNodes(doc, [

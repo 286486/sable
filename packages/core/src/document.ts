@@ -30,7 +30,7 @@ import {
   TextShape,
   textFrame,
 } from "./schema.ts";
-import { textBox } from "./text.ts";
+import { canonicalRanges, textBox } from "./text.ts";
 
 /** Server-generated ULID for Documents, Nodes, Artboards and Transactions. */
 export const newId = () => ulid();
@@ -129,7 +129,10 @@ export function createNodes(
     if (input.type === "layer" || input.type === "group") {
       node = { ...at, type: input.type, name };
     } else if (input.type === "text") {
-      const text = TextShape.superRefine(textFrame).parse(input);
+      const { ranges, ...parsed } = TextShape.superRefine(textFrame).parse(input);
+      const canonical = canonicalRanges(ranges, `${path}.ranges`);
+      // Measured with its ranges, so a default gradient spans the bounds they give.
+      const text = { ...parsed, ...(canonical && { ranges: canonical }) };
       const appearance = paint(
         input.appearance ?? defaultTypeAppearance(),
         `${path}.appearance`,

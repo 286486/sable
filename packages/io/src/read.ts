@@ -5,6 +5,7 @@ import {
   applyTo,
   BlendMode,
   BUNDLED_FONT,
+  canonicalRanges,
   cssColor,
   type Fill,
   fontStyleName,
@@ -139,15 +140,26 @@ export function parseTransform(list: string | null): Matrix {
 const bakes = ([a, b, c, d]: Matrix) =>
   Math.abs(b) < 1e-9 && Math.abs(c) < 1e-9 && a > 0 && Math.abs(a - d) < 1e-9;
 
-/** A text element's characters: its text and its tspans', not a `<title>` or `<desc>` inside it. */
-const characters = (e: Element): string =>
-  Array.from(e.childNodes, (c) =>
-    c.nodeType === 3 || c.nodeType === 4
-      ? (c.nodeValue ?? "")
-      : (c as Element).localName === "tspan"
-        ? characters(c as Element)
-        : "",
-  ).join("");
+/** One character of a text and what its tspans give it (ADR-0029). */
+interface Char {
+  char: string;
+  style: Style;
+  /** The line tspan it sits in, if any, and that line's style: the text's, outside one. */
+  line: { el?: Element; style: Style };
+  /** The sum of the `baseline-shift` lengths around it, in its text's user units. */
+  shift: number;
+  rotate?: number;
+}
+
+/** What a nested tspan cannot set on part of a text yet (ADR-0029). */
+const PER_TEXT = [
+  "letter-spacing",
+  "font-family",
+  "font-weight",
+  "font-style",
+  "font-size",
+  "stroke",
+];
 
 /** The id in `url(#id)`, as `clip-path` and `shape-inside` name an element. */
 const urlId = (value: string) => /^url\(\s*['"]?#([^'")\s]+)['"]?\s*\)$/.exec(value.trim())?.[1];
@@ -508,6 +520,91 @@ class Reader {
   }
 
   /**
+   * A text element's characters, one per code point: its text and its tspans', not a `<title>` or
+   * `<desc>` inside it. Baseline shifts add up down the tspans, and a character turns by the nearest
+   * `rotate` list, whose last angle applies past its end, as SVG draws them (ADR-0029).
+   */
+  private chars(e: Element, style: Style, shift: number, line: Char["line"]): Char[] {
+    const out: Char[] = [];
+    for (const c of Array.from(e.childNodes)) {
+      if (c.nodeType === 3 || c.nodeType === 4) {
+        for (const char of c.nodeValue ?? "") out.push({ char, style, line, shift });
+      } else if ((c as Element).localName === "tspan") {
+        const t = c as Element;
+        const s = computeStyle(t, style, this.rules);
+        const isLine = e.localName === "text" && t.getAttributeNS(NS.sodipodi, "role") === "line";
+        out.push(...this.chars(t, s, shift + this.shift(s), isLine ? { el: t, style: s } : line));
+      }
+    }
+    const angles = numbers(e.getAttribute("rotate")).filter(Number.isFinite);
+    if (angles.length) {
+      out.forEach((c, i) => {
+        c.rotate ??= angles[Math.min(i, angles.length - 1)];
+      });
+    }
+    return out;
+  }
+
+  /** A tspan's own `baseline-shift` as a length; super, sub and percentages warn and count 0. */
+  private shift(s: Style) {
+    const v = s["baseline-shift"];
+    if (!v || v === "baseline") return 0;
+    const shift = length(v);
+    if (shift === undefined) {
+      this.warn(
+        "UNSUPPORTED_ATTRIBUTE",
+        "baseline-shift",
+        `baseline-shift ${v} is not supported yet, only a length; those characters import on the baseline.`,
+      );
+    }
+    return shift ?? 0;
+  }
+
+  /** A character's range fill: its solid fill where it differs from the text's own (ADR-0029). */
+  private rangeFill(s: Style, own: Style): string | undefined {
+    const [fill, ownFill] = [s.fill ?? "black", own.fill ?? "black"];
+    if (fill === ownFill && s["fill-opacity"] === own["fill-opacity"]) return undefined;
+    if (fill.trim() === "none" && ownFill.trim() === "none") return undefined;
+    const color = this.color(fill, s, s["fill-opacity"]);
+    if (!color || ownFill.trim() === "none") {
+      this.warn(
+        "UNSUPPORTED_ATTRIBUTE",
+        "tspan fill",
+        "A gradient or none as the fill of part of a text, or any fill on part of a text with no Fill, is not supported yet; those characters import in the text's own paint.",
+      );
+      return undefined;
+    }
+    return color === this.color(ownFill, own, own["fill-opacity"]) ? undefined : color;
+  }
+
+  /** The Character Ranges of a text's characters, `undefined` standing for a joining return. */
+  private ranges(chars: (Char | undefined)[], own: Style, k: number) {
+    const ranges = chars.flatMap((c, i) => {
+      if (!c) return [];
+      for (const p of PER_TEXT) {
+        if (c.style[p] !== c.line.style[p]) {
+          this.warn(
+            "UNSUPPORTED_ATTRIBUTE",
+            `tspan ${p}`,
+            `${p} on part of a text is not supported yet; those characters import in the text's own.`,
+          );
+        }
+      }
+      const fill = this.rangeFill(c.style, own);
+      return [
+        {
+          start: i,
+          end: i + 1,
+          ...(fill && { fill }),
+          ...(c.shift && { baselineShift: n3(c.shift * k) }),
+          ...(c.rotate && { rotation: n3(c.rotate % 360) }),
+        },
+      ];
+    });
+    return canonicalRanges(ranges, "ranges");
+  }
+
+  /**
    * A `<text>` as one text Node and the style its characters take (ADR-0022): Area Type when it
    * flows in a frame, else Point Type from Inkscape's line tspans or the whole text as one line.
    */
@@ -529,23 +626,46 @@ class Reader {
       fontWeight(own["font-weight"]),
       /^(italic|oblique)\b/i.test(own["font-style"] ?? ""),
     );
+    // letter-spacing over the font size, which a baked scale scales alike (ADR-0029).
+    const spacing = own["letter-spacing"]?.trim() ?? "normal";
+    const em =
+      spacing === "normal"
+        ? 0
+        : /[\d.]em$/.test(spacing)
+          ? Number.parseFloat(spacing)
+          : (length(spacing) ?? 0) / (length(own["font-size"]) ?? 12);
+    const tracking = n3(Math.min(10_000, Math.max(-1000, em * 1000)));
     const text = {
       type: "text",
       fontFamily: family || BUNDLED_FONT,
       fontStyle,
       fontSize,
       ...(leading !== undefined && { leading }),
+      ...(tracking && { tracking }),
       transform: bake ? [...IDENTITY] : round(m),
     };
     // Returns are kept where white-space keeps them; control characters and separators Zibel cannot
-    // lay out draw as spaces, as SVG draws them.
+    // lay out draw as spaces, as SVG draws them. Collapsed, a run of whitespace keeps its first
+    // character, and with it that character's attributes.
     const pre = /^(pre|pre-wrap|pre-line|break-spaces)$/.test(style["white-space"] ?? "");
-    const clean = (t: string) => {
-      const s = t
-        .replace(/\r\n?/g, "\n")
-        .replace(pre ? /[^\P{Cc}\n]|[\u2028\u2029]/gu : /[\p{Cc}\u2028\u2029]/gu, " ");
-      return pre || e.getAttribute("xml:space") === "preserve" ? s : s.replace(/\s+/g, " ").trim();
+    const preserve = pre || e.getAttribute("xml:space") === "preserve";
+    const control = pre ? /[^\P{Cc}\n]|[\u2028\u2029]/u : /[\p{Cc}\u2028\u2029]/u;
+    const clean = (list: Char[]) => {
+      const out: Char[] = [];
+      list.forEach((c, i) => {
+        if (c.char === "\r" && list[i + 1]?.char === "\n") return;
+        const char = c.char === "\r" ? "\n" : c.char;
+        const kept = { ...c, char: control.test(char) ? " " : char };
+        const space = /\s/.test(kept.char);
+        if (preserve) out.push(kept);
+        else if (!space) out.push(kept);
+        else if (out.length && !/\s/.test(out.at(-1)?.char ?? "")) out.push({ ...kept, char: " " });
+      });
+      if (!preserve && out.at(-1)?.char === " ") out.pop();
+      return out;
     };
+    const joined = (list: Char[]) => list.map((c) => c.char).join("");
+    const all = this.chars(e, style, 0, { style });
     const anchor = own["text-anchor"];
     const centred = anchor === "middle" || anchor === "end";
     // Lines are left-aligned until paragraph alignment (F-TEXT-03).
@@ -559,8 +679,10 @@ class Reader {
     if (frame) {
       if (centred) unaligned();
       // The layout is recomputed from the characters; Inkscape's positioned lines are its fallback.
-      const content = clean(characters(e));
+      const chars = clean(all);
+      const content = joined(chars);
       if (!content.trim()) return null;
+      const ranges = this.ranges(chars, own, k);
       const shape = {
         ...text,
         kind: "area",
@@ -569,22 +691,31 @@ class Reader {
         width: n3(k * frame.width),
         height: n3(k * frame.height),
         content,
+        ...(ranges && { ranges }),
       };
       return { shape, style };
     }
-    const lines = (tspans.length ? tspans : [e]).map((t) => clean(characters(t)));
-    const content = tspans.length ? lines.join("\n") : (lines[0] ?? "");
+    const lines = tspans.length
+      ? tspans.map((t) => clean(all.filter((c) => c.line.el === t)))
+      : [clean(all)];
+    const content = lines.map(joined).join("\n");
     if (!content.trim()) return null;
     const first = (name: string) =>
       numbers(line?.getAttribute(name) ?? null)[0] ?? numbers(e.getAttribute(name))[0] ?? 0;
     let x = k * first("x") + tx;
     if (centred) {
       const [top = ""] = content.split("\n");
-      const width = textBox({ x: 0, y: 0, content: top, fontSize, fontStyle }).width;
+      const width = textBox({ x: 0, y: 0, content: top, fontSize, fontStyle, tracking }).width;
       x -= anchor === "middle" ? width / 2 : width;
       if (content.includes("\n")) unaligned();
     }
-    const shape = { ...text, kind: "point", x: n3(x), y: n3(k * first("y") + ty), content };
+    const ranges = this.ranges(
+      lines.flatMap((l, i) => (i ? [undefined, ...l] : l)),
+      own,
+      k,
+    );
+    const y = n3(k * first("y") + ty);
+    const shape = { ...text, kind: "point", x: n3(x), y, content, ...(ranges && { ranges }) };
     return { shape, style: own };
   }
 

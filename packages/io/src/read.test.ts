@@ -623,6 +623,10 @@ it("reads <text> as one Point Type, its Inkscape lines joined by returns, keepin
   // Half of "Hi"'s advances at 10 pt: (652 + 246) × 10 / 1000 / 2.
   expect(centred).toMatchObject({ x: 95.51, content: "Hi" });
   expect(file.warnings).toEqual([
+    expect.objectContaining({
+      code: "UNSUPPORTED_ATTRIBUTE",
+      message: expect.stringMatching(/font-weight/),
+    }),
     expect.objectContaining({ code: "FONT_MISSING", nodeId: abc?.id }),
   ]);
 });
@@ -666,6 +670,115 @@ it("reads font-weight and font-style as the style name, inherited as CSS inherit
     "Source Sans 3 Semibold Italic is not bundled, so it renders in Source Sans 3 Bold Italic; the name is kept.",
     "Source Sans 3 Thin is not bundled, so it renders in Source Sans 3; the name is kept.",
   ]);
+});
+
+describe("tracking and Character Ranges (ADR-0029)", () => {
+  const read = (body: string, attrs = "") =>
+    parseFile(svg(`width="300" height="300" ${attrs}`, body));
+  const text = (body: string) => leaves(read(body))[0] as unknown as Record<string, unknown>;
+
+  it("reads letter-spacing as tracking, and nested tspans as ranges", () => {
+    expect(
+      text(
+        '<text x="10" y="50" font-size="20" letter-spacing="2"><tspan sodipodi:role="line" x="10" y="50">H<tspan fill="#ff0000" fill-opacity="0.5">e</tspan><tspan baseline-shift="3"><tspan baseline-shift="1" rotate="10 20">llo</tspan></tspan></tspan></text>',
+      ),
+    ).toMatchObject({
+      content: "Hello",
+      tracking: 100,
+      ranges: [
+        { start: 1, end: 2, fill: "#FF000080" },
+        { start: 2, end: 3, baselineShift: 4, rotation: 10 },
+        { start: 3, end: 5, baselineShift: 4, rotation: 20 },
+      ],
+    });
+  });
+
+  it("takes each character's rotation from the nearest list, its last angle past its end", () => {
+    expect(text('<text rotate="5 0 7">abcd</text>').ranges).toEqual([
+      { start: 0, end: 1, rotation: 5 },
+      { start: 2, end: 4, rotation: 7 },
+    ]);
+    expect(text('<text rotate="5">ab<tspan rotate="9">c</tspan>d</text>').ranges).toEqual([
+      { start: 0, end: 2, rotation: 5 },
+      { start: 2, end: 3, rotation: 9 },
+      { start: 3, end: 4, rotation: 5 },
+    ]);
+  });
+
+  it("scales baseline shift with a baked scale, and tracking not at all", () => {
+    expect(
+      text(
+        '<g transform="scale(2)"><text font-size="20" letter-spacing="2">a<tspan baseline-shift="3">b</tspan></text></g>',
+      ),
+    ).toMatchObject({
+      fontSize: 40,
+      tracking: 100,
+      ranges: [{ start: 1, end: 2, baselineShift: 6 }],
+    });
+  });
+
+  it.each([
+    ["0.1em", 100],
+    ["1rem", undefined],
+    ["normal", undefined],
+  ])("reads letter-spacing %s as tracking %s", (spacing, tracking) => {
+    expect(text(`<text letter-spacing="${spacing}">ab</text>`).tracking).toBe(tracking);
+  });
+
+  it("collapses whitespace per character, a run keeping its first character's attributes", () => {
+    expect(text('<text>a  <tspan fill="#f00">b</tspan></text>')).toMatchObject({
+      content: "a b",
+      ranges: [{ start: 2, end: 3, fill: "#FF0000" }],
+    });
+  });
+
+  it("measures text-anchor with the tracking", () => {
+    expect(
+      text('<text x="100" text-anchor="middle" font-size="10" letter-spacing="1">Hi</text>'),
+    ).toMatchObject({ x: 95.01 });
+  });
+
+  it.each([
+    '<defs><linearGradient id="g"><stop offset="0" stop-color="#f00"/></linearGradient></defs><text>a<tspan fill="url(#g)">b</tspan></text>',
+    '<text>a<tspan baseline-shift="super">b</tspan></text>',
+    '<text>a<tspan baseline-shift="30%">b</tspan></text>',
+    '<text fill="none" stroke="#000">a<tspan fill="#f00">b</tspan></text>',
+  ])("warns for what a range cannot hold, and makes none: %s", (body) => {
+    const file = read(body);
+    expect(file.warnings).toEqual([expect.objectContaining({ code: "UNSUPPORTED_ATTRIBUTE" })]);
+    expect(leaves(file).find((n) => n.type === "text")).not.toHaveProperty("ranges");
+  });
+
+  it("reads a none fill under a none fill as no range and no warning", () => {
+    const file = read('<text fill="none" stroke="#000">a<tspan fill-opacity="1">b</tspan></text>');
+    expect(file.warnings).toEqual([]);
+    expect(leaves(file).find((n) => n.type === "text")).not.toHaveProperty("ranges");
+  });
+
+  it("reads back what toSvg writes", () => {
+    const { doc, defaultLayerId: parentId } = createDocument({
+      id: "D",
+      name: "Doc",
+      artboards: [{ width: 200, height: 200 }],
+    });
+    const [node] = createNodes(doc, [
+      {
+        type: "text",
+        parentId,
+        x: 0,
+        y: 20,
+        content: "Hello",
+        fontSize: 20,
+        tracking: 100,
+        ranges: [
+          { start: 0, end: 1, fill: "#FF000080" },
+          { start: 2, end: 4, baselineShift: 3, rotation: -15 },
+        ],
+      },
+    ]).nodes;
+    const back = leaves(parseFile(toSvg(doc)))[0];
+    expect(back).toMatchObject({ tracking: 100, ranges: node && "ranges" in node && node.ranges });
+  });
 });
 
 // Saved by Inkscape 1.2.2 (ADR-0022): line tspans, and flowed text with its positioned fallback

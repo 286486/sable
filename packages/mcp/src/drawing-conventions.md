@@ -78,6 +78,9 @@ Read this once before your first write. Tool descriptions cover each call; this 
 - `leading` is the distance between baselines in pt; omit it for Auto, 120% of `fontSize`. `node_update` with `leading: null` returns to Auto.
 - `fontFamily` takes any font name and keeps it, so export writes it back. Only Source Sans 3 is bundled: another font renders and measures in it, and the receipt warns `FONT_MISSING`.
 - `fontStyle` is the style name, default `Regular`: Regular, Italic, Bold, Bold Italic, Black and Black Italic are bundled. Use them for weight and slant instead of faking bold with a Stroke. Thin, ExtraLight, Light, Medium, Semibold and ExtraBold (and their Italics) are kept and exported, but render in the nearest bundled face, and the receipt warns `FONT_MISSING`.
+- `tracking` is the space after each character, in 1/1000 em (Illustrator's Character panel), from -1000 to 10000.
+- For per-letter colour, bounce or tilt, write one text with `ranges`, not one Node per letter: `{"content": "LITTLE", "tracking": 100, "ranges": [{"start": 0, "end": 1, "fill": "#E63946", "rotation": -8}, {"start": 1, "end": 2, "fill": "#F4A261", "baselineShift": 3}]}`. `start` and `end` count characters of `content` (a `\n` counts), `end` exclusive. `fill` replaces every Fill's colour for those characters, `baselineShift` raises them in pt, and `rotation` turns each one clockwise about its own baseline origin. Overlapping ranges are merged, the later winning, and `zibel_node_get` returns them sorted and merged.
+- A `zibel_node_update` that writes `content` without `ranges` clears the ranges, since their indices would land on other characters. To change both, send both.
 
 ## Images
 

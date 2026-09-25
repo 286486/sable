@@ -403,6 +403,15 @@ describe("validation", () => {
       (f) => `nodes[${at(f, byType(f, "text"))}].height`,
     ],
     [
+      "a Character Range past the content's end",
+      (f) => {
+        byType(f, "text").ranges = [{ start: 0, end: 99 }];
+        return f;
+      },
+      "INVALID_DOCUMENT",
+      (f) => `nodes[${at(f, byType(f, "text"))}].ranges[0].end`,
+    ],
+    [
       "a hidden Clipping Path",
       (f) => {
         Object.assign(byType(f, "rect"), { clipping: true, visible: false });
@@ -446,6 +455,19 @@ it("reads Area Type back with its frame and no leading", () => {
   const area = nodes.find((n) => n.type === "text");
   expect(area).toMatchObject({ kind: "area", width: 100, height: 40, content: "a\nb" });
   expect(area).not.toHaveProperty("leading");
+});
+
+it("reads overlapping Character Ranges back canonical", () => {
+  const f = JSON.parse(serializeDocument(scene()));
+  f.nodes.find((n: { type: string }) => n.type === "text").ranges = [
+    { start: 0, end: 2, fill: "#FF0000" },
+    { start: 1, end: 2, rotation: 5 },
+  ];
+  const { nodes } = parseDocument(JSON.stringify(f));
+  expect(nodes.find((n) => n.type === "text")).toHaveProperty("ranges", [
+    { start: 0, end: 1, fill: "#FF0000" },
+    { start: 1, end: 2, fill: "#FF0000", rotation: 5 },
+  ]);
 });
 
 describe("images", () => {

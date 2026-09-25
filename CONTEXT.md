@@ -65,7 +65,7 @@ _Avoid_: Boolean、Boolean group、Pathfinder object
 ## 文字
 
 **Text（文字）**：
-显示字符的 Node，`type` 为 `text`，按 `kind` 分为 Point Type、Area Type、Type on a Path。字符属性（字体族、字体样式、字号）存在 Node 上。
+显示字符的 Node，`type` 为 `text`，按 `kind` 分为 Point Type、Area Type、Type on a Path。字符属性（字体族、字体样式、字号、字符间距）存在 Node 上，Character Range 为部分字符覆盖其中一些。
 _Avoid_: Label、Text box、Text element
 
 **Point Type（点文字）**：
@@ -83,6 +83,14 @@ _Avoid_: Font weight、Bold flag、Typeface
 **Leading（行距）**：
 Text 相邻两行基线之间的距离，单位 pt。未设置即 Auto，为字号的 120%，随字号变化。
 _Avoid_: Line height、Line spacing
+
+**Tracking（字符间距）**：
+Text 的字符属性 `tracking`，每个字符后增加的间距，单位 1/1000 em，与 Illustrator 字符面板一致，可为负，缺省 0。每行最后一个字符后的间距不计入行宽（ADR-0029）。
+_Avoid_: Letter spacing、Character spacing、Kerning（Kerning 是字符对之间的调整）
+
+**Character Range（字符区间）**：
+Text 的 `ranges` 中的一项 `{start, end, …}`：按字符（码点）索引 `content` 的 `[start, end)`，为这些字符覆盖 Node 的字符属性，目前是 `fill`（替换每个 Fill 的颜色）、`baselineShift`（pt，向上为正）和 `rotation`（度，顺时针，绕字符基线原点）。存储为规范形式：有序、不重叠、相邻相同合并；写 `content` 而不给 `ranges` 会清空它们（ADR-0029）。
+_Avoid_: Run、Span、Character style（Character Style 是具名样式，F-TEXT-08）
 
 ## 图像
 

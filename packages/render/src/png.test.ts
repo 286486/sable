@@ -105,6 +105,47 @@ it("draws each bundled face inside its own bounds (ADR-0028)", async () => {
   ]);
 });
 
+it("draws tracking, baseline shift and rotation inside the bounds node_get reports", async () => {
+  const draw = async (extra: object) => {
+    const { doc, defaultLayerId } = createDocument({
+      id: "d",
+      name: "Doc",
+      artboards: [{ width: 200, height: 100, background: "#FFFFFF" }],
+    });
+    const [text] = createNodes(doc, [
+      {
+        type: "text",
+        parentId: defaultLayerId,
+        x: 20,
+        y: 60,
+        content: "HH",
+        fontSize: 40,
+        ...extra,
+      },
+    ]).nodes;
+    const b = text && bounds(doc, text);
+    if (!b) throw new Error("setup");
+    const pixels = await ink(toSvg(doc));
+    const outside = pixels.filter(
+      ([x, y]) => x < b.x - 1 || x >= b.x + b.width + 1 || y < b.y - 1 || y >= b.y + b.height + 1,
+    );
+    const [xs, ys] = [pixels.map(([x]) => x), pixels.map(([, y]) => y)];
+    return { outside, right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+  };
+  const second = (range: object) => ({ ranges: [{ start: 1, end: 2, ...range }] });
+  const [plain, tracked, shifted, rotated] = await Promise.all([
+    draw({}),
+    draw({ tracking: 500 }),
+    draw(second({ baselineShift: 15 })),
+    draw(second({ rotation: 90 })),
+  ]);
+  if (!plain || !tracked || !shifted || !rotated) throw new Error("setup");
+  expect([plain, tracked, shifted, rotated].map((d) => d.outside)).toEqual([[], [], [], []]);
+  expect(tracked.right).toBeGreaterThanOrEqual(plain.right + 19);
+  expect(shifted.top).toBeLessThanOrEqual(plain.top - 14);
+  expect(rotated.bottom).toBeGreaterThanOrEqual(plain.bottom + 15);
+});
+
 /** The runs of consecutive rows that hold ink: one per drawn line of text. */
 const bands = (drawn: [number, number][]) =>
   [...new Set(drawn.map(([, y]) => y))]
@@ -263,9 +304,10 @@ it("draws the fixture Document with known pixels", async () => {
   // round-number vertices sit on Inkscape's seed grid; by #35, a fifth holding a slice, a chord
   // and an open arc; by #22, a sixth holding linear and radial gradients on Fills, a Stroke, a
   // text, a turned rect and a stack; by #19, a seventh holding the five non-Regular faces as Point
-  // Type and a Bold Italic Area Type.
+  // Type and a Bold Italic Area Type; by #20, an eighth Artboard holding tracked text and Character
+  // Ranges.
   expect(await hash(toSvg(doc, docRect(doc), { images }))).toBe(
-    "8b4740b0a7d7710cd635adf43f63dc5186d36572ac305534f3e6db164cd49526",
+    "411e7baaaae6b2404d8360cde3d1e42486614dec6be81bb0c48fb606da18525a",
   );
   expect(await hash(toSvg(doc, scopeRect(doc, turned), { scope: turned, images }))).toBe(
     "24c1e7ad8db33f59933a1b355c879cb19bfdfd67d70b11427b196aa646ea4b60",
