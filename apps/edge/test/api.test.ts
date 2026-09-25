@@ -2,7 +2,7 @@ import { exports } from "cloudflare:workers";
 import { imageId, readImage } from "@zibel/core";
 import type { ServerMessage } from "@zibel/sync";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BLUE_1x1_PNG, RED_2x2_PNG } from "../../../fixtures/images.ts";
+import { BLUE_1x1_PNG, RED_2x2_PNG, WEBP_HEADER } from "../../../fixtures/images.ts";
 import { call, errorOf } from "./rpc.ts";
 
 const open: WebSocket[] = [];
@@ -487,6 +487,50 @@ describe("images through the Worker", () => {
     expect(served.status).toBe(200);
     expect(served.headers.get("content-type")).toBe("image/png");
     await served.body?.cancel();
+  });
+
+  it("places a bitmap POSTed to /api/docs/:docId/place-image centred on the point, as the user", async () => {
+    const { docId, defaultLayerId } = await newDoc();
+    const { received } = await subscribe(docId);
+    const post = (query: string, body: BodyInit) =>
+      exports.default.fetch(`http://zibel/api/docs/${docId}/place-image?${query}`, {
+        method: "POST",
+        body,
+      });
+    const png = readImage(RED_2x2_PNG, "src").bytes;
+    const src = await imageId(png);
+
+    const res = await post(`parentId=${defaultLayerId}&x=50&y=40`, png);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ bounds: { x: 49, y: 39, width: 2, height: 2 } });
+    const [, tx] = await received(2);
+    expect(tx).toMatchObject({ type: "tx", actor: "user", created: [{ type: "image", src }] });
+    const served = await get(`/api/docs/${docId}/images/${src}`);
+    expect(served.status).toBe(200);
+    await served.body?.cancel();
+
+    // An unreadable centre falls back to the Artboard's (200 × 100 here).
+    const loose = await post(`parentId=${defaultLayerId}&x=abc&y=1`, png);
+    expect(await loose.json()).toMatchObject({ bounds: { x: 99, y: 49, width: 2, height: 2 } });
+
+    const refusals: [BodyInit, string, object][] = [
+      [
+        Uint8Array.fromBase64(WEBP_HEADER.split(",")[1] ?? ""),
+        `parentId=${defaultLayerId}`,
+        { code: "INVALID_IMAGE", hint: expect.stringContaining("Convert the image to PNG") },
+      ],
+      [
+        new Uint8Array(5 * 1024 * 1024 + 1),
+        `parentId=${defaultLayerId}`,
+        { code: "LIMIT_EXCEEDED" },
+      ],
+      [png, "", { code: "NODE_NOT_FOUND" }],
+    ];
+    for (const [body, query, error] of refusals) {
+      const refused = await post(query, body);
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toMatchObject(error);
+    }
   });
 
   it("places an SVG holding an embedded PNG, and serves its file", async () => {
