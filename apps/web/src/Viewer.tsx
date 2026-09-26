@@ -406,7 +406,7 @@ export function Viewer({ docId }: { docId: string }) {
   const cursor = hand ? "grab" : zoomTool ? (alt ? "zoom-out" : "zoom-in") : "default";
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: PASTEBOARD }}>
+    <div style={{ position: "absolute", inset: 0, background: PASTEBOARD }}>
       <canvas
         ref={canvas}
         style={{ width: "100%", height: "100%", display: "block", cursor }}
@@ -418,9 +418,9 @@ export function Viewer({ docId }: { docId: string }) {
         onDrop={onDrop}
       />
       <div style={{ position: "absolute", top: 8, left: 12, color: "#444" }}>
-        <a href="/">Documents</a> / {doc?.name ?? docId}
-        {viewport && ` · ${Math.round(viewport.scale * 100)}%`}
-        {!live && " · connecting…"}{" "}
+        {[viewport && `${Math.round(viewport.scale * 100)}%`, !live && "connecting…"]
+          .filter(Boolean)
+          .join(" · ")}{" "}
         <button type="button" onClick={select((d) => objects(d).map((n) => n.id))}>
           Select All
         </button>{" "}

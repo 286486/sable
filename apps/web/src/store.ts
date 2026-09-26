@@ -22,6 +22,9 @@ export const useStore = create<State>(() => ({
 
 let socket: WebSocket | null = null;
 
+/** Each Document Tab's viewport and Selection while another tab is shown, for the page's lifetime. */
+const views = new Map<string, Pick<State, "viewport" | "selection">>();
+
 /**
  * Sends one gesture to the Document (ADR-0010) and returns its id, which its answer carries. While
  * the socket is down it is dropped: the Document sent on reconnect clears what waited on it.
@@ -33,8 +36,20 @@ export function send(command: Command): string {
   return id;
 }
 
-/** Subscribes to a Document (ADR-0009) until the returned function is called. */
+/**
+ * Shows a Document (ADR-0009) until the returned function is called. Only the active tab is
+ * connected, so switching tabs starts over from the Document sent on connect (ADR-0030).
+ */
 export function connect(docId: string): () => void {
+  useStore.setState({
+    doc: null,
+    live: false,
+    drag: null,
+    notice: null,
+    viewport: null,
+    selection: [],
+    ...views.get(docId),
+  });
   let ws: WebSocket;
   let retry: ReturnType<typeof setTimeout>;
   let stopped = false;
@@ -57,6 +72,8 @@ export function connect(docId: string): () => void {
   };
   open();
   return () => {
+    const { viewport, selection } = useStore.getState();
+    views.set(docId, { viewport, selection });
     stopped = true;
     clearTimeout(retry);
     socket = null;
