@@ -1,0 +1,62 @@
+/** Document Tabs (ADR-0030): browser state only, the active tab is the URL. */
+
+const KEY = "zibel:tabs";
+
+/** The open tabs' docIds, remembered per browser; empty when storage is blocked or cleared. */
+export function loadTabs(): string[] {
+  try {
+    const tabs: unknown = JSON.parse(localStorage.getItem(KEY) ?? "[]");
+    return Array.isArray(tabs) ? tabs.filter((id) => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveTabs(tabs: string[]) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(tabs));
+  } catch {
+    // Storage blocked: the tabs last for this page only.
+  }
+}
+
+export const withTab = (tabs: string[], docId: string) =>
+  tabs.includes(docId) ? tabs : [...tabs, docId];
+
+/** Closing the active tab shows the one after it, or before it when it was last, as Illustrator does. */
+export function closeTab(tabs: string[], docId: string, active: string) {
+  const i = tabs.indexOf(docId);
+  const rest = tabs.filter((id) => id !== docId);
+  const next = docId === active ? (rest[i] ?? rest[i - 1] ?? null) : active;
+  return { tabs: rest, next };
+}
+
+/**
+ * Shows `/docs/<docId>` in this page, so the other tabs keep their view (main.tsx follows it).
+ * `replace` for a tab shown because the active one closed, so Back does not reopen it.
+ */
+export function go(docId: string, replace = false) {
+  history[replace ? "replaceState" : "pushState"](null, "", `/docs/${docId}`);
+  dispatchEvent(new PopStateEvent("popstate"));
+}
+
+export interface Opened {
+  docId: string;
+  warnings: { code: string; message: string }[];
+}
+
+/** What Open file takes, for the file input's `accept` and a drop on the tab bar. */
+export const OPENABLE = ".svg,.json,image/svg+xml,application/json";
+export const openable = (file: File) =>
+  /\.(svg|json)$/i.test(file.name) || /^(image\/svg\+xml|application\/json)$/.test(file.type);
+
+/** Open: a new Document from an .svg or .zibel.json, sent over HTTP and parsed in the Worker, like zibel_doc_open (ADR-0017). */
+export async function openFile(file: File): Promise<Opened> {
+  const res = await fetch(`/api/docs?name=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    body: await file.text(),
+  });
+  const body = (await res.json()) as Opened & { message?: string; hint?: string };
+  if (!res.ok) throw new Error(`${body.message} ${body.hint ?? ""}`);
+  return body;
+}

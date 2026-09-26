@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
+import { OPENABLE, type Opened, openFile } from "./tabs.ts";
 
 interface Listed {
   docId: string;
   name: string;
   createdAt: string;
-}
-
-interface Opened {
-  docId: string;
-  warnings: { code: string; message: string }[];
 }
 
 /** Every Document, newest first, and Open file for an .svg or .zibel.json. */
@@ -17,16 +13,11 @@ export function List() {
   const [error, setError] = useState<string | null>(null);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
-  // Sent over HTTP and parsed in the Worker, like zibel_doc_open (ADR-0017).
+  // Visiting /docs/<id> adds its tab (Tabs.tsx).
   const open = async (file: File) => {
     setOpenError(null);
-    const res = await fetch(`/api/docs?name=${encodeURIComponent(file.name)}`, {
-      method: "POST",
-      body: await file.text(),
-    });
-    const body = (await res.json()) as Opened & { message?: string; hint?: string };
-    if (!res.ok) setOpenError(`${body.message} ${body.hint ?? ""}`);
-    else if (body.warnings.length === 0) location.assign(`/docs/${body.docId}`);
+    const body = await openFile(file);
+    if (body.warnings.length === 0) location.assign(`/docs/${body.docId}`);
     else setOpened(body);
   };
   useEffect(() => {
@@ -42,10 +33,10 @@ export function List() {
         Open file{" "}
         <input
           type="file"
-          accept=".svg,.json,image/svg+xml,application/json"
+          accept={OPENABLE}
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) open(file).catch((err: unknown) => setOpenError(String(err)));
+            if (file) open(file).catch((err: Error) => setOpenError(err.message));
           }}
         />
       </label>
