@@ -62,15 +62,7 @@ export interface OpenedFile {
   /** The file of every Image `src` names, by that key (ADR-0023). */
   images: Map<string, ImageFile>;
   warnings: Warning[];
-  /** Where a Zibel SVG export came from, for Replace: its `zibel:doc`, `zibel:rev` and `zibel:scope`. */
-  origin?: Origin;
-}
-
-export interface Origin {
-  docId: string;
-  /** Absent when `zibel:rev` is not a whole number: then there is no base to merge from. */
-  rev?: number;
-  /** Absent at doc scope. */
+  /** The Render Scope a Zibel SVG export was written at, from `zibel:scope`; absent at doc scope. */
   scope?: RenderScope;
 }
 
@@ -268,8 +260,6 @@ class Reader {
     private readonly byId: Map<string, Element>,
     private readonly artboards: Artboard[],
     private readonly viewport: { width: number; height: number },
-    /** The id of a data URL the caller wrote itself, so it needs no hashing (Replace). */
-    private readonly known?: (url: string) => string | undefined,
   ) {}
 
   warn(code: string, key: string, message: string, nodeId?: string) {
@@ -1063,7 +1053,7 @@ class Reader {
     const height = length(e.getAttribute("height")) ?? file.height;
     // SVG draws nothing for an image with no area.
     if (!(width > 0 && height > 0)) return null;
-    let src = this.known?.(href) ?? this.keys.get(href);
+    let src = this.keys.get(href);
     if (src === undefined) {
       src = `pending:${this.keys.size}`;
       this.keys.set(href, src);
@@ -1200,11 +1190,7 @@ class Reader {
 }
 
 /** Reads SVG text into a Document's contents (ADR-0017). */
-export function parseSvg(
-  text: string,
-  nameHint?: string,
-  { known }: { known?: (url: string) => string | undefined } = {},
-): OpenedFile {
+export function parseSvg(text: string, nameHint?: string): OpenedFile {
   let error: string | undefined;
   let dom: ReturnType<DOMParser["parseFromString"]>;
   try {
@@ -1271,7 +1257,7 @@ export function parseSvg(
   const viewport = hasViewBox
     ? { width: vw, height: vh }
     : { width: width ?? 300, height: height ?? 150 };
-  const reader = new Reader(rules, byId, artboards, viewport, known);
+  const reader = new Reader(rules, byId, artboards, viewport);
   const matrix: Matrix = [scale, 0, 0, scale, 0, 0];
   const ctx = { parentId: null, layerLevel: true, matrix, style: {}, depth: 0 };
   for (const e of elements(root)) reader.walk(e, ctx);
@@ -1292,14 +1278,6 @@ export function parseSvg(
     MIGRATIONS,
     reader.images,
   );
-  const docId = zibelAttr(root, "doc");
-  const origin = docId ? readOrigin(docId, root) : undefined;
-  return { ...file, warnings: [...reader.warnings.values()], ...(origin && { origin }) };
-}
-
-/** The inverse of the `zibel:rev` and `zibel:scope` that `toSvg` writes. */
-function readOrigin(docId: string, root: Element): Origin {
-  const rev = Number(zibelAttr(root, "rev") || Number.NaN);
   const scope = scopeOf(zibelAttr(root, "scope"));
-  return { docId, ...(Number.isInteger(rev) && { rev }), ...(scope && { scope }) };
+  return { ...file, warnings: [...reader.warnings.values()], ...(scope && { scope }) };
 }

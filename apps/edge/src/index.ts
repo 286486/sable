@@ -13,12 +13,6 @@ export default {
     const ws = url.pathname.match(/^\/api\/docs\/([^/]+)\/ws$/)?.[1];
     if (ws) return env.DOCUMENT.get(env.DOCUMENT.idFromName(ws)).fetch(request);
     if (url.pathname === "/api/docs" && request.method === "POST") return openFile(request, env);
-    const replace = url.pathname.match(/^\/api\/docs\/([^/]+)\/replace$/)?.[1];
-    if (replace && request.method === "POST") {
-      return answer(async () =>
-        documentService(env, "user").replace(replace, { content: await request.text() }),
-      );
-    }
     const [, imageDoc, imageSrc] =
       url.pathname.match(/^\/api\/docs\/([^/]+)\/images\/([^/]+)$/) ?? [];
     if (imageDoc && imageSrc && request.method === "GET") return image(env, imageDoc, imageSrc);
@@ -47,8 +41,7 @@ export default {
 
 /**
  * The browser's Open file: the file's text as the body, its name in `?name=`. Over HTTP, not the
- * WebSocket, since a file does not belong in a gesture message (ADR-0017); by the user. Its
- * "Update from file…" (Replace) posts to `/api/docs/:docId/replace` the same way.
+ * WebSocket, since a file does not belong in a gesture message (ADR-0017); by the user.
  */
 async function openFile(request: Request, env: Env): Promise<Response> {
   const name = new URL(request.url).searchParams.get("name") ?? undefined;
@@ -63,7 +56,7 @@ async function openFile(request: Request, env: Env): Promise<Response> {
 
 /**
  * The browser's paste or drop of an SVG (Place, ADR-0017): the SVG as the body; `parentId`, the
- * centre `x`, `y` and the file's `name` in the query. By the user, like Open and Replace.
+ * centre `x`, `y` and the file's `name` in the query. By the user, like Open.
  */
 async function placeFile(docId: string, request: Request, env: Env): Promise<Response> {
   const q = new URL(request.url).searchParams;

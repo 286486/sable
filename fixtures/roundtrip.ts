@@ -1,6 +1,5 @@
 // `pnpm roundtrip`: each fixture Document goes Zibel → SVG → Inkscape → Zibel through a local
-// `wrangler dev` and must come back equal (ADR-0017, REQUIREMENTS §7.2), and Replace with the
-// Inkscape save must change nothing. Needs `inkscape` ≥ 1.2.
+// `wrangler dev` and must come back equal (ADR-0017, REQUIREMENTS §7.2). Needs `inkscape` ≥ 1.2.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -205,19 +204,6 @@ async function main() {
           ? `warnings: ${JSON.stringify(reopened.warnings)}`
           : firstDifference(want, got);
 
-        // Inkscape's rewriting (relative d, its own precision, page roundoff) is not an edit.
-        const result = await call("zibel_doc_replace", {
-          docId,
-          content: readFileSync(saved, "utf8"),
-        });
-        const r = result.structuredContent as Record<string, unknown[]> | undefined;
-        const changed = r && [...r.createdIds, ...r.updatedIds, ...r.deletedIds, ...r.warnings];
-        const replace = !r
-          ? (result.content[0]?.text ?? "failed")
-          : changed?.length
-            ? `changed ${JSON.stringify(changed)}`
-            : undefined;
-
         // resvg's PNG of the whole Document, and Inkscape's of an export framed to the same rect:
         // -C draws the viewBox at 1 px per pt, which --export-area (in px) does not.
         const png = await call("zibel_export", { docId, format: "png", background: WHITE });
@@ -243,12 +229,8 @@ async function main() {
           decodePng(readFileSync(join(dir, "inkscape.png"))),
         );
         const pixels = `pixels ${(ratio * 100).toFixed(2)}%${ratio < MAX_DIFFERENT ? "" : " FAIL"}`;
-        if (structure || replace || ratio >= MAX_DIFFERENT) failed++;
-        line = [
-          `structure ${structure ? `FAIL ${structure}` : "pass"}`,
-          `replace ${replace ? `FAIL ${replace}` : "pass"}`,
-          pixels,
-        ].join("  ");
+        if (structure || ratio >= MAX_DIFFERENT) failed++;
+        line = [`structure ${structure ? `FAIL ${structure}` : "pass"}`, pixels].join("  ");
       } catch (e) {
         failed++;
         line = `FAIL  ${(e as Error).message}`;

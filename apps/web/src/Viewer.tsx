@@ -79,7 +79,7 @@ async function saveWith(
 }
 
 /**
- * Replace and Place (ADR-0017) POST the file to the Worker, which writes it as the user; the canvas
+ * Place (ADR-0017) POSTs the file to the Worker, which writes it as the user; the canvas
  * follows the `tx` broadcast like any other write. Failures and warnings show as the notice.
  */
 async function postFile(url: string, body: BodyInit, what: string) {
@@ -457,25 +457,7 @@ export function Viewer({ docId }: { docId: string }) {
           }
         >
           Download SVG
-        </button>{" "}
-        <label>
-          Update from file…{" "}
-          <input
-            type="file"
-            accept=".svg,.json,image/svg+xml,application/json"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) {
-                file
-                  .text()
-                  .then((text) =>
-                    postFile(`/api/docs/${docId}/replace`, text, `update from ${file.name}`),
-                  );
-              }
-            }}
-          />
-        </label>
+        </button>
         {notice && <div style={{ color: "#B00020" }}>{notice}</div>}
       </div>
       <Layers />

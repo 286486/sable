@@ -358,26 +358,6 @@ it("opens a file POSTed to /api/docs as the user, named after the file", async (
   expect(await bad.json()).toMatchObject({ code: "INVALID_DOCUMENT", hint: expect.any(String) });
 });
 
-it("replaces a Document from an edited file POSTed to /api/docs/:docId/replace, as the user", async () => {
-  const { docId, defaultLayerId } = await newDoc();
-  const [id] = (await call("zibel_node_create", { docId, nodes: [rect(defaultLayerId)] }))
-    .structuredContent.createdIds as string[];
-  const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text as string;
-  const { received } = await subscribe(docId);
-  const post = (body: string) =>
-    exports.default.fetch(`http://zibel/api/docs/${docId}/replace`, { method: "POST", body });
-
-  const res = await post(svg.replace(/(id="z-[^"]+"[^>]*) fill="[^"]*"/, '$1 fill="#FF0000"'));
-  expect(res.status).toBe(200);
-  expect(await res.json()).toMatchObject({ updatedIds: [id] });
-  const [, tx] = await received(2);
-  expect(tx).toMatchObject({ type: "tx", actor: "user", updated: [{ id }] });
-
-  const refused = await post('<svg xmlns="http://www.w3.org/2000/svg"/>');
-  expect(refused.status).toBe(400);
-  expect(await refused.json()).toMatchObject({ code: "INVALID_DOCUMENT" });
-});
-
 it("places an SVG POSTed to /api/docs/:docId/place at the given centre, as the user", async () => {
   const { docId, defaultLayerId } = await newDoc();
   const { received } = await subscribe(docId);
@@ -445,19 +425,8 @@ describe("images through the Worker", () => {
     }
   });
 
-  it("replaces an Image moved in the editor, keeping its file, and opens its export with it", async () => {
-    const { docId, id, src } = await withImage();
-    const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text as string;
-    const moved = svg.replace(/(<image [^>]*)x="100"/, '$1x="40"');
-    const res = await exports.default.fetch(`http://zibel/api/docs/${docId}/replace`, {
-      method: "POST",
-      body: moved,
-    });
-    expect(await res.json()).toMatchObject({ updatedIds: [id] });
-    const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
-      .structuredContent;
-    expect(nodes[0]).toMatchObject({ x: 40, src });
-
+  it("opens an Image's .zibel.json export with its file, and refuses a file under another id", async () => {
+    const { docId, src } = await withImage();
     const json = (await call("zibel_export", { docId, format: "zibel_json" })).content[0].text;
     const opened = (await call("zibel_doc_open", { content: json })).structuredContent;
     const served = await get(`/api/docs/${opened.docId}/images/${src}`);
@@ -471,19 +440,20 @@ describe("images through the Worker", () => {
     });
   });
 
-  it("stores a file the designer relinked in the editor when Replace brings it back", async () => {
+  it("stores a file the designer relinked in the editor when Open brings the SVG back", async () => {
     const { docId, id } = await withImage();
     const svg = (await call("zibel_export", { docId, format: "svg" })).content[0].text as string;
-    const res = await exports.default.fetch(`http://zibel/api/docs/${docId}/replace`, {
+    const res = await exports.default.fetch("http://zibel/api/docs", {
       method: "POST",
       body: svg.replace(RED_2x2_PNG, BLUE_1x1_PNG),
     });
-    expect(await res.json()).toMatchObject({ updatedIds: [id] });
+    const opened = (await res.json()) as { docId: string };
     const blue = await imageId(readImage(BLUE_1x1_PNG, "src").bytes);
-    const { nodes } = (await call("zibel_node_get", { docId, nodeIds: [id], detail: "full" }))
-      .structuredContent;
+    const { nodes } = (
+      await call("zibel_node_get", { docId: opened.docId, nodeIds: [id], detail: "full" })
+    ).structuredContent;
     expect(nodes[0]).toMatchObject({ src: blue });
-    const served = await get(`/api/docs/${docId}/images/${blue}`);
+    const served = await get(`/api/docs/${opened.docId}/images/${blue}`);
     expect(served.status).toBe(200);
     expect(served.headers.get("content-type")).toBe("image/png");
     await served.body?.cancel();

@@ -158,23 +158,6 @@ describe("write tools pass the write and its options apart", () => {
     expect(service.releaseMask).toHaveBeenCalledWith("d", ["g"], write);
   });
 
-  it("doc_replace: content, baseRev, ifRev and intent; no txId or partial", async () => {
-    const { service, call } = await harness({ replace: async () => receipt });
-    await call("zibel_doc_replace", {
-      docId: "d",
-      content: "<svg/>",
-      baseRev: 3,
-      ifRev: 4,
-      intent: "i",
-    });
-    expect(service.replace).toHaveBeenCalledWith("d", {
-      content: "<svg/>",
-      baseRev: 3,
-      ifRev: 4,
-      intent: "i",
-    });
-  });
-
   it("svg_import: fit defaults to false; no name or partial", async () => {
     const placed = { ...receipt, nodes: [] };
     const { service, call } = await harness({ place: async () => placed });
@@ -522,7 +505,6 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     "zibel_doc_list",
     "zibel_doc_open",
     "zibel_doc_outline",
-    "zibel_doc_replace",
     "zibel_export",
     "zibel_image_place",
     "zibel_mask_make",
@@ -556,10 +538,6 @@ it("publishes every tool with its annotations, input keys, outputSchema and desc
     );
   }
   expect(inputKeys("zibel_doc_create")).toContain("intent");
-  expect(inputKeys("zibel_doc_replace").sort()).toEqual(
-    ["baseRev", "content", "docId", "ifRev", "intent"].sort(),
-  );
-  expect(byName.zibel_doc_replace?.annotations).toMatchObject({ destructiveHint: true });
   expect(inputKeys("zibel_svg_import").sort()).toEqual(
     ["docId", "fit", "ifRev", "intent", "parentId", "position", "svg", "txId"].sort(),
   );

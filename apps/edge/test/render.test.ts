@@ -159,7 +159,7 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
   expect(result.content).toHaveLength(1);
   expect(result.content[0].type).toBe("text");
   const svg: string = result.content[0].text;
-  expect(svg).toContain(`zibel:doc="${docId}" zibel:rev="1" zibel:scope="doc"`);
+  expect(svg).toContain('viewBox="0 0 300 200" zibel:scope="doc"');
   // Each mapping of ADR-0017, by the fixture's fixed ids.
   const z = (id: string) => `id="z-01M38T29${id}"`;
   for (const part of [
@@ -206,9 +206,7 @@ it("exports the fixture Document as Inkscape SVG that matches the stored file", 
   ]) {
     expect(svg).toContain(part);
   }
-  await expect(svg.replace(docId, "DOC")).toMatchFileSnapshot(
-    "../../../fixtures/documents/inkscape.svg",
-  );
+  await expect(svg).toMatchFileSnapshot("../../../fixtures/documents/inkscape.svg");
   // resvg in the Worker draws the same file, namespaces and all, over every Artboard.
   expect(await render({ docId })).toEqual({
     docRect: { x: 0, y: 0, width: 1220, height: 200 },
