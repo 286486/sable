@@ -447,6 +447,11 @@ it("keeps the latest 200 Transactions on the undo stack", async () => {
   for (let i = 0; i < 201; i++) {
     ok(await stub("u3").transformNodes({ nodeIds: [id], translate: { x: 1 } }, "agent-a"));
   }
+  // The create and the first move fell off the stack, and their deltas with them.
+  const oldest = await runInDurableObject(doc, (_, state) =>
+    state.storage.sql.exec<{ rev: number }>("SELECT MIN(rev) AS rev FROM tx_delta").one(),
+  );
+  expect(oldest.rev).toBe(4);
   for (let i = 0; i < 200; i++) ok(await stub("u3").undo("user"));
   expect(await stub("u3").undo("user")).toMatchObject({ error: { code: "NOTHING_TO_UNDO" } });
   // The create and the first move fell off the stack.

@@ -935,7 +935,7 @@ export class DocumentObject extends DurableObject<Env> {
    * Records the edit in the overlay. `base` is taken from the committed Node on first touch only.
    * Call inside transactionSync.
    */
-  private stage(txId: string, rev: number, change: Required<Omit<Change, "artboards">>) {
+  private stage(txId: string, rev: number, change: Required<Change>) {
     const upsert = (id: string, working: string | null) =>
       this.sql.exec(
         `INSERT INTO tx_nodes (tx_id, node_id, base, working)
@@ -1038,7 +1038,7 @@ export class DocumentObject extends DurableObject<Env> {
     }
     for (const id of deletedIds) this.sql.exec("DELETE FROM nodes WHERE id = ?", id);
     const ids = (nodes: Node[]) => JSON.stringify(nodes.map((n) => n.id));
-    // Columns named: a Document made while the Delta Log kept 30 days has an unused `at` column.
+    // Columns named: a Document made while the Delta Log kept 30 days has an unused `at` column and index.
     this.sql.exec(
       `INSERT INTO tx_log (rev, tx_id, actor, summary, created_ids, updated_ids, deleted_ids, intent)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
