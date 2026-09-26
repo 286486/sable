@@ -4,7 +4,7 @@ import { svgToPng } from "@zibel/render";
 import type { DocumentService } from "@zibel/sync";
 import { fetchImage } from "./fetch-image.ts";
 
-/** A file for Open, Replace or Place, its images named by their hash (ADR-0023). */
+/** A file for Open or Place, its images named by their hash (ADR-0023). */
 const read = (content: string, opts: { name?: string } = {}) =>
   resolveImages(parseFile(content, opts));
 
@@ -31,8 +31,6 @@ export function documentService(env: Env, actor: string): DocumentService {
       await index(docId, file.name);
       return { ...opened, warnings };
     },
-    replace: async (docId, { content, baseRev, ifRev, intent }) =>
-      unwrap(await doc(docId).replace(await read(content), actor, { baseRev, ifRev, intent })),
     place: async (docId, { svg, name, ...opts }) => {
       let file: ReturnType<typeof parseFile>;
       try {

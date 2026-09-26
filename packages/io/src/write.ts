@@ -171,8 +171,6 @@ export function toSvg(doc: Document, rect?: Rect, opts: SvgOptions = {}): string
     width: `${width}pt`,
     height: `${height}pt`,
     viewBox: `${x} ${y} ${width} ${height}`,
-    [zibel("doc")]: doc.id,
-    [zibel("rev")]: doc.rev,
     [zibel("scope")]: scopeAttr(scope),
     // Inkscape shows it as the file name, and import reads the Document name back from it.
     "sodipodi:docname": `${doc.name}.svg`,

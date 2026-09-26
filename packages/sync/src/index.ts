@@ -90,14 +90,6 @@ export interface DocumentService {
   /** `name` is the file's name, for an SVG that names no Document. */
   open(input: { content: string; name?: string; intent?: string }): Promise<OpenedDocument>;
   /**
-   * Replace (ADR-0017): merges a file exported from `docId`, SVG or `.zibel.json`, back into it
-   * as one Transaction. `baseRev` is the rev it was exported at, default the SVG's `zibel:rev`.
-   */
-  replace(
-    docId: string,
-    input: { content: string; baseRev?: number; ifRev?: number; intent?: string },
-  ): Promise<WriteReceipt>;
-  /**
    * Place (ADR-0017): an SVG as one new Group under `parentId`, every id new, centred on
    * `position` (default the parent's Artboard) after `fit` scales it to that Artboard. `name` is
    * the file's name. `nodes` is the Group's outline to depth 2.

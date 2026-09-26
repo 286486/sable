@@ -414,7 +414,7 @@ describe("tracking and Character Ranges (ADR-0029)", () => {
   });
 });
 
-it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape page", () => {
+it("writes the root in pt with its scope, and each Artboard as an Inkscape page", () => {
   const { doc } = createDocument({
     id: "d",
     name: "Doc",
@@ -423,7 +423,6 @@ it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape p
       { name: "Card & back", x: 300, y: 0, width: 50, height: 50, background: "#FFEEDD" },
     ],
   });
-  doc.rev = 7;
   const [one, two] = doc.artboards;
   if (!one || !two) throw new Error("setup");
   const svg = toSvg(doc);
@@ -431,7 +430,7 @@ it("writes the root in pt with the Zibel ids, and each Artboard as an Inkscape p
     new RegExp(
       '^<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" ' +
         'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:zibel="https://zibel.dev/ns/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ' +
-        'width="200pt" height="100pt" viewBox="0 0 200 100" zibel:doc="d" zibel:rev="7" zibel:scope="doc" sodipodi:docname="Doc.svg">' +
+        'width="200pt" height="100pt" viewBox="0 0 200 100" zibel:scope="doc" sodipodi:docname="Doc.svg">' +
         '<sodipodi:namedview inkscape:document-units="pt">' +
         `<inkscape:page x="0" y="0" width="200" height="100" id="z-${one.id}" inkscape:label="Artboard 1"/>` +
         `<inkscape:page x="300" y="0" width="50" height="50" id="z-${two.id}" inkscape:label="Card &amp; back"/>` +

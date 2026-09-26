@@ -1011,15 +1011,6 @@ it("ignores an unreadable transform and drops an element scaled to nothing", () 
   expect(file.warnings.map((w) => w.code)).toEqual(["INVALID_TRANSFORM", "INVALID_TRANSFORM"]);
 });
 
-it("reads where a Zibel export came from: zibel:doc, zibel:rev and zibel:scope", () => {
-  const origin = (attrs: string) => parseFile(svg(`viewBox="0 0 10 10" ${attrs}`)).origin;
-  expect(origin('zibel:doc="D" zibel:rev="7" zibel:scope="doc"')).toEqual({ docId: "D", rev: 7 });
-  // Each scope toSvg writes comes back: dialect.test.ts.
-  // A rev that is not a whole number gives no base to merge from.
-  expect(origin('zibel:doc="D" zibel:rev="x"')).toEqual({ docId: "D" });
-  expect(origin("")).toBeUndefined();
-});
-
 describe("Clipping Masks (ADR-0021)", () => {
   const G = "z-01J00000000000000000000G01";
   const C = "z-01J00000000000000000000C01";
@@ -1121,8 +1112,7 @@ describe("Clipping Masks (ADR-0021)", () => {
 
 describe("<image>", () => {
   const XLINK = 'xmlns:xlink="http://www.w3.org/1999/xlink"';
-  const open = (body: string, known?: (url: string) => string | undefined) =>
-    parseSvg(svg(`width="100" height="100" ${XLINK}`, body), undefined, { known });
+  const open = (body: string) => parseSvg(svg(`width="100" height="100" ${XLINK}`, body));
   const images = (file: ReturnType<typeof parseSvg>) =>
     file.nodes.filter((n): n is ImageNode => n.type === "image");
 
@@ -1171,15 +1161,11 @@ describe("<image>", () => {
     });
   });
 
-  it("gives two copies of one file one key, and a known file its id", () => {
+  it("gives two copies of one file one key", () => {
     const body = `<image href="${RED_2x2_PNG}"/><image x="5" href="${RED_2x2_PNG}"/>`;
     const file = open(body);
     expect(images(file).map((n) => n.src)).toEqual(["pending:0", "pending:0"]);
     expect([...file.images.keys()]).toEqual(["pending:0"]);
-    const id = "a".repeat(64);
-    const known = open(body, (url) => (url === RED_2x2_PNG ? id : undefined));
-    expect(images(known).map((n) => n.src)).toEqual([id, id]);
-    expect([...known.images.keys()]).toEqual([id]);
   });
 
   it.each([
