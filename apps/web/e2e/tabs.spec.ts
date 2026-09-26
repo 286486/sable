@@ -12,9 +12,15 @@ test("Documents open in tabs that switch in place, close, and come back on reloa
 }) => {
   const create = async (name: string) =>
     (await call(request, "zibel_doc_create", { name, artboards: [{ width: 200, height: 100 }] }))
-      .structuredContent.docId as string;
-  const a = await create("Tab A");
-  const b = await create("Tab B");
+      .structuredContent as { docId: string; defaultLayerId: string };
+  const { docId: a, defaultLayerId } = await create("Tab A");
+  await call(request, "zibel_node_create", {
+    docId: a,
+    nodes: [
+      { type: "rect", parentId: defaultLayerId, name: "Box", x: 0, y: 0, width: 10, height: 10 },
+    ],
+  });
+  const { docId: b } = await create("Tab B");
 
   await page.goto(`/docs/${a}`);
   await expect(tabs(page)).toHaveText(["Tab A"]);
@@ -26,16 +32,20 @@ test("Documents open in tabs that switch in place, close, and come back on reloa
   await expect(page.locator("body")).toContainText(/\d+%/);
   const fitted = await zoom(page);
 
-  // Tab A keeps its viewport while Tab B is shown.
+  // Tab A keeps its viewport and Selection while Tab B is shown.
   await page.getByRole("tab", { name: "Tab A" }).click();
   await expect(page).toHaveURL(`/docs/${a}`);
   await expect(page.locator("body")).toContainText(/\d+%/);
   await page.keyboard.press("Control+1");
   await expect(page.locator("body")).toContainText("100%");
+  const box = page.getByRole("button", { name: "Box", exact: true });
+  await box.click();
+  await expect(box).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("tab", { name: "Tab B" }).click();
   await expect(page.locator("body")).toContainText(`${fitted}%`);
   await page.getByRole("tab", { name: "Tab A" }).click();
   await expect(page.locator("body")).toContainText("100%");
+  await expect(box).toHaveAttribute("aria-pressed", "true");
 
   // Open file… makes a new Document in a new, active tab.
   await page.locator('input[type="file"]').evaluate((input: HTMLInputElement, text) => {

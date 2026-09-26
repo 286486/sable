@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "./store.ts";
 import { closeTab, go, loadTabs, OPENABLE, openable, openFile, saveTabs, withTab } from "./tabs.ts";
 
 /**
- * Illustrator's document tabs (F-VIEW-09): the Document list, one tab per open Document, and Open
+ * Document Tabs, as Illustrator's (F-VIEW-09): the Document list, one tab per open Document, and Open
  * file, which also takes an .svg or .zibel.json dropped on the bar. `docId` is the active tab.
  */
 export function Tabs({ docId }: { docId: string }) {
   const [tabs, setTabs] = useState(() => withTab(loadTabs(), docId));
   const [names, setNames] = useState<Map<string, string> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
   // The store holds the last tab's Document until this one's arrives.
   const activeName = useStore((s) => (s.doc?.id === docId ? s.doc.name : undefined));
 
@@ -17,7 +18,8 @@ export function Tabs({ docId }: { docId: string }) {
   useEffect(() => saveTabs(tabs), [tabs]);
 
   // Names come from the Document list, which is also how a tab whose Document is gone drops.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetched per tab shown, so a new Document has its name
+  // The shown one stays: it is the URL, and its Viewer is up.
+  // ponytail: the whole list per tab shown; fetch only the tabs' names once the list is long.
   useEffect(() => {
     let stale = false;
     fetch("/api/docs")
@@ -26,7 +28,7 @@ export function Tabs({ docId }: { docId: string }) {
         if (stale) return;
         const found = new Map(documents.map((d) => [d.docId, d.name]));
         setNames(found);
-        setTabs((t) => t.filter((id) => found.has(id)));
+        setTabs((t) => t.filter((id) => id === docId || found.has(id)));
       })
       .catch((e: unknown) => console.warn("Could not load the Document list for the tabs.", e));
     return () => {
@@ -53,7 +55,7 @@ export function Tabs({ docId }: { docId: string }) {
     const { tabs: rest, next } = closeTab(tabs, id, docId);
     setTabs(rest);
     if (!next) location.assign("/");
-    else if (next !== docId) go(next);
+    else if (next !== docId) go(next, true);
   };
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
@@ -118,19 +120,20 @@ export function Tabs({ docId }: { docId: string }) {
           </div>
         );
       })}
-      <label style={{ alignSelf: "center", padding: "0 12px", cursor: "pointer" }}>
+      <button type="button" style={plain} onClick={() => picker.current?.click()}>
         Open file…
-        <input
-          type="file"
-          accept={OPENABLE}
-          hidden
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            if (file) open(file);
-          }}
-        />
-      </label>
+      </button>
+      <input
+        ref={picker}
+        type="file"
+        accept={OPENABLE}
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) open(file);
+        }}
+      />
       {message && (
         <span role="status" style={{ alignSelf: "center", color: "#B00020" }}>
           {message}

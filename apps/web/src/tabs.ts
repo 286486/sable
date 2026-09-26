@@ -31,9 +31,12 @@ export function closeTab(tabs: string[], docId: string, active: string) {
   return { tabs: rest, next };
 }
 
-/** Shows `/docs/<docId>` in this page, so the other tabs keep their view (main.tsx follows it). */
-export function go(docId: string) {
-  history.pushState(null, "", `/docs/${docId}`);
+/**
+ * Shows `/docs/<docId>` in this page, so the other tabs keep their view (main.tsx follows it).
+ * `replace` for a tab shown because the active one closed, so Back does not reopen it.
+ */
+export function go(docId: string, replace = false) {
+  history[replace ? "replaceState" : "pushState"](null, "", `/docs/${docId}`);
   dispatchEvent(new PopStateEvent("popstate"));
 }
 

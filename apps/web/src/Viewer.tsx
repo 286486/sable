@@ -164,7 +164,8 @@ export function Viewer({ docId }: { docId: string }) {
   useEffect(() => {
     const el = canvas.current;
     const ctx = el?.getContext("2d");
-    if (!el || !ctx || !doc || !viewport) return;
+    // On a tab switch the store holds the last tab's Document until connect clears it.
+    if (!el || !ctx || doc?.id !== docId || !viewport) return;
     const dpr = devicePixelRatio;
     el.width = Math.round(size.width * dpr);
     el.height = Math.round(size.height * dpr);
@@ -197,7 +198,7 @@ export function Viewer({ docId }: { docId: string }) {
       ctx.strokeRect(mx, my, width, height);
       ctx.setLineDash([]);
     }
-  }, [doc, viewport, size, selection, drag, marqueeRect, fontReady, images, imagesLoaded]);
+  }, [doc, docId, viewport, size, selection, drag, marqueeRect, fontReady, images, imagesLoaded]);
 
   // Ctrl+wheel (and trackpad pinch) zooms at the cursor; plain wheel and two-finger scroll pan.
   // A native listener, because React's onWheel is passive and cannot preventDefault.
